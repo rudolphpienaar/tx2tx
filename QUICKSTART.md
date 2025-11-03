@@ -35,10 +35,10 @@ Test that all components work on one display:
 cd ~/src/tx2tx
 
 # Terminal 1: Start server
-PYTHONPATH=src python -m tx2tx.server.main --config config.yml
+tx2tx --server
 
 # Terminal 2: Start client (different terminal)
-PYTHONPATH=src python -m tx2tx.client.main --server localhost:24800
+tx2tx --client localhost:24800
 ```
 
 **What to observe:**
@@ -60,7 +60,7 @@ ip addr show wlan0 | grep "inet "
 # Example output: inet 192.168.1.100/24
 
 # Start server
-PYTHONPATH=src python -m tx2tx.server.main --config config.yml
+tx2tx --server
 ```
 
 **On Device 2 (Client):**
@@ -68,7 +68,7 @@ PYTHONPATH=src python -m tx2tx.server.main --config config.yml
 cd ~/src/tx2tx
 
 # Connect to server (replace with actual IP)
-PYTHONPATH=src python -m tx2tx.client.main --server 192.168.1.100:24800
+tx2tx --client 192.168.1.100:24800
 ```
 
 **Test the connection:**
@@ -132,7 +132,7 @@ logging:
 **"Address already in use"**
 ```bash
 # Use a different port
-PYTHONPATH=src python -m tx2tx.server.main --port 25000
+tx2tx --server --port 25000
 ```
 
 **"XTest extension not available"**

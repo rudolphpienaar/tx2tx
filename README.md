@@ -43,20 +43,18 @@ Barrier and Synergy don't work in termux-x11 due to Android sandboxing blocking 
 ```bash
 git clone https://github.com/rudolphpienaar/tx2tx.git
 cd tx2tx
-pip install -r requirements.txt
+pip install -e .
 ```
 
 ### Device 1: Run as Server
 
 ```bash
-cd ~/tx2tx
-
 # Find your IP address (note the inet address)
 ip addr show wlan0 | grep "inet "
 # Example output: inet 192.168.1.100/24
 
 # Start the server
-PYTHONPATH=src python -m tx2tx.server.main --config config.yml
+tx2tx --server
 ```
 
 You should see:
@@ -70,10 +68,8 @@ INFO - Server running. Press Ctrl+C to stop.
 ### Device 2: Run as Client
 
 ```bash
-cd ~/tx2tx
-
 # Connect to server (replace with Device 1's IP from above)
-PYTHONPATH=src python -m tx2tx.client.main --server 192.168.1.100:24800
+tx2tx --client 192.168.1.100:24800
 ```
 
 You should see:
