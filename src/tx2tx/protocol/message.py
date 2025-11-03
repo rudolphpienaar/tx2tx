@@ -1,0 +1,199 @@
+"""Network protocol messages for tx2tx communication"""
+
+import json
+from dataclasses import asdict, dataclass
+from enum import Enum
+from typing import Any, Dict, Optional, Union
+
+from tx2tx.common.types import (
+    Direction,
+    EventType,
+    KeyEvent,
+    MouseEvent,
+    Position,
+    ScreenTransition,
+)
+
+
+class MessageType(Enum):
+    """Types of protocol messages"""
+    HELLO = "hello"
+    SCREEN_INFO = "screen_info"
+    SCREEN_ENTER = "screen_enter"
+    SCREEN_LEAVE = "screen_leave"
+    MOUSE_EVENT = "mouse_event"
+    KEY_EVENT = "key_event"
+    KEEPALIVE = "keepalive"
+    ERROR = "error"
+
+
+@dataclass
+class Message:
+    """Base protocol message"""
+    msg_type: MessageType
+    payload: Dict[str, Any]
+
+    def json_serialize(self) -> str:
+        """
+        Serialize message to JSON string
+
+        Returns:
+            JSON string representation
+        """
+        data = {
+            "msg_type": self.msg_type.value,
+            "payload": self.payload
+        }
+        return json.dumps(data)
+
+    @staticmethod
+    def json_deserialize(data: str) -> "Message":
+        """
+        Deserialize message from JSON string
+
+        Args:
+            data: JSON string
+
+        Returns:
+            Deserialized Message object
+        """
+        parsed = json.loads(data)
+        msg_type = MessageType(parsed["msg_type"])
+        payload = parsed["payload"]
+        return Message(msg_type=msg_type, payload=payload)
+
+
+class MessageBuilder:
+    """Builds protocol messages from events and data"""
+
+    @staticmethod
+    def helloMessage_create(version: str = "0.1.0") -> Message:
+        """Create hello/handshake message"""
+        return Message(
+            msg_type=MessageType.HELLO,
+            payload={"version": version}
+        )
+
+    @staticmethod
+    def screenInfoMessage_create(width: int, height: int) -> Message:
+        """Create screen info message"""
+        return Message(
+            msg_type=MessageType.SCREEN_INFO,
+            payload={"width": width, "height": height}
+        )
+
+    @staticmethod
+    def screenEnterMessage_create(transition: ScreenTransition) -> Message:
+        """Create screen enter message"""
+        return Message(
+            msg_type=MessageType.SCREEN_ENTER,
+            payload={
+                "direction": transition.direction.value,
+                "x": transition.position.x,
+                "y": transition.position.y
+            }
+        )
+
+    @staticmethod
+    def screenLeaveMessage_create(transition: ScreenTransition) -> Message:
+        """Create screen leave message"""
+        return Message(
+            msg_type=MessageType.SCREEN_LEAVE,
+            payload={
+                "direction": transition.direction.value,
+                "x": transition.position.x,
+                "y": transition.position.y
+            }
+        )
+
+    @staticmethod
+    def mouseEventMessage_create(event: MouseEvent) -> Message:
+        """Create mouse event message"""
+        payload: Dict[str, Any] = {
+            "event_type": event.event_type.value,
+            "x": event.position.x,
+            "y": event.position.y
+        }
+        if event.button is not None:
+            payload["button"] = event.button
+
+        return Message(msg_type=MessageType.MOUSE_EVENT, payload=payload)
+
+    @staticmethod
+    def keyEventMessage_create(event: KeyEvent) -> Message:
+        """Create keyboard event message"""
+        payload: Dict[str, Any] = {
+            "event_type": event.event_type.value,
+            "keycode": event.keycode
+        }
+        if event.keysym is not None:
+            payload["keysym"] = event.keysym
+
+        return Message(msg_type=MessageType.KEY_EVENT, payload=payload)
+
+    @staticmethod
+    def keepaliveMessage_create() -> Message:
+        """Create keepalive message"""
+        return Message(msg_type=MessageType.KEEPALIVE, payload={})
+
+    @staticmethod
+    def errorMessage_create(error: str) -> Message:
+        """Create error message"""
+        return Message(msg_type=MessageType.ERROR, payload={"error": error})
+
+
+class MessageParser:
+    """Parses protocol messages into events and data"""
+
+    @staticmethod
+    def mouseEvent_parse(msg: Message) -> MouseEvent:
+        """
+        Parse mouse event from message
+
+        Args:
+            msg: Protocol message
+
+        Returns:
+            MouseEvent object
+        """
+        payload = msg.payload
+        return MouseEvent(
+            event_type=EventType(payload["event_type"]),
+            position=Position(x=payload["x"], y=payload["y"]),
+            button=payload.get("button")
+        )
+
+    @staticmethod
+    def keyEvent_parse(msg: Message) -> KeyEvent:
+        """
+        Parse key event from message
+
+        Args:
+            msg: Protocol message
+
+        Returns:
+            KeyEvent object
+        """
+        payload = msg.payload
+        return KeyEvent(
+            event_type=EventType(payload["event_type"]),
+            keycode=payload["keycode"],
+            keysym=payload.get("keysym")
+        )
+
+    @staticmethod
+    def screenTransition_parse(msg: Message) -> ScreenTransition:
+        """
+        Parse screen transition from message
+
+        Args:
+            msg: Protocol message
+
+        Returns:
+            ScreenTransition object
+        """
+        payload = msg.payload
+        return ScreenTransition(
+            direction=Direction(payload["direction"]),
+            position=Position(x=payload["x"], y=payload["y"])
+        )

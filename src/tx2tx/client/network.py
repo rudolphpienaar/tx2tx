@@ -1,0 +1,203 @@
+"""TCP client for tx2tx event reception"""
+
+import logging
+import select
+import socket
+import time
+from typing import Callable, List, Optional
+
+from tx2tx.protocol.message import Message, MessageBuilder
+
+logger = logging.getLogger(__name__)
+
+
+class ClientNetwork:
+    """TCP client for connecting to tx2tx server"""
+
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        reconnect_enabled: bool = True,
+        reconnect_max_attempts: int = 5,
+        reconnect_delay: float = 2.0
+    ) -> None:
+        """
+        Initialize client network
+
+        Args:
+            host: Server host address
+            port: Server port
+            reconnect_enabled: Enable automatic reconnection
+            reconnect_max_attempts: Maximum reconnection attempts
+            reconnect_delay: Delay between reconnection attempts (seconds)
+        """
+        self.host: str = host
+        self.port: int = port
+        self.reconnect_enabled: bool = reconnect_enabled
+        self.reconnect_max_attempts: int = reconnect_max_attempts
+        self.reconnect_delay: float = reconnect_delay
+
+        self.socket: Optional[socket.socket] = None
+        self.buffer: str = ""
+        self.is_connected: bool = False
+        self.reconnect_attempts: int = 0
+
+    def connection_establish(self) -> None:
+        """
+        Connect to server
+
+        Raises:
+            ConnectionError: If unable to connect after max attempts
+        """
+        while self.reconnect_attempts < self.reconnect_max_attempts:
+            try:
+                self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.socket.connect((self.host, self.port))
+                self.socket.setblocking(False)
+                self.is_connected = True
+                self.reconnect_attempts = 0
+
+                logger.info(f"Connected to server {self.host}:{self.port}")
+
+                # Send hello message
+                hello_msg = MessageBuilder.helloMessage_create()
+                self.message_send(hello_msg)
+
+                return
+
+            except (socket.error, OSError) as e:
+                self.reconnect_attempts += 1
+                logger.warning(
+                    f"Connection attempt {self.reconnect_attempts}/{self.reconnect_max_attempts} "
+                    f"failed: {e}"
+                )
+
+                if self.socket:
+                    try:
+                        self.socket.close()
+                    except:
+                        pass
+                    self.socket = None
+
+                if self.reconnect_attempts < self.reconnect_max_attempts:
+                    if self.reconnect_enabled:
+                        time.sleep(self.reconnect_delay)
+                    else:
+                        break
+
+        raise ConnectionError(
+            f"Failed to connect to {self.host}:{self.port} after "
+            f"{self.reconnect_max_attempts} attempts"
+        )
+
+    def connection_close(self) -> None:
+        """Close connection to server"""
+        self.is_connected = False
+
+        if self.socket:
+            try:
+                self.socket.close()
+            except Exception as e:
+                logger.error(f"Error closing socket: {e}")
+            finally:
+                self.socket = None
+
+        logger.info("Connection closed")
+
+    def message_send(self, message: Message) -> None:
+        """
+        Send message to server
+
+        Args:
+            message: Message to send
+
+        Raises:
+            ConnectionError: If not connected or send fails
+        """
+        if not self.is_connected or not self.socket:
+            raise ConnectionError("Not connected to server")
+
+        try:
+            data = message.json_serialize() + "\n"
+            self.socket.sendall(data.encode("utf-8"))
+            logger.debug(f"Sent to server: {message.msg_type.value}")
+
+        except (socket.error, OSError) as e:
+            self.is_connected = False
+            raise ConnectionError(f"Failed to send message: {e}")
+
+    def messages_receive(self) -> List[Message]:
+        """
+        Receive messages from server (non-blocking)
+
+        Returns:
+            List of complete messages received
+
+        Raises:
+            ConnectionError: If connection is closed or error occurs
+        """
+        if not self.is_connected or not self.socket:
+            raise ConnectionError("Not connected to server")
+
+        # Check if data is available
+        try:
+            readable, _, _ = select.select([self.socket], [], [], 0)
+            if not readable:
+                return []
+
+            data = self.socket.recv(4096)
+            if not data:
+                self.is_connected = False
+                raise ConnectionError("Connection closed by server")
+
+            self.buffer += data.decode("utf-8")
+
+            # Parse complete messages (newline-delimited)
+            messages: List[Message] = []
+            while "\n" in self.buffer:
+                line, self.buffer = self.buffer.split("\n", 1)
+                if line.strip():
+                    try:
+                        msg = Message.json_deserialize(line)
+                        messages.append(msg)
+                        logger.debug(f"Received from server: {msg.msg_type.value}")
+                    except Exception as e:
+                        logger.error(f"Failed to parse message: {e}")
+
+            return messages
+
+        except (socket.error, UnicodeDecodeError) as e:
+            self.is_connected = False
+            raise ConnectionError(f"Socket error: {e}")
+
+    def reconnection_attempt(self) -> bool:
+        """
+        Attempt to reconnect to server
+
+        Returns:
+            True if reconnection successful, False otherwise
+        """
+        if not self.reconnect_enabled:
+            return False
+
+        logger.info("Attempting to reconnect...")
+
+        self.connection_close()
+        self.reconnect_attempts = 0
+
+        try:
+            self.connection_establish()
+            return True
+        except ConnectionError as e:
+            logger.error(f"Reconnection failed: {e}")
+            return False
+
+    def connectionStatus_check(self) -> bool:
+        """
+        Check if connected to server
+
+        Returns:
+            True if connected, False otherwise
+        """
+        return self.is_connected

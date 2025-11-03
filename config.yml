@@ -1,0 +1,57 @@
+# tx2tx configuration file
+
+# Server configuration
+server:
+  # Host address to bind to
+  host: "0.0.0.0"
+
+  # Port to listen on
+  port: 24800
+
+  # X11 display name (null for default $DISPLAY)
+  display: null
+
+  # Distance from edge (in pixels) to trigger screen transition
+  edge_threshold: 0
+
+  # Polling interval in milliseconds
+  poll_interval_ms: 20
+
+  # Maximum number of concurrent clients
+  max_clients: 1
+
+# Client configuration
+client:
+  # Server address to connect to (host:port format)
+  server_address: "localhost:24800"
+
+  # X11 display name (null for default $DISPLAY)
+  display: null
+
+  # Reconnection settings
+  reconnect:
+    enabled: true
+    max_attempts: 5
+    delay_seconds: 2
+
+# Protocol settings
+protocol:
+  # Protocol version
+  version: "0.1.0"
+
+  # Message buffer size
+  buffer_size: 4096
+
+  # Keepalive interval in seconds (0 to disable)
+  keepalive_interval: 30
+
+# Logging configuration
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+
+  # Log to file (null for stdout only)
+  file: null
+
+  # Log format
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

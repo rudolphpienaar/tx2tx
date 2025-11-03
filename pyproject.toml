@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tx2tx"
+version = "0.1.0"
+description = "X11 KVM for termux-x11: seamless mouse/keyboard sharing between X11 desktops"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "tx2tx contributors"}
+]
+keywords = ["x11", "kvm", "termux", "synergy", "barrier", "input-sharing"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: System :: Hardware",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "python-xlib>=0.33",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.0",
+    "black>=23.0",
+    "ruff>=0.1.0",
+    "pytest>=7.0",
+]
+
+[project.scripts]
+tx2tx-server = "tx2tx.server.main:main"
+tx2tx-client = "tx2tx.client.main:main"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/tx2tx"
+Repository = "https://github.com/yourusername/tx2tx"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+strict_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
