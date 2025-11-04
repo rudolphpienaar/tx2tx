@@ -13,15 +13,15 @@ logger = logging.getLogger(__name__)
 class ClientConnection:
     """Represents a connected client"""
 
-    def __init__(self, socket: socket.socket, address: tuple[str, int]) -> None:
+    def __init__(self, client_socket: socket.socket, address: tuple[str, int]) -> None:
         """
         Initialize client connection
 
         Args:
-            socket: Client socket
+            client_socket: Client socket
             address: Client address (host, port)
         """
-        self.socket: socket.socket = socket
+        self.socket: socket.socket = client_socket
         self.address: tuple[str, int] = address
         self.buffer: str = ""
 

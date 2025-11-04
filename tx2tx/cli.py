@@ -89,6 +89,9 @@ def main() -> NoReturn:
             # No --server: run as server
             from tx2tx.server.main import server_run
             server_run(args)
+        # Both client_run and server_run are NoReturn, so this is unreachable
+        # But we need explicit exit for mypy
+        sys.exit(0)
 
     except KeyboardInterrupt:
         print("\nShutting down...")
