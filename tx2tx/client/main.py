@@ -4,17 +4,26 @@ import argparse
 import logging
 import sys
 import time
+from enum import Enum
 from pathlib import Path
 from typing import NoReturn, Optional
 
 from tx2tx import __version__
 from tx2tx.client.network import ClientNetwork
 from tx2tx.common.config import ConfigLoader
-from tx2tx.protocol.message import Message, MessageParser, MessageType
+from tx2tx.common.types import Direction, ScreenGeometry, ScreenTransition
+from tx2tx.protocol.message import Message, MessageBuilder, MessageParser, MessageType
 from tx2tx.x11.display import DisplayManager
 from tx2tx.x11.injector import EventInjector
+from tx2tx.x11.pointer import PointerTracker
 
 logger = logging.getLogger(__name__)
+
+
+class ClientState(Enum):
+    """Client control state"""
+    PASSIVE = "passive"  # Server has control
+    ACTIVE = "active"  # Client has control
 
 
 def arguments_parse() -> argparse.Namespace:
@@ -104,13 +113,18 @@ def logging_setup(level: str, log_format: str, log_file: Optional[str]) -> None:
     )
 
 
-def serverMessage_handle(message: Message, injector: Optional[EventInjector] = None) -> None:
+def serverMessage_handle(
+    message: Message,
+    injector: Optional[EventInjector],
+    client_state_ref: list[ClientState]
+) -> None:
     """
     Handle message received from server
 
     Args:
         message: Received message
         injector: Optional event injector for handling input events
+        client_state_ref: Reference to client state (list with single element for mutability)
     """
     logger.info(f"Received {message.msg_type.value} from server")
 
@@ -126,7 +140,9 @@ def serverMessage_handle(message: Message, injector: Optional[EventInjector] = N
             f"Server lost control at {transition.direction.value} edge "
             f"({transition.position.x}, {transition.position.y})"
         )
-        # Client should now be receiving mouse events
+        # Switch to active mode - client should now receive mouse events
+        client_state_ref[0] = ClientState.ACTIVE
+        logger.info("Switched to ACTIVE mode")
 
     elif message.msg_type == MessageType.SCREEN_ENTER:
         transition = MessageParser.screenTransition_parse(message)
@@ -134,22 +150,26 @@ def serverMessage_handle(message: Message, injector: Optional[EventInjector] = N
             f"Server regained control at {transition.direction.value} edge "
             f"({transition.position.x}, {transition.position.y})"
         )
-        # Client should stop receiving mouse events
+        # Switch to passive mode - client should stop tracking
+        client_state_ref[0] = ClientState.PASSIVE
+        logger.info("Switched to PASSIVE mode")
 
     elif message.msg_type == MessageType.MOUSE_EVENT:
-        if injector:
+        # Only inject if in ACTIVE mode
+        if client_state_ref[0] == ClientState.ACTIVE and injector:
             mouse_event = MessageParser.mouseEvent_parse(message)
             injector.mouseEvent_inject(mouse_event)
             logger.debug(f"Injected mouse event: {mouse_event.event_type.value}")
-        else:
+        elif not injector:
             logger.warning("Received mouse event but injector not available")
 
     elif message.msg_type == MessageType.KEY_EVENT:
-        if injector:
+        # Only inject if in ACTIVE mode
+        if client_state_ref[0] == ClientState.ACTIVE and injector:
             key_event = MessageParser.keyEvent_parse(message)
             injector.keyEvent_inject(key_event)
             logger.debug(f"Injected key event: {key_event.event_type.value}")
-        else:
+        elif not injector:
             logger.warning("Received key event but injector not available")
 
     else:
@@ -215,6 +235,12 @@ def client_run(args: argparse.Namespace) -> None:
 
     logger.info("XTest extension verified, event injection ready")
 
+    # Initialize pointer tracker for boundary detection
+    pointer_tracker = PointerTracker(
+        display_manager=display_manager,
+        edge_threshold=0  # Detect at exact screen edge
+    )
+
     # Initialize network client
     network = ClientNetwork(
         host=host,
@@ -223,6 +249,9 @@ def client_run(args: argparse.Namespace) -> None:
         reconnect_max_attempts=config.client.reconnect.max_attempts,
         reconnect_delay=config.client.reconnect.delay_seconds
     )
+
+    # Client state (starts PASSIVE, server has control)
+    client_state_ref = [ClientState.PASSIVE]
 
     try:
         # Connect to server
@@ -237,9 +266,30 @@ def client_run(args: argparse.Namespace) -> None:
                 messages = network.messages_receive()
 
                 for message in messages:
-                    serverMessage_handle(message, event_injector)
+                    serverMessage_handle(message, event_injector, client_state_ref)
 
-                # TODO: Check for local events to send to server
+                # Check for boundary crossing when in ACTIVE mode
+                if client_state_ref[0] == ClientState.ACTIVE:
+                    position = pointer_tracker.position_query()
+                    transition = pointer_tracker.boundary_detect(position, screen_geometry)
+
+                    if transition:
+                        logger.info(
+                            f"Client boundary crossed: {transition.direction.value} at "
+                            f"({transition.position.x}, {transition.position.y})"
+                        )
+
+                        # Send SCREEN_ENTER message to server
+                        enter_msg = MessageBuilder.screenEnterMessage_create(transition)
+                        try:
+                            network.message_send(enter_msg)
+                            logger.info("Sent screen_enter to server")
+                        except Exception as e:
+                            logger.error(f"Failed to send screen_enter: {e}")
+
+                        # Switch to PASSIVE mode
+                        client_state_ref[0] = ClientState.PASSIVE
+                        logger.info("Switched to PASSIVE mode")
 
                 # Small sleep to prevent busy waiting
                 time.sleep(0.01)
