@@ -54,7 +54,7 @@ ip addr show wlan0 | grep "inet "
 # Example output: inet 192.168.1.100/24
 
 # Start the server
-tx2tx --server
+tx2tx
 ```
 
 You should see:
@@ -69,7 +69,7 @@ INFO - Server running. Press Ctrl+C to stop.
 
 ```bash
 # Connect to server (replace with Device 1's IP from above)
-tx2tx --client 192.168.1.100:24800
+tx2tx --server 192.168.1.100:24800
 ```
 
 You should see:

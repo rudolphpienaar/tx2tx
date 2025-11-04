@@ -26,7 +26,7 @@ This guide explains how to test tx2tx with two actual termux-x11 instances.
 
 4. Start the server:
    ```bash
-   PYTHONPATH=src python -m tx2tx.server.main --config config.yml
+   tx2tx
    ```
 
 5. You should see:
@@ -47,7 +47,7 @@ This guide explains how to test tx2tx with two actual termux-x11 instances.
 
 3. Connect to the server (replace with Device 1's IP):
    ```bash
-   PYTHONPATH=src python -m tx2tx.client.main --server 192.168.1.100:24800
+   tx2tx --server 192.168.1.100:24800
    ```
 
 4. You should see:
@@ -94,10 +94,10 @@ You can test on a single display to verify the components work:
 cd ~/src/tx2tx
 
 # Terminal 1: Start server
-PYTHONPATH=src python -m tx2tx.server.main --config config.yml
+tx2tx
 
 # Terminal 2: Start client (in another terminal session)
-PYTHONPATH=src python -m tx2tx.client.main --server localhost:24800
+tx2tx --server localhost:24800
 ```
 
 This proves:

@@ -46,7 +46,7 @@ Homepage = "https://github.com/yourusername/tx2tx"
 Repository = "https://github.com/yourusername/tx2tx"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
 
 [tool.black]
 line-length = 100

@@ -25,18 +25,14 @@ def arguments_parse() -> argparse.Namespace:
         version=f"tx2tx {__version__}"
     )
 
-    # Mode selection (mutually exclusive)
-    mode_group = parser.add_mutually_exclusive_group(required=True)
-    mode_group.add_argument(
+    # Mode selection: --server means client mode (connect to server)
+    # No --server means run as server
+    parser.add_argument(
         "--server",
-        action="store_true",
-        help="Run as server (captures and broadcasts events)"
-    )
-    mode_group.add_argument(
-        "--client",
         type=str,
         metavar="HOST:PORT",
-        help="Run as client, connecting to server (e.g., 192.168.1.100:24800)"
+        default=None,
+        help="Connect to server at HOST:PORT (client mode). If omitted, run as server."
     )
 
     # Common options
@@ -86,18 +82,13 @@ def main() -> NoReturn:
 
     try:
         if args.server:
-            # Import and run server
-            from tx2tx.server.main import server_run
-            server_run(args)
-        elif args.client:
-            # Import and run client
+            # --server specified: run as client, connecting to that server
             from tx2tx.client.main import client_run
-            # Rename client arg to server for compatibility with client_run
-            args.server = args.client
             client_run(args)
         else:
-            print("Error: Must specify --server or --client mode", file=sys.stderr)
-            sys.exit(1)
+            # No --server: run as server
+            from tx2tx.server.main import server_run
+            server_run(args)
 
     except KeyboardInterrupt:
         print("\nShutting down...")

@@ -35,10 +35,10 @@ Test that all components work on one display:
 cd ~/src/tx2tx
 
 # Terminal 1: Start server
-tx2tx --server
+tx2tx
 
 # Terminal 2: Start client (different terminal)
-tx2tx --client localhost:24800
+tx2tx --server localhost:24800
 ```
 
 **What to observe:**
@@ -60,7 +60,7 @@ ip addr show wlan0 | grep "inet "
 # Example output: inet 192.168.1.100/24
 
 # Start server
-tx2tx --server
+tx2tx
 ```
 
 **On Device 2 (Client):**
@@ -68,7 +68,7 @@ tx2tx --server
 cd ~/src/tx2tx
 
 # Connect to server (replace with actual IP)
-tx2tx --client 192.168.1.100:24800
+tx2tx --server 192.168.1.100:24800
 ```
 
 **Test the connection:**
@@ -132,7 +132,7 @@ logging:
 **"Address already in use"**
 ```bash
 # Use a different port
-tx2tx --server --port 25000
+tx2tx --port 25000
 ```
 
 **"XTest extension not available"**
