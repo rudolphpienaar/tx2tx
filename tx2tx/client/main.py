@@ -133,20 +133,22 @@ def serverMessage_handle(
     elif message.msg_type == MessageType.SCREEN_LEAVE:
         transition = MessageParser.screenTransition_parse(message)
         logger.info(
-            f"Server lost control, client entry at {transition.direction.value} edge "
-            f"({transition.position.x}, {transition.position.y})"
+            f"[SCREEN_LEAVE] Received from server: entry_edge={transition.direction.value} "
+            f"pos=({transition.position.x}, {transition.position.y})"
         )
 
         # Position cursor at entry point
         if display_manager:
             display_manager.cursorPosition_set(transition.position)
-            logger.info(f"Positioned cursor at entry point ({transition.position.x}, {transition.position.y})")
+            logger.info(
+                f"[CURSOR] Positioned cursor at client entry point ({transition.position.x}, {transition.position.y})"
+            )
 
         # Client should now be receiving mouse events and monitoring boundaries
         if monitoring_boundaries is not None and monitoring_start_time is not None:
             monitoring_boundaries[0] = True
             monitoring_start_time[0] = time.time()
-            logger.info("Client started monitoring boundaries for re-entry")
+            logger.info("[STATE] Client started monitoring boundaries for re-entry")
 
     elif message.msg_type == MessageType.SCREEN_ENTER:
         transition = MessageParser.screenTransition_parse(message)
@@ -303,7 +305,7 @@ def client_run(args: argparse.Namespace) -> None:
 
                         if transition:
                             logger.info(
-                                f"Client boundary crossed: {transition.direction.value} at "
+                                f"[BOUNDARY] Client boundary crossed: {transition.direction.value} at "
                                 f"({transition.position.x}, {transition.position.y})"
                             )
 
@@ -311,11 +313,11 @@ def client_run(args: argparse.Namespace) -> None:
                             from tx2tx.protocol.message import MessageBuilder
                             enter_msg = MessageBuilder.screenEnterMessage_create(transition)
                             network.message_send(enter_msg)
-                            logger.info("Sent screen_enter to server")
+                            logger.info("[NETWORK] Sent SCREEN_ENTER to server")
 
                             # Stop monitoring boundaries
                             monitoring_boundaries[0] = False
-                            logger.info("Client stopped monitoring boundaries")
+                            logger.info("[STATE] Client stopped monitoring boundaries")
 
                 # Small sleep to prevent busy waiting
                 time.sleep(0.01)

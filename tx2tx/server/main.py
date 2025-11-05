@@ -174,14 +174,17 @@ def clientMessage_handle(
 
             # Release cursor confinement
             display_manager.cursor_release()
-            logger.debug("Cursor released")
+            logger.info(f"[CURSOR] Released cursor confinement")
 
             # Position cursor at appropriate edge for smooth re-entry
             display_manager.cursorPosition_set(server_transition.position)
+            logger.info(
+                f"[CURSOR] Positioned at server re-entry point ({server_transition.position.x}, {server_transition.position.y})"
+            )
 
             # Switch back to local control
             control_state[0] = ControlState.LOCAL
-            logger.info("Switched to LOCAL control")
+            logger.info("[STATE] Switched to LOCAL control")
     else:
         logger.warning(f"Unexpected message type: {message.msg_type.value}")
 
@@ -295,7 +298,7 @@ def server_run(args: argparse.Namespace) -> None:
 
                         if transition:
                             logger.info(
-                                f"Boundary crossed: {transition.direction.value} at "
+                                f"[BOUNDARY] Server boundary crossed: {transition.direction.value} at "
                                 f"({transition.position.x}, {transition.position.y})"
                             )
 
@@ -315,10 +318,6 @@ def server_run(args: argparse.Namespace) -> None:
                                         server_geometry=screen_geometry,
                                         client_geometry=client_geometry
                                     )
-                                    logger.info(
-                                        f"Transformed to client: {client_transition.direction.value} at "
-                                        f"({client_transition.position.x}, {client_transition.position.y})"
-                                    )
                                     leave_msg = MessageBuilder.screenLeaveMessage_create(client_transition)
                                 else:
                                     logger.warning("Client screen geometry not available, using untransformed coordinates")
@@ -326,14 +325,17 @@ def server_run(args: argparse.Namespace) -> None:
 
                                 # Send screen leave message to all clients
                                 network.messageToAll_broadcast(leave_msg)
+                                logger.info(f"[NETWORK] Sent SCREEN_LEAVE to all clients")
 
                                 # Confine cursor at boundary to prevent visible movement
                                 display_manager.cursor_confine(transition.position)
-                                logger.debug("Cursor confined")
+                                logger.info(
+                                    f"[CURSOR] Confined cursor at ({transition.position.x}, {transition.position.y})"
+                                )
 
                                 # Switch to remote control
                                 control_state_ref[0] = ControlState.REMOTE
-                                logger.info("Switched to REMOTE control")
+                                logger.info("[STATE] Switched to REMOTE control")
 
                 elif control_state_ref[0] == ControlState.REMOTE:
                     # Send mouse movements to clients
