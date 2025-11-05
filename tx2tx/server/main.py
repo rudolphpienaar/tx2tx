@@ -328,6 +328,7 @@ def server_run(args: argparse.Namespace) -> None:
                     )
                     move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
                     network.messageToAll_broadcast(move_msg)
+                    logger.debug(f"Sent mouse_move: ({position.x}, {position.y})")
 
                     # Capture and send keyboard and mouse button events
                     try:
@@ -337,12 +338,15 @@ def server_run(args: argparse.Namespace) -> None:
                                 # Send mouse button events
                                 msg = MessageBuilder.mouseEventMessage_create(event)
                                 network.messageToAll_broadcast(msg)
-                                logger.debug(f"Sent mouse button event: {event.event_type.value}")
+                                logger.info(
+                                    f"Captured & sent {event.event_type.value}: "
+                                    f"pos=({event.position.x}, {event.position.y}), button={event.button}"
+                                )
                             else:
                                 # Send keyboard events
                                 msg = MessageBuilder.keyEventMessage_create(event)
                                 network.messageToAll_broadcast(msg)
-                                logger.debug(f"Sent key event: {event.event_type.value}")
+                                logger.info(f"Captured & sent {event.event_type.value}: keycode={event.keycode}")
                     except Exception as e:
                         logger.warning(f"Error capturing events: {e}")
 

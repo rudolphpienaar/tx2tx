@@ -158,8 +158,12 @@ def serverMessage_handle(
         # Always inject mouse events from server
         if injector:
             mouse_event = MessageParser.mouseEvent_parse(message)
+            logger.info(
+                f"Injecting {mouse_event.event_type.value}: "
+                f"pos=({mouse_event.position.x}, {mouse_event.position.y})"
+                f"{f', button={mouse_event.button}' if mouse_event.button else ''}"
+            )
             injector.mouseEvent_inject(mouse_event)
-            logger.debug(f"Injected mouse event: {mouse_event.event_type.value}")
         else:
             logger.warning("Received mouse event but injector not available")
 
@@ -167,8 +171,12 @@ def serverMessage_handle(
         # Always inject keyboard events from server
         if injector:
             key_event = MessageParser.keyEvent_parse(message)
+            logger.info(
+                f"Injecting {key_event.event_type.value}: "
+                f"keycode={key_event.keycode}"
+                f"{f', keysym={key_event.keysym}' if key_event.keysym else ''}"
+            )
             injector.keyEvent_inject(key_event)
-            logger.debug(f"Injected key event: {key_event.event_type.value}")
         else:
             logger.warning("Received key event but injector not available")
 
