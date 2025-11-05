@@ -10,6 +10,9 @@ from tx2tx.protocol.message import Message, MessageBuilder
 
 logger = logging.getLogger(__name__)
 
+# Maximum buffer size to prevent memory exhaustion (1MB)
+MAX_BUFFER_SIZE = 1024 * 1024
+
 
 class ClientNetwork:
     """TCP client for connecting to tx2tx server"""
@@ -158,7 +161,15 @@ class ClientNetwork:
                 self.is_connected = False
                 raise ConnectionError("Connection closed by server")
 
-            self.buffer += data.decode("utf-8")
+            decoded = data.decode("utf-8")
+
+            # Check buffer size to prevent memory exhaustion
+            if len(self.buffer) + len(decoded) > MAX_BUFFER_SIZE:
+                logger.error(f"Buffer overflow: buffer size would exceed {MAX_BUFFER_SIZE} bytes")
+                self.is_connected = False
+                raise ConnectionError("Buffer size limit exceeded")
+
+            self.buffer += decoded
 
             # Parse complete messages (newline-delimited)
             messages: List[Message] = []
