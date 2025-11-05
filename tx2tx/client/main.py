@@ -109,7 +109,8 @@ def serverMessage_handle(
     message: Message,
     injector: Optional[EventInjector] = None,
     monitoring_boundaries: Optional[list[bool]] = None,
-    monitoring_start_time: Optional[list[float]] = None
+    monitoring_start_time: Optional[list[float]] = None,
+    display_manager: Optional[DisplayManager] = None
 ) -> None:
     """
     Handle message received from server
@@ -119,6 +120,7 @@ def serverMessage_handle(
         injector: Optional event injector for handling input events
         monitoring_boundaries: Mutable flag [bool] to enable/disable boundary monitoring
         monitoring_start_time: Timestamp when monitoring was enabled
+        display_manager: Optional display manager for cursor positioning
     """
     logger.info(f"Received {message.msg_type.value} from server")
 
@@ -131,9 +133,15 @@ def serverMessage_handle(
     elif message.msg_type == MessageType.SCREEN_LEAVE:
         transition = MessageParser.screenTransition_parse(message)
         logger.info(
-            f"Server lost control at {transition.direction.value} edge "
+            f"Server lost control, client entry at {transition.direction.value} edge "
             f"({transition.position.x}, {transition.position.y})"
         )
+
+        # Position cursor at entry point
+        if display_manager:
+            display_manager.cursorPosition_set(transition.position)
+            logger.info(f"Positioned cursor at entry point ({transition.position.x}, {transition.position.y})")
+
         # Client should now be receiving mouse events and monitoring boundaries
         if monitoring_boundaries is not None and monitoring_start_time is not None:
             monitoring_boundaries[0] = True
@@ -152,7 +160,17 @@ def serverMessage_handle(
         if injector:
             mouse_event = MessageParser.mouseEvent_parse(message)
             injector.mouseEvent_inject(mouse_event)
-            logger.debug(f"Injected mouse event: {mouse_event.event_type.value}")
+            # Log mouse events with position and button info
+            if mouse_event.button is not None:
+                logger.info(
+                    f"Mouse {mouse_event.event_type.value}: button={mouse_event.button} "
+                    f"pos=({mouse_event.position.x}, {mouse_event.position.y})"
+                )
+            else:
+                logger.info(
+                    f"Mouse {mouse_event.event_type.value}: "
+                    f"pos=({mouse_event.position.x}, {mouse_event.position.y})"
+                )
         else:
             logger.warning("Received mouse event but injector not available")
 
@@ -262,7 +280,7 @@ def client_run(args: argparse.Namespace) -> None:
                 messages = network.messages_receive()
 
                 for message in messages:
-                    serverMessage_handle(message, event_injector, monitoring_boundaries, monitoring_start_time)
+                    serverMessage_handle(message, event_injector, monitoring_boundaries, monitoring_start_time, display_manager)
 
                 # Check for boundary crossings when monitoring is enabled
                 if monitoring_boundaries[0]:
