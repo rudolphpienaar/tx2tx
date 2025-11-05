@@ -49,8 +49,6 @@ cd tx2tx
 pip install -e .
 ```
 
-**Note for termux users:** Do not use a regular Python venv in termux. Termux's system python-xlib is patched to find X11 sockets in the correct location. If you need isolation, use: `python -m venv --system-site-packages .venv`
-
 ### Device 1: Run as Server
 
 ```bash

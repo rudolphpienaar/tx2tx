@@ -1,5 +1,6 @@
 """X11 display connection and management"""
 
+import os
 from typing import Optional
 from Xlib import display as xdisplay, X
 from Xlib.display import Display
@@ -24,6 +25,32 @@ class DisplayManager:
 
     def connection_establish(self) -> None:
         """Establish connection to X11 display"""
+        # Termux workaround: Monkey-patch python-xlib to find X11 socket in PREFIX/tmp
+        # PyPI's python-xlib hardcodes /tmp/.X11-unix/, but termux has it at $PREFIX/tmp/.X11-unix/
+        if 'PREFIX' in os.environ:
+            try:
+                from Xlib.support import unix_connect
+                import socket as socket_module
+
+                # Patch get_socket to use termux path
+                original_get_socket = unix_connect.get_socket
+
+                def _termux_get_socket(dname: str, protocol: object, host: object, dno: int) -> object:
+                    # For unix sockets, check termux location first
+                    if (protocol == 'unix' or (not protocol and (not host or host == 'unix'))):
+                        termux_address = f"{os.environ['PREFIX']}/tmp/.X11-unix/X{dno}"
+                        if os.path.exists(termux_address):
+                            # Connect directly to termux socket
+                            s = socket_module.socket(socket_module.AF_UNIX, socket_module.SOCK_STREAM)
+                            s.connect(termux_address)
+                            return s
+                    # Fall back to original implementation
+                    return original_get_socket(dname, protocol, host, dno)
+
+                unix_connect.get_socket = _termux_get_socket
+            except (ImportError, AttributeError):
+                pass  # Not an issue if module structure is different
+
         self._display = xdisplay.Display(self._display_name)
 
     def connection_close(self) -> None:
