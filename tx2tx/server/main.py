@@ -207,6 +207,7 @@ def server_run(args: argparse.Namespace) -> None:
 
     # Control state (wrapped in list for mutable reference)
     control_state_ref = [ControlState.LOCAL]
+    last_local_switch_time = [0.0]  # Timestamp of last REMOTE→LOCAL switch
 
     try:
         network.server_start()
@@ -221,6 +222,9 @@ def server_run(args: argparse.Namespace) -> None:
             # Receive messages from clients with callback closure
             def message_handler(client: ClientConnection, message: Message) -> None:
                 clientMessage_handle(client, message, control_state_ref, display_manager)
+                # Record timestamp when switching back to LOCAL
+                if control_state_ref[0] == ControlState.LOCAL and message.msg_type == MessageType.SCREEN_ENTER:
+                    last_local_switch_time[0] = time.time()
 
             network.clientData_receive(message_handler)
 
@@ -230,26 +234,31 @@ def server_run(args: argparse.Namespace) -> None:
                 position = pointer_tracker.position_query()
 
                 if control_state_ref[0] == ControlState.LOCAL:
-                    # Detect boundary crossings
-                    transition = pointer_tracker.boundary_detect(position, screen_geometry)
+                    # Add hysteresis: skip boundary detection for 200ms after switching to LOCAL
+                    # This prevents immediate re-detection of boundary after cursor release
+                    time_since_local_switch = time.time() - last_local_switch_time[0]
 
-                    if transition:
-                        logger.info(
-                            f"Boundary crossed: {transition.direction.value} at "
-                            f"({transition.position.x}, {transition.position.y})"
-                        )
+                    if time_since_local_switch >= 0.2:
+                        # Detect boundary crossings
+                        transition = pointer_tracker.boundary_detect(position, screen_geometry)
 
-                        # Send screen leave message to all clients
-                        leave_msg = MessageBuilder.screenLeaveMessage_create(transition)
-                        network.messageToAll_broadcast(leave_msg)
+                        if transition:
+                            logger.info(
+                                f"Boundary crossed: {transition.direction.value} at "
+                                f"({transition.position.x}, {transition.position.y})"
+                            )
 
-                        # Confine cursor at boundary to prevent visible movement
-                        display_manager.cursor_confine(transition.position)
-                        logger.debug("Cursor confined")
+                            # Send screen leave message to all clients
+                            leave_msg = MessageBuilder.screenLeaveMessage_create(transition)
+                            network.messageToAll_broadcast(leave_msg)
 
-                        # Switch to remote control
-                        control_state_ref[0] = ControlState.REMOTE
-                        logger.info("Switched to REMOTE control")
+                            # Confine cursor at boundary to prevent visible movement
+                            display_manager.cursor_confine(transition.position)
+                            logger.debug("Cursor confined")
+
+                            # Switch to remote control
+                            control_state_ref[0] = ControlState.REMOTE
+                            logger.info("Switched to REMOTE control")
 
                 elif control_state_ref[0] == ControlState.REMOTE:
                     # Send mouse movements to clients
