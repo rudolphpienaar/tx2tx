@@ -155,21 +155,21 @@ def serverMessage_handle(
         logger.info("Switched to PASSIVE mode")
 
     elif message.msg_type == MessageType.MOUSE_EVENT:
-        # Only inject if in ACTIVE mode
-        if client_state_ref[0] == ClientState.ACTIVE and injector:
+        # Always inject mouse events from server
+        if injector:
             mouse_event = MessageParser.mouseEvent_parse(message)
             injector.mouseEvent_inject(mouse_event)
             logger.debug(f"Injected mouse event: {mouse_event.event_type.value}")
-        elif not injector:
+        else:
             logger.warning("Received mouse event but injector not available")
 
     elif message.msg_type == MessageType.KEY_EVENT:
-        # Only inject if in ACTIVE mode
-        if client_state_ref[0] == ClientState.ACTIVE and injector:
+        # Always inject keyboard events from server
+        if injector:
             key_event = MessageParser.keyEvent_parse(message)
             injector.keyEvent_inject(key_event)
             logger.debug(f"Injected key event: {key_event.event_type.value}")
-        elif not injector:
+        else:
             logger.warning("Received key event but injector not available")
 
     else:
