@@ -10,10 +10,9 @@ from typing import NoReturn, Optional
 
 from tx2tx import __version__
 from tx2tx.common.config import ConfigLoader
-from tx2tx.common.types import Direction, EventType, MouseEvent, Position, ScreenGeometry, ScreenTransition
-from tx2tx.protocol.message import Message, MessageBuilder, MessageParser, MessageType
+from tx2tx.common.types import EventType, MouseEvent, Position, ScreenGeometry, ScreenTransition
+from tx2tx.protocol.message import Message, MessageBuilder, MessageType
 from tx2tx.server.network import ClientConnection, ServerNetwork
-from tx2tx.x11.capturer import EventCapturer
 from tx2tx.x11.display import DisplayManager
 from tx2tx.x11.pointer import PointerTracker
 
@@ -24,37 +23,6 @@ class ControlState(Enum):
     """Server control state"""
     LOCAL = "local"  # Server has control of mouse
     REMOTE = "remote"  # Client has control of mouse
-
-
-def coordinateForReEntry_calculate(direction: Direction, geometry: ScreenGeometry) -> Position:
-    """
-    Calculate cursor position on server when re-entering from client
-
-    Args:
-        direction: Direction of re-entry (which edge of client cursor crossed)
-        geometry: Server screen geometry
-
-    Returns:
-        Position where cursor should appear on server
-    """
-    # Place cursor slightly inside the screen, not at the exact edge
-    margin = 10
-
-    if direction == Direction.LEFT:
-        # Client cursor crossed left edge, cursor should appear on server right edge
-        return Position(x=geometry.width - margin, y=geometry.height // 2)
-    elif direction == Direction.RIGHT:
-        # Client cursor crossed right edge, cursor should appear on server left edge
-        return Position(x=margin, y=geometry.height // 2)
-    elif direction == Direction.TOP:
-        # Client cursor crossed top edge, cursor should appear on server bottom edge
-        return Position(x=geometry.width // 2, y=geometry.height - margin)
-    elif direction == Direction.BOTTOM:
-        # Client cursor crossed bottom edge, cursor should appear on server top edge
-        return Position(x=geometry.width // 2, y=margin)
-    else:
-        # Fallback to center
-        return Position(x=geometry.width // 2, y=geometry.height // 2)
 
 
 def arguments_parse() -> argparse.Namespace:
@@ -137,10 +105,8 @@ def logging_setup(level: str, log_format: str, log_file: Optional[str]) -> None:
 def clientMessage_handle(
     client: ClientConnection,
     message: Message,
-    display_manager: DisplayManager,
-    screen_geometry: ScreenGeometry,
-    control_state_ref: list[ControlState],
-    event_capturer: EventCapturer
+    control_state: Optional[list[ControlState]] = None,
+    display_manager: Optional[DisplayManager] = None
 ) -> None:
     """
     Handle message received from client
@@ -148,10 +114,8 @@ def clientMessage_handle(
     Args:
         client: Client connection
         message: Received message
+        control_state: Mutable reference [ControlState] to track server control state
         display_manager: Display manager for cursor control
-        screen_geometry: Screen geometry for coordinate mapping
-        control_state_ref: Reference to control state (list with single element for mutability)
-        event_capturer: Event capturer for keyboard and mouse events
     """
     logger.info(f"Received {message.msg_type.value} from {client.address}")
 
@@ -160,41 +124,25 @@ def clientMessage_handle(
     elif message.msg_type == MessageType.KEEPALIVE:
         logger.debug("Keepalive received")
     elif message.msg_type == MessageType.SCREEN_ENTER:
-        # Client cursor crossed boundary back to server
+        # Client is returning control to server
+        from tx2tx.protocol.message import MessageParser
         transition = MessageParser.screenTransition_parse(message)
         logger.info(
             f"Client re-entry at {transition.direction.value} edge "
             f"({transition.position.x}, {transition.position.y})"
         )
 
-        # Switch back to LOCAL control
-        if control_state_ref[0] == ControlState.REMOTE:
-            control_state_ref[0] = ControlState.LOCAL
+        if control_state is not None and display_manager is not None:
+            # Release cursor confinement
+            display_manager.cursor_release()
+            logger.debug("Cursor released")
+
+            # Position cursor at appropriate edge for smooth re-entry
+            display_manager.cursorPosition_set(transition.position)
+
+            # Switch back to local control
+            control_state[0] = ControlState.LOCAL
             logger.info("Switched to LOCAL control")
-
-            # Release cursor confinement and keyboard grab
-            try:
-                display_manager.cursor_release()
-                logger.debug("Cursor released")
-            except Exception as e:
-                logger.warning(f"Failed to release cursor: {e}")
-
-            try:
-                event_capturer.keyboard_release()
-                logger.debug("Keyboard released")
-            except Exception as e:
-                logger.warning(f"Failed to release keyboard: {e}")
-
-            # Map client cursor position to server screen and move cursor there
-            # For now, use simple mapping based on direction
-            entry_position = coordinateForReEntry_calculate(
-                transition.direction, screen_geometry
-            )
-            try:
-                display_manager.cursorPosition_set(entry_position)
-                logger.debug(f"Cursor positioned at ({entry_position.x}, {entry_position.y})")
-            except Exception as e:
-                logger.warning(f"Failed to set cursor position: {e}")
     else:
         logger.warning(f"Unexpected message type: {message.msg_type.value}")
 
@@ -250,9 +198,6 @@ def server_run(args: argparse.Namespace) -> None:
         edge_threshold=config.server.edge_threshold
     )
 
-    # Initialize event capturer for keyboard and mouse button events
-    event_capturer = EventCapturer(display_manager=display_manager)
-
     # Initialize network server
     network = ServerNetwork(
         host=config.server.host,
@@ -260,7 +205,7 @@ def server_run(args: argparse.Namespace) -> None:
         max_clients=config.server.max_clients
     )
 
-    # Control state (wrapped in list for mutability in callback)
+    # Control state (wrapped in list for mutable reference)
     control_state_ref = [ControlState.LOCAL]
 
     try:
@@ -273,12 +218,11 @@ def server_run(args: argparse.Namespace) -> None:
             # Accept new connections
             network.connections_accept()
 
-            # Receive messages from clients
-            network.clientData_receive(
-                lambda client, message: clientMessage_handle(
-                    client, message, display_manager, screen_geometry, control_state_ref, event_capturer
-                )
-            )
+            # Receive messages from clients with callback closure
+            def message_handler(client: ClientConnection, message: Message) -> None:
+                clientMessage_handle(client, message, control_state_ref, display_manager)
+
+            network.clientData_receive(message_handler)
 
             # Track pointer when we have clients
             if network.clients_count() > 0:
@@ -299,26 +243,13 @@ def server_run(args: argparse.Namespace) -> None:
                         leave_msg = MessageBuilder.screenLeaveMessage_create(transition)
                         network.messageToAll_broadcast(leave_msg)
 
+                        # Confine cursor at boundary to prevent visible movement
+                        display_manager.cursor_confine(transition.position)
+                        logger.debug("Cursor confined")
+
                         # Switch to remote control
                         control_state_ref[0] = ControlState.REMOTE
                         logger.info("Switched to REMOTE control")
-
-                        # Confine cursor on server to prevent visible movement
-                        try:
-                            # Confine cursor to the edge position
-                            display_manager.cursor_confine(transition.position)
-                            logger.debug("Cursor confined")
-                        except Exception as e:
-                            logger.warning(f"Failed to confine cursor: {e}")
-
-                        # Grab keyboard to capture key events
-                        try:
-                            if event_capturer.keyboard_grab():
-                                logger.debug("Keyboard grabbed for event capture")
-                            else:
-                                logger.warning("Failed to grab keyboard")
-                        except Exception as e:
-                            logger.warning(f"Failed to grab keyboard: {e}")
 
                 elif control_state_ref[0] == ControlState.REMOTE:
                     # Send mouse movements to clients
@@ -328,27 +259,6 @@ def server_run(args: argparse.Namespace) -> None:
                     )
                     move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
                     network.messageToAll_broadcast(move_msg)
-                    logger.debug(f"Sent mouse_move: ({position.x}, {position.y})")
-
-                    # Capture and send keyboard and mouse button events
-                    try:
-                        captured_events = event_capturer.events_poll()
-                        for event in captured_events:
-                            if isinstance(event, MouseEvent):
-                                # Send mouse button events
-                                msg = MessageBuilder.mouseEventMessage_create(event)
-                                network.messageToAll_broadcast(msg)
-                                logger.info(
-                                    f"Captured & sent {event.event_type.value}: "
-                                    f"pos=({event.position.x}, {event.position.y}), button={event.button}"
-                                )
-                            else:
-                                # Send keyboard events
-                                msg = MessageBuilder.keyEventMessage_create(event)
-                                network.messageToAll_broadcast(msg)
-                                logger.info(f"Captured & sent {event.event_type.value}: keycode={event.keycode}")
-                    except Exception as e:
-                        logger.warning(f"Error capturing events: {e}")
 
             # Small sleep to prevent busy waiting
             time.sleep(config.server.poll_interval_ms / 1000.0)

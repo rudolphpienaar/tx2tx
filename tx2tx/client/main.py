@@ -4,26 +4,18 @@ import argparse
 import logging
 import sys
 import time
-from enum import Enum
 from pathlib import Path
 from typing import NoReturn, Optional
 
 from tx2tx import __version__
 from tx2tx.client.network import ClientNetwork
 from tx2tx.common.config import ConfigLoader
-from tx2tx.common.types import Direction, ScreenGeometry, ScreenTransition
-from tx2tx.protocol.message import Message, MessageBuilder, MessageParser, MessageType
+from tx2tx.protocol.message import Message, MessageParser, MessageType
 from tx2tx.x11.display import DisplayManager
 from tx2tx.x11.injector import EventInjector
 from tx2tx.x11.pointer import PointerTracker
 
 logger = logging.getLogger(__name__)
-
-
-class ClientState(Enum):
-    """Client control state"""
-    PASSIVE = "passive"  # Server has control
-    ACTIVE = "active"  # Client has control
 
 
 def arguments_parse() -> argparse.Namespace:
@@ -115,8 +107,8 @@ def logging_setup(level: str, log_format: str, log_file: Optional[str]) -> None:
 
 def serverMessage_handle(
     message: Message,
-    injector: Optional[EventInjector],
-    client_state_ref: list[ClientState]
+    injector: Optional[EventInjector] = None,
+    monitoring_boundaries: Optional[list[bool]] = None
 ) -> None:
     """
     Handle message received from server
@@ -124,7 +116,7 @@ def serverMessage_handle(
     Args:
         message: Received message
         injector: Optional event injector for handling input events
-        client_state_ref: Reference to client state (list with single element for mutability)
+        monitoring_boundaries: Mutable flag [bool] to enable/disable boundary monitoring
     """
     logger.info(f"Received {message.msg_type.value} from server")
 
@@ -140,9 +132,10 @@ def serverMessage_handle(
             f"Server lost control at {transition.direction.value} edge "
             f"({transition.position.x}, {transition.position.y})"
         )
-        # Switch to active mode - client should now receive mouse events
-        client_state_ref[0] = ClientState.ACTIVE
-        logger.info("Switched to ACTIVE mode")
+        # Client should now be receiving mouse events and monitoring boundaries
+        if monitoring_boundaries is not None:
+            monitoring_boundaries[0] = True
+            logger.info("Client started monitoring boundaries for re-entry")
 
     elif message.msg_type == MessageType.SCREEN_ENTER:
         transition = MessageParser.screenTransition_parse(message)
@@ -150,33 +143,21 @@ def serverMessage_handle(
             f"Server regained control at {transition.direction.value} edge "
             f"({transition.position.x}, {transition.position.y})"
         )
-        # Switch to passive mode - client should stop tracking
-        client_state_ref[0] = ClientState.PASSIVE
-        logger.info("Switched to PASSIVE mode")
+        # Client should stop receiving mouse events
 
     elif message.msg_type == MessageType.MOUSE_EVENT:
-        # Always inject mouse events from server
         if injector:
             mouse_event = MessageParser.mouseEvent_parse(message)
-            logger.info(
-                f"Injecting {mouse_event.event_type.value}: "
-                f"pos=({mouse_event.position.x}, {mouse_event.position.y})"
-                f"{f', button={mouse_event.button}' if mouse_event.button else ''}"
-            )
             injector.mouseEvent_inject(mouse_event)
+            logger.debug(f"Injected mouse event: {mouse_event.event_type.value}")
         else:
             logger.warning("Received mouse event but injector not available")
 
     elif message.msg_type == MessageType.KEY_EVENT:
-        # Always inject keyboard events from server
         if injector:
             key_event = MessageParser.keyEvent_parse(message)
-            logger.info(
-                f"Injecting {key_event.event_type.value}: "
-                f"keycode={key_event.keycode}"
-                f"{f', keysym={key_event.keysym}' if key_event.keysym else ''}"
-            )
             injector.keyEvent_inject(key_event)
+            logger.debug(f"Injected key event: {key_event.event_type.value}")
         else:
             logger.warning("Received key event but injector not available")
 
@@ -243,7 +224,7 @@ def client_run(args: argparse.Namespace) -> None:
 
     logger.info("XTest extension verified, event injection ready")
 
-    # Initialize pointer tracker for boundary detection
+    # Initialize pointer tracker for boundary detection (for re-entry)
     pointer_tracker = PointerTracker(
         display_manager=display_manager,
         edge_threshold=0  # Detect at exact screen edge
@@ -258,10 +239,8 @@ def client_run(args: argparse.Namespace) -> None:
         reconnect_delay=config.client.reconnect.delay_seconds
     )
 
-    # Client state (starts PASSIVE, server has control)
-    client_state_ref = [ClientState.PASSIVE]
-    # Track when we last switched to ACTIVE to avoid immediate boundary detection
-    last_active_switch = [0.0]
+    # Boundary monitoring flag (mutable reference for serverMessage_handle)
+    monitoring_boundaries = [False]
 
     try:
         # Connect to server
@@ -276,15 +255,10 @@ def client_run(args: argparse.Namespace) -> None:
                 messages = network.messages_receive()
 
                 for message in messages:
-                    serverMessage_handle(message, event_injector, client_state_ref)
-                    # Track when we switch to ACTIVE
-                    if message.msg_type == MessageType.SCREEN_LEAVE:
-                        last_active_switch[0] = time.time()
+                    serverMessage_handle(message, event_injector, monitoring_boundaries)
 
-                # Check for boundary crossing when in ACTIVE mode
-                # Wait 100ms after switching to ACTIVE to let cursor move away from edge
-                if (client_state_ref[0] == ClientState.ACTIVE and
-                    (time.time() - last_active_switch[0]) > 0.1):
+                # Check for boundary crossings when monitoring is enabled
+                if monitoring_boundaries[0]:
                     position = pointer_tracker.position_query()
                     transition = pointer_tracker.boundary_detect(position, screen_geometry)
 
@@ -294,17 +268,15 @@ def client_run(args: argparse.Namespace) -> None:
                             f"({transition.position.x}, {transition.position.y})"
                         )
 
-                        # Send SCREEN_ENTER message to server
+                        # Send screen enter message to server
+                        from tx2tx.protocol.message import MessageBuilder
                         enter_msg = MessageBuilder.screenEnterMessage_create(transition)
-                        try:
-                            network.message_send(enter_msg)
-                            logger.info("Sent screen_enter to server")
-                        except Exception as e:
-                            logger.error(f"Failed to send screen_enter: {e}")
+                        network.message_send(enter_msg)
+                        logger.info("Sent screen_enter to server")
 
-                        # Switch to PASSIVE mode
-                        client_state_ref[0] = ClientState.PASSIVE
-                        logger.info("Switched to PASSIVE mode")
+                        # Stop monitoring boundaries
+                        monitoring_boundaries[0] = False
+                        logger.info("Client stopped monitoring boundaries")
 
                 # Small sleep to prevent busy waiting
                 time.sleep(0.01)
