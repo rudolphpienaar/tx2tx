@@ -178,7 +178,16 @@ def serverMessage_handle(
         if injector:
             key_event = MessageParser.keyEvent_parse(message)
             injector.keyEvent_inject(key_event)
-            logger.debug(f"Injected key event: {key_event.event_type.value}")
+            # Log key events with keycode and keysym info
+            if key_event.keysym is not None:
+                logger.info(
+                    f"Key {key_event.event_type.value}: keycode={key_event.keycode} "
+                    f"keysym={key_event.keysym:#x}"
+                )
+            else:
+                logger.info(
+                    f"Key {key_event.event_type.value}: keycode={key_event.keycode}"
+                )
         else:
             logger.warning("Received key event but injector not available")
 
