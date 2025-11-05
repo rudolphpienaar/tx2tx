@@ -35,7 +35,7 @@ class ScreenLayout:
         """Get configured client position"""
         return self._client_position
 
-    def should_transition_to_client(self, server_edge: Direction) -> bool:
+    def toClient_shouldTransition(self, server_edge: Direction) -> bool:
         """
         Determine if crossing this server edge should trigger transition to client
 
@@ -57,7 +57,7 @@ class ScreenLayout:
         # Future: add diagonal support with edge region detection
         return edge_to_position.get(server_edge) == self._client_position
 
-    def get_client_entry_edge(self) -> Direction:
+    def clientEntryEdge_get(self) -> Direction:
         """
         Get which edge the client should enter from based on client position
 
@@ -79,7 +79,7 @@ class ScreenLayout:
         }
         return position_to_entry_edge[self._client_position]
 
-    def get_server_reentry_edge(self) -> Direction:
+    def serverReentryEdge_get(self) -> Direction:
         """
         Get which edge the server should be re-entered from when client exits
 
@@ -101,7 +101,7 @@ class ScreenLayout:
         }
         return position_to_reentry_edge[self._client_position]
 
-    def transform_to_client_coordinates(
+    def toClientCoordinates_transform(
         self,
         server_transition: ScreenTransition,
         server_geometry: ScreenGeometry,
@@ -128,7 +128,7 @@ class ScreenLayout:
             raise ValueError(f"Invalid client geometry: {client_geometry.width}x{client_geometry.height}")
 
         # Determine client entry edge
-        client_entry_edge = self.get_client_entry_edge()
+        client_entry_edge = self.clientEntryEdge_get()
 
         # Calculate client entry position
         if self._client_position in (ClientPosition.WEST, ClientPosition.EAST):
@@ -171,7 +171,7 @@ class ScreenLayout:
             position=client_pos
         )
 
-    def transform_to_server_coordinates(
+    def toServerCoordinates_transform(
         self,
         client_transition: ScreenTransition,
         client_geometry: ScreenGeometry,
@@ -198,7 +198,7 @@ class ScreenLayout:
             raise ValueError(f"Invalid client geometry: {client_geometry.width}x{client_geometry.height}")
 
         # Determine server re-entry edge
-        server_reentry_edge = self.get_server_reentry_edge()
+        server_reentry_edge = self.serverReentryEdge_get()
 
         # Calculate server re-entry position (inverse of to_client transform)
         if self._client_position in (ClientPosition.WEST, ClientPosition.EAST):

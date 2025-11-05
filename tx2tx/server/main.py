@@ -156,7 +156,7 @@ def clientMessage_handle(
                         height=client.screen_height
                     )
                     # Transform client exit coordinates to server re-entry coordinates
-                    server_transition = screen_layout.transform_to_server_coordinates(
+                    server_transition = screen_layout.toServerCoordinates_transform(
                         client_transition=client_transition,
                         client_geometry=client_geometry,
                         server_geometry=server_geometry
@@ -310,7 +310,7 @@ def server_run(args: argparse.Namespace) -> None:
                                         height=client.screen_height
                                     )
                                     # Transform server exit coordinates to client entry coordinates
-                                    client_transition = screen_layout.transform_to_client_coordinates(
+                                    client_transition = screen_layout.toClientCoordinates_transform(
                                         server_transition=transition,
                                         server_geometry=screen_geometry,
                                         client_geometry=client_geometry
