@@ -10,6 +10,7 @@ from typing import NoReturn, Optional
 
 from tx2tx import __version__
 from tx2tx.common.config import ConfigLoader
+from tx2tx.common.layout import ClientPosition, ScreenLayout
 from tx2tx.common.types import EventType, MouseEvent, Position, ScreenGeometry, ScreenTransition
 from tx2tx.protocol.message import Message, MessageBuilder, MessageType
 from tx2tx.server.network import ClientConnection, ServerNetwork
@@ -106,7 +107,9 @@ def clientMessage_handle(
     client: ClientConnection,
     message: Message,
     control_state: Optional[list[ControlState]] = None,
-    display_manager: Optional[DisplayManager] = None
+    display_manager: Optional[DisplayManager] = None,
+    screen_layout: Optional[ScreenLayout] = None,
+    server_geometry: Optional[ScreenGeometry] = None
 ) -> None:
     """
     Handle message received from client
@@ -116,29 +119,65 @@ def clientMessage_handle(
         message: Received message
         control_state: Mutable reference [ControlState] to track server control state
         display_manager: Display manager for cursor control
+        screen_layout: Screen layout for coordinate transformation
+        server_geometry: Server screen geometry for coordinate transformation
     """
     logger.info(f"Received {message.msg_type.value} from {client.address}")
 
     if message.msg_type == MessageType.HELLO:
-        logger.info(f"Client handshake: {message.payload}")
+        # Parse and store client screen geometry from handshake
+        payload = message.payload
+        if "screen_width" in payload and "screen_height" in payload:
+            client.screen_width = payload["screen_width"]
+            client.screen_height = payload["screen_height"]
+            logger.info(
+                f"Client handshake: version={payload.get('version')}, "
+                f"screen={client.screen_width}x{client.screen_height}"
+            )
+        else:
+            logger.info(f"Client handshake: {message.payload}")
     elif message.msg_type == MessageType.KEEPALIVE:
         logger.debug("Keepalive received")
     elif message.msg_type == MessageType.SCREEN_ENTER:
         # Client is returning control to server
         from tx2tx.protocol.message import MessageParser
-        transition = MessageParser.screenTransition_parse(message)
+        client_transition = MessageParser.screenTransition_parse(message)
         logger.info(
-            f"Client re-entry at {transition.direction.value} edge "
-            f"({transition.position.x}, {transition.position.y})"
+            f"Client re-entry at {client_transition.direction.value} edge "
+            f"({client_transition.position.x}, {client_transition.position.y})"
         )
 
         if control_state is not None and display_manager is not None:
+            # Transform client coordinates to server coordinates
+            if screen_layout is not None and server_geometry is not None:
+                if client.screen_width and client.screen_height:
+                    client_geometry = ScreenGeometry(
+                        width=client.screen_width,
+                        height=client.screen_height
+                    )
+                    # Transform client exit coordinates to server re-entry coordinates
+                    server_transition = screen_layout.transform_to_server_coordinates(
+                        client_transition=client_transition,
+                        client_geometry=client_geometry,
+                        server_geometry=server_geometry
+                    )
+                    logger.info(
+                        f"Transformed to server: {server_transition.direction.value} at "
+                        f"({server_transition.position.x}, {server_transition.position.y})"
+                    )
+                else:
+                    logger.warning("Client screen geometry not available, using untransformed coordinates")
+                    server_transition = client_transition
+            else:
+                logger.warning("Screen layout not available, using untransformed coordinates")
+                server_transition = client_transition
+
             # Release cursor confinement
             display_manager.cursor_release()
             logger.debug("Cursor released")
 
             # Position cursor at appropriate edge for smooth re-entry
-            display_manager.cursorPosition_set(transition.position)
+            display_manager.cursorPosition_set(server_transition.position)
 
             # Switch back to local control
             control_state[0] = ControlState.LOCAL
@@ -198,6 +237,15 @@ def server_run(args: argparse.Namespace) -> None:
         edge_threshold=config.server.edge_threshold
     )
 
+    # Initialize screen layout for coordinate transformations
+    try:
+        client_position = ClientPosition(config.server.client_position)
+        screen_layout = ScreenLayout(client_position=client_position)
+        logger.info(f"Client position: {client_position.value}")
+    except ValueError as e:
+        logger.error(f"Invalid client_position in config: {config.server.client_position}")
+        sys.exit(1)
+
     # Initialize network server
     network = ServerNetwork(
         host=config.server.host,
@@ -221,7 +269,10 @@ def server_run(args: argparse.Namespace) -> None:
 
             # Receive messages from clients with callback closure
             def message_handler(client: ClientConnection, message: Message) -> None:
-                clientMessage_handle(client, message, control_state_ref, display_manager)
+                clientMessage_handle(
+                    client, message, control_state_ref, display_manager,
+                    screen_layout, screen_geometry
+                )
                 # Record timestamp when switching back to LOCAL
                 if control_state_ref[0] == ControlState.LOCAL and message.msg_type == MessageType.SCREEN_ENTER:
                     last_local_switch_time[0] = time.time()
@@ -248,17 +299,41 @@ def server_run(args: argparse.Namespace) -> None:
                                 f"({transition.position.x}, {transition.position.y})"
                             )
 
-                            # Send screen leave message to all clients
-                            leave_msg = MessageBuilder.screenLeaveMessage_create(transition)
-                            network.messageToAll_broadcast(leave_msg)
+                            # Transform coordinates for client screen
+                            # Get first client to determine screen geometry
+                            clients_list = network.clients
+                            if clients_list:
+                                client = clients_list[0]
+                                if client.screen_width and client.screen_height:
+                                    client_geometry = ScreenGeometry(
+                                        width=client.screen_width,
+                                        height=client.screen_height
+                                    )
+                                    # Transform server exit coordinates to client entry coordinates
+                                    client_transition = screen_layout.transform_to_client_coordinates(
+                                        server_transition=transition,
+                                        server_geometry=screen_geometry,
+                                        client_geometry=client_geometry
+                                    )
+                                    logger.info(
+                                        f"Transformed to client: {client_transition.direction.value} at "
+                                        f"({client_transition.position.x}, {client_transition.position.y})"
+                                    )
+                                    leave_msg = MessageBuilder.screenLeaveMessage_create(client_transition)
+                                else:
+                                    logger.warning("Client screen geometry not available, using untransformed coordinates")
+                                    leave_msg = MessageBuilder.screenLeaveMessage_create(transition)
 
-                            # Confine cursor at boundary to prevent visible movement
-                            display_manager.cursor_confine(transition.position)
-                            logger.debug("Cursor confined")
+                                # Send screen leave message to all clients
+                                network.messageToAll_broadcast(leave_msg)
 
-                            # Switch to remote control
-                            control_state_ref[0] = ControlState.REMOTE
-                            logger.info("Switched to REMOTE control")
+                                # Confine cursor at boundary to prevent visible movement
+                                display_manager.cursor_confine(transition.position)
+                                logger.debug("Cursor confined")
+
+                                # Switch to remote control
+                                control_state_ref[0] = ControlState.REMOTE
+                                logger.info("Switched to REMOTE control")
 
                 elif control_state_ref[0] == ControlState.REMOTE:
                     # Send mouse movements to clients

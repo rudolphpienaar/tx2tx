@@ -247,8 +247,11 @@ def client_run(args: argparse.Namespace) -> None:
     monitoring_start_time = [0.0]  # Timestamp when monitoring was enabled
 
     try:
-        # Connect to server
-        network.connection_establish()
+        # Connect to server with screen geometry
+        network.connection_establish(
+            screen_width=screen_geometry.width,
+            screen_height=screen_geometry.height
+        )
 
         # Main event loop
         logger.info("Client running. Press Ctrl+C to stop.")

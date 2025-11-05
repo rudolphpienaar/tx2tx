@@ -24,6 +24,8 @@ class ClientConnection:
         self.socket: socket.socket = client_socket
         self.address: tuple[str, int] = address
         self.buffer: str = ""
+        self.screen_width: int | None = None
+        self.screen_height: int | None = None
 
     def message_send(self, message: Message) -> None:
         """

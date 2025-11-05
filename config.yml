@@ -20,6 +20,10 @@ server:
   # Maximum number of concurrent clients
   max_clients: 1
 
+  # Position of client screen relative to server
+  # Options: north, northeast, east, southeast, south, southwest, west, northwest
+  client_position: "west"
+
 # Client configuration
 client:
   # Server address to connect to (host:port format)

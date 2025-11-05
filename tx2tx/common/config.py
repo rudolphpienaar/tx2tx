@@ -17,6 +17,7 @@ class ServerConfig:
     edge_threshold: int
     poll_interval_ms: int
     max_clients: int
+    client_position: str  # Position of client relative to server
 
 
 @dataclass
@@ -129,6 +130,7 @@ class ConfigLoader:
             edge_threshold=server_data["edge_threshold"],
             poll_interval_ms=server_data["poll_interval_ms"],
             max_clients=server_data["max_clients"],
+            client_position=server_data.get("client_position", "west"),  # Default to west
         )
 
         # Parse client config
