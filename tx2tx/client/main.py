@@ -260,6 +260,8 @@ def client_run(args: argparse.Namespace) -> None:
 
     # Client state (starts PASSIVE, server has control)
     client_state_ref = [ClientState.PASSIVE]
+    # Track when we last switched to ACTIVE to avoid immediate boundary detection
+    last_active_switch = [0.0]
 
     try:
         # Connect to server
@@ -275,9 +277,14 @@ def client_run(args: argparse.Namespace) -> None:
 
                 for message in messages:
                     serverMessage_handle(message, event_injector, client_state_ref)
+                    # Track when we switch to ACTIVE
+                    if message.msg_type == MessageType.SCREEN_LEAVE:
+                        last_active_switch[0] = time.time()
 
                 # Check for boundary crossing when in ACTIVE mode
-                if client_state_ref[0] == ClientState.ACTIVE:
+                # Wait 100ms after switching to ACTIVE to let cursor move away from edge
+                if (client_state_ref[0] == ClientState.ACTIVE and
+                    (time.time() - last_active_switch[0]) > 0.1):
                     position = pointer_tracker.position_query()
                     transition = pointer_tracker.boundary_detect(position, screen_geometry)
 
