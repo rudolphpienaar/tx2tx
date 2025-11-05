@@ -117,7 +117,16 @@ class ScreenLayout:
 
         Returns:
             Transformed transition for client entry
+
+        Raises:
+            ValueError: If screen geometries are invalid (zero or negative dimensions)
         """
+        # Validate screen geometries
+        if server_geometry.height <= 0 or server_geometry.width <= 0:
+            raise ValueError(f"Invalid server geometry: {server_geometry.width}x{server_geometry.height}")
+        if client_geometry.height <= 0 or client_geometry.width <= 0:
+            raise ValueError(f"Invalid client geometry: {client_geometry.width}x{client_geometry.height}")
+
         # Determine client entry edge
         client_entry_edge = self.get_client_entry_edge()
 
@@ -126,6 +135,8 @@ class ScreenLayout:
             # Horizontal transition: scale Y coordinate
             scale = client_geometry.height / server_geometry.height
             client_y = int(server_transition.position.y * scale)
+            # Clamp to valid range
+            client_y = max(0, min(client_y, client_geometry.height - 1))
 
             # Client X depends on entry edge
             if client_entry_edge == Direction.LEFT:
@@ -139,6 +150,8 @@ class ScreenLayout:
             # Vertical transition: scale X coordinate
             scale = client_geometry.width / server_geometry.width
             client_x = int(server_transition.position.x * scale)
+            # Clamp to valid range
+            client_x = max(0, min(client_x, client_geometry.width - 1))
 
             # Client Y depends on entry edge
             if client_entry_edge == Direction.TOP:
@@ -174,7 +187,16 @@ class ScreenLayout:
 
         Returns:
             Transformed transition for server re-entry
+
+        Raises:
+            ValueError: If screen geometries are invalid (zero or negative dimensions)
         """
+        # Validate screen geometries
+        if server_geometry.height <= 0 or server_geometry.width <= 0:
+            raise ValueError(f"Invalid server geometry: {server_geometry.width}x{server_geometry.height}")
+        if client_geometry.height <= 0 or client_geometry.width <= 0:
+            raise ValueError(f"Invalid client geometry: {client_geometry.width}x{client_geometry.height}")
+
         # Determine server re-entry edge
         server_reentry_edge = self.get_server_reentry_edge()
 
@@ -183,6 +205,8 @@ class ScreenLayout:
             # Horizontal transition: scale Y coordinate back
             scale = server_geometry.height / client_geometry.height
             server_y = int(client_transition.position.y * scale)
+            # Clamp to valid range
+            server_y = max(0, min(server_y, server_geometry.height - 1))
 
             # Server X depends on re-entry edge
             if server_reentry_edge == Direction.LEFT:
@@ -196,6 +220,8 @@ class ScreenLayout:
             # Vertical transition: scale X coordinate back
             scale = server_geometry.width / client_geometry.width
             server_x = int(client_transition.position.x * scale)
+            # Clamp to valid range
+            server_x = max(0, min(server_x, server_geometry.width - 1))
 
             # Server Y depends on re-entry edge
             if server_reentry_edge == Direction.TOP:
