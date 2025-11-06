@@ -338,13 +338,12 @@ def server_run(args: argparse.Namespace) -> None:
                                 logger.info("[STATE] Switched to REMOTE control")
 
                 elif control_state_ref[0] == ControlState.REMOTE:
-                    # Send mouse movements to clients
-                    mouse_event = MouseEvent(
-                        event_type=EventType.MOUSE_MOVE,
-                        position=position
-                    )
-                    move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
-                    network.messageToAll_broadcast(move_msg)
+                    # During REMOTE control:
+                    # - Server cursor is confined and stationary
+                    # - Client controls its own mouse
+                    # - Server just waits for SCREEN_ENTER from client
+                    # DO NOT broadcast server mouse position - it would override client cursor!
+                    pass
 
             # Small sleep to prevent busy waiting
             time.sleep(config.server.poll_interval_ms / 1000.0)
