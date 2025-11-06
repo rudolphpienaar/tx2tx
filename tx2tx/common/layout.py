@@ -8,6 +8,10 @@ from tx2tx.common.types import Direction, Position, ScreenGeometry, ScreenTransi
 
 logger = logging.getLogger(__name__)
 
+# Cursor entry margin: position cursor this many pixels inside the screen edge
+# to avoid immediate boundary detection when edge_threshold=0
+ENTRY_MARGIN_PIXELS = 5
+
 
 class ClientPosition(Enum):
     """Position of client screen relative to server"""
@@ -150,15 +154,16 @@ class ScreenLayout:
             client_y_clamped = max(0, min(client_y, client_geometry.height - 1))
 
             # Client X depends on entry edge
+            # Position cursor INSIDE screen by ENTRY_MARGIN_PIXELS to avoid immediate re-detection
             if client_entry_edge == Direction.LEFT:
-                client_x = 0
+                client_x = ENTRY_MARGIN_PIXELS
             else:  # Direction.RIGHT
-                client_x = client_geometry.width - 1
+                client_x = client_geometry.width - 1 - ENTRY_MARGIN_PIXELS
 
             logger.info(
                 f"[COORD XFORM → CLIENT] Horizontal: scale={scale:.4f} "
                 f"server_y={server_transition.position.y} → client_y={client_y} (clamped={client_y_clamped}) "
-                f"client_x={client_x} (edge={client_entry_edge.value})"
+                f"client_x={client_x} (edge={client_entry_edge.value}, margin={ENTRY_MARGIN_PIXELS}px)"
             )
 
             client_pos = Position(x=client_x, y=client_y_clamped)
@@ -170,15 +175,16 @@ class ScreenLayout:
             client_x_clamped = max(0, min(client_x, client_geometry.width - 1))
 
             # Client Y depends on entry edge
+            # Position cursor INSIDE screen by ENTRY_MARGIN_PIXELS to avoid immediate re-detection
             if client_entry_edge == Direction.TOP:
-                client_y = 0
+                client_y = ENTRY_MARGIN_PIXELS
             else:  # Direction.BOTTOM
-                client_y = client_geometry.height - 1
+                client_y = client_geometry.height - 1 - ENTRY_MARGIN_PIXELS
 
             logger.info(
                 f"[COORD XFORM → CLIENT] Vertical: scale={scale:.4f} "
                 f"server_x={server_transition.position.x} → client_x={client_x} (clamped={client_x_clamped}) "
-                f"client_y={client_y} (edge={client_entry_edge.value})"
+                f"client_y={client_y} (edge={client_entry_edge.value}, margin={ENTRY_MARGIN_PIXELS}px)"
             )
 
             client_pos = Position(x=client_x_clamped, y=client_y)
@@ -244,15 +250,16 @@ class ScreenLayout:
             server_y_clamped = max(0, min(server_y, server_geometry.height - 1))
 
             # Server X depends on re-entry edge
+            # Position cursor INSIDE screen by ENTRY_MARGIN_PIXELS to avoid immediate re-detection
             if server_reentry_edge == Direction.LEFT:
-                server_x = 0
+                server_x = ENTRY_MARGIN_PIXELS
             else:  # Direction.RIGHT
-                server_x = server_geometry.width - 1
+                server_x = server_geometry.width - 1 - ENTRY_MARGIN_PIXELS
 
             logger.info(
                 f"[COORD XFORM → SERVER] Horizontal: scale={scale:.4f} "
                 f"client_y={client_transition.position.y} → server_y={server_y} (clamped={server_y_clamped}) "
-                f"server_x={server_x} (edge={server_reentry_edge.value})"
+                f"server_x={server_x} (edge={server_reentry_edge.value}, margin={ENTRY_MARGIN_PIXELS}px)"
             )
 
             server_pos = Position(x=server_x, y=server_y_clamped)
@@ -264,15 +271,16 @@ class ScreenLayout:
             server_x_clamped = max(0, min(server_x, server_geometry.width - 1))
 
             # Server Y depends on re-entry edge
+            # Position cursor INSIDE screen by ENTRY_MARGIN_PIXELS to avoid immediate re-detection
             if server_reentry_edge == Direction.TOP:
-                server_y = 0
+                server_y = ENTRY_MARGIN_PIXELS
             else:  # Direction.BOTTOM
-                server_y = server_geometry.height - 1
+                server_y = server_geometry.height - 1 - ENTRY_MARGIN_PIXELS
 
             logger.info(
                 f"[COORD XFORM → SERVER] Vertical: scale={scale:.4f} "
                 f"client_x={client_transition.position.x} → server_x={server_x} (clamped={server_x_clamped}) "
-                f"server_y={server_y} (edge={server_reentry_edge.value})"
+                f"server_y={server_y} (edge={server_reentry_edge.value}, margin={ENTRY_MARGIN_PIXELS}px)"
             )
 
             server_pos = Position(x=server_x_clamped, y=server_y)
