@@ -1,11 +1,14 @@
 """X11 display connection and management"""
 
+import logging
 import os
 from typing import Optional
 from Xlib import display as xdisplay, X
 from Xlib.display import Display
 
 from tx2tx.common.types import Position, ScreenGeometry
+
+logger = logging.getLogger(__name__)
 
 
 class DisplayManager:
@@ -189,22 +192,146 @@ class DisplayManager:
 
     def cursor_hide(self) -> None:
         """
-        Hide the cursor (currently disabled - API compatibility issues)
+        Hide cursor using XFixes extension with pixmap fallback
 
         Raises:
             RuntimeError: If not connected to display
         """
-        # TODO: Implement cursor hiding using XFixes extension or other method
-        # Current approach causes issues with python-xlib cursor API
-        # For now, cursor remains visible during REMOTE mode (acceptable tradeoff)
-        pass
+        if self._cursor_hidden:
+            return
+
+        display = self.display_get()
+        screen = display.screen()
+        root = screen.root
+
+        # Try XFixes first (modern, simple)
+        try:
+            if display.has_extension('XFIXES') or display.query_extension('XFIXES'):
+                root.xfixes_hide_cursor()
+                display.sync()
+                self._cursor_hidden = True
+                logger.debug("Cursor hidden using XFixes")
+                return
+        except (AttributeError, Exception) as e:
+            logger.debug(f"XFixes not available: {e}")
+
+        # Fallback: Create invisible pixmap cursor
+        pixmap = root.create_pixmap(1, 1, 1)
+        gc = pixmap.create_gc(foreground=0, background=0)
+        pixmap.fill_rectangle(gc, 0, 0, 1, 1)
+
+        invisible_cursor = pixmap.create_cursor(
+            pixmap, (0, 0, 0), (0, 0, 0), 0, 0
+        )
+        root.change_attributes(cursor=invisible_cursor)
+        display.sync()
+
+        self._blank_cursor = invisible_cursor
+        self._cursor_hidden = True
+        logger.debug("Cursor hidden using pixmap fallback")
 
     def cursor_show(self) -> None:
         """
-        Show the cursor (currently disabled - API compatibility issues)
+        Show cursor
 
         Raises:
             RuntimeError: If not connected to display
         """
-        # TODO: Restore cursor visibility
-        pass
+        if not self._cursor_hidden:
+            return
+
+        display = self.display_get()
+        screen = display.screen()
+        root = screen.root
+
+        # Try XFixes first
+        try:
+            if display.has_extension('XFIXES') or display.query_extension('XFIXES'):
+                root.xfixes_show_cursor()
+                display.sync()
+                self._cursor_hidden = False
+                logger.debug("Cursor shown using XFixes")
+                return
+        except (AttributeError, Exception) as e:
+            logger.debug(f"XFixes not available: {e}")
+
+        # Fallback: Restore default cursor
+        root.change_attributes(cursor=0)  # 0 = use default cursor
+        display.sync()
+        self._cursor_hidden = False
+        logger.debug("Cursor shown using default cursor")
+
+    def pointer_grab(self) -> None:
+        """
+        Grab pointer to capture all mouse events (prevents desktop from seeing them)
+
+        Raises:
+            RuntimeError: If not connected to display or grab fails
+        """
+        display = self.display_get()
+        screen = display.screen()
+        root = screen.root
+
+        result = root.grab_pointer(
+            True,  # owner_events - we receive events
+            X.PointerMotionMask | X.ButtonPressMask | X.ButtonReleaseMask,
+            X.GrabModeAsync,
+            X.GrabModeAsync,
+            0,       # Don't confine to window (0 = no confinement)
+            0,       # Don't change cursor
+            X.CurrentTime
+        )
+
+        if result == 0:  # GrabSuccess
+            display.sync()
+            logger.debug("Pointer grabbed successfully")
+        else:
+            raise RuntimeError(f"Failed to grab pointer: result {result}")
+
+    def pointer_ungrab(self) -> None:
+        """
+        Release pointer grab (return mouse events to desktop)
+
+        Raises:
+            RuntimeError: If not connected to display
+        """
+        display = self.display_get()
+        display.ungrab_pointer(X.CurrentTime)
+        display.sync()
+        logger.debug("Pointer ungrabbed")
+
+    def keyboard_grab(self) -> None:
+        """
+        Grab keyboard to capture all keyboard events (prevents desktop from seeing them)
+
+        Raises:
+            RuntimeError: If not connected to display or grab fails
+        """
+        display = self.display_get()
+        screen = display.screen()
+        root = screen.root
+
+        result = root.grab_keyboard(
+            True,  # owner_events - we receive events
+            X.GrabModeAsync,
+            X.GrabModeAsync,
+            X.CurrentTime
+        )
+
+        if result == 0:  # GrabSuccess
+            display.sync()
+            logger.debug("Keyboard grabbed successfully")
+        else:
+            raise RuntimeError(f"Failed to grab keyboard: result {result}")
+
+    def keyboard_ungrab(self) -> None:
+        """
+        Release keyboard grab (return keyboard events to desktop)
+
+        Raises:
+            RuntimeError: If not connected to display
+        """
+        display = self.display_get()
+        display.ungrab_keyboard(X.CurrentTime)
+        display.sync()
+        logger.debug("Keyboard ungrabbed")
