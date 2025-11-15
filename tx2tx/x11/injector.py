@@ -50,7 +50,21 @@ class EventInjector:
             delta_y: Y offset (can be negative)
         """
         display = self._display_manager.display_get()
-        xtest.fake_input(display, X.MotionNotify, detail=1, x=delta_x, y=delta_y)
+        screen = display.screen()
+        root = screen.root
+
+        # Get current position
+        pointer_data = root.query_pointer()
+        current_x = pointer_data.root_x
+        current_y = pointer_data.root_y
+
+        # Calculate new absolute position
+        new_x = current_x + delta_x
+        new_y = current_y + delta_y
+
+        # Move to new position using absolute coordinates
+        # (XTest relative movement seems unreliable)
+        xtest.fake_input(display, X.MotionNotify, detail=0, x=new_x, y=new_y)
         display.sync()
 
     def mouseButton_press(self, button: int) -> None:

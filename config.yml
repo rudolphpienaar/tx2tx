@@ -56,7 +56,7 @@ protocol:
 # Logging configuration
 logging:
   # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
-  level: "INFO"
+  level: "DEBUG"
 
   # Log to file (null for stdout only)
   file: null

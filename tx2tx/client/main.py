@@ -167,11 +167,11 @@ def serverMessage_handle(
             # During REMOTE mode (monitoring_boundaries=True), treat movements as relative
             if monitoring_boundaries and monitoring_boundaries[0] and mouse_event.event_type == EventType.MOUSE_MOVE:
                 # Apply as relative movement
-                injector.mousePointer_moveRelative(mouse_event.position.x, mouse_event.position.y)
                 logger.info(
-                    f"Mouse {mouse_event.event_type.value} (relative): "
-                    f"delta=({mouse_event.position.x}, {mouse_event.position.y})"
+                    f"[REMOTE MODE] Applying relative movement: "
+                    f"delta=({mouse_event.position.x}, {mouse_event.position.y}) monitoring={monitoring_boundaries[0]}"
                 )
+                injector.mousePointer_moveRelative(mouse_event.position.x, mouse_event.position.y)
             else:
                 # Apply as absolute position or button event
                 injector.mouseEvent_inject(mouse_event)

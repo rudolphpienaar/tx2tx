@@ -361,6 +361,7 @@ def server_run(args: argparse.Namespace) -> None:
                             )
                             move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
                             network.messageToAll_broadcast(move_msg)
+                            logger.debug(f"[REMOTE] Sent delta: ({delta_x}, {delta_y}) from pos ({position.x}, {position.y})")
 
                         # Warp LOCAL cursor back to center if getting close to edges
                         # This prevents cursor from hitting screen boundaries which would
