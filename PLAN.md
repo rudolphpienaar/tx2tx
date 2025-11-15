@@ -224,7 +224,7 @@ Examples:
 
 This implementation follows the server-authoritative dumb terminal model. The roadmap is organized into phases that can be executed sequentially with testing at each step.
 
-### Phase 1: Implement Input Isolation (Cursor Hiding + Pointer/Keyboard Grab)
+### ✅ Phase 1: Implement Input Isolation (COMPLETED)
 
 **Goal:** Implement cursor hide/show AND pointer/keyboard grab to isolate input during REMOTE mode.
 
@@ -370,7 +370,7 @@ display_manager.pointer_ungrab()
 
 ---
 
-### Phase 2: Add ScreenContext Enum
+### 🔄 Phase 2: Add ScreenContext Enum (CURRENT)
 
 **Goal:** Define the new state enum.
 
