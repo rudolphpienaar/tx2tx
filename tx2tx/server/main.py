@@ -172,6 +172,10 @@ def clientMessage_handle(
                 logger.warning("Screen layout not available, using untransformed coordinates")
                 server_transition = client_transition
 
+            # Show LOCAL cursor again
+            display_manager.cursor_show()
+            logger.info("[CURSOR] Restored LOCAL cursor visibility")
+
             # Position cursor at appropriate edge for smooth re-entry
             display_manager.cursorPosition_set(server_transition.position)
             logger.info(
@@ -332,6 +336,10 @@ def server_run(args: argparse.Namespace) -> None:
                                 logger.info(
                                     f"[CURSOR] Tracking from position ({position.x}, {position.y})"
                                 )
+
+                                # Hide LOCAL cursor during REMOTE control
+                                display_manager.cursor_hide()
+                                logger.info("[CURSOR] Hidden LOCAL cursor")
 
                                 # Switch to remote control
                                 control_state_ref[0] = ControlState.REMOTE

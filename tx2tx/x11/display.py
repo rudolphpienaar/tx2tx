@@ -22,6 +22,8 @@ class DisplayManager:
         self._display_name: Optional[str] = display_name
         self._cursor_confined: bool = False
         self._original_position: Optional[Position] = None
+        self._cursor_hidden: bool = False
+        self._blank_cursor: Optional[int] = None
 
     def connection_establish(self) -> None:
         """Establish connection to X11 display"""
@@ -184,3 +186,55 @@ class DisplayManager:
         root = screen.root
         root.warp_pointer(position.x, position.y)
         display.sync()
+
+    def cursor_hide(self) -> None:
+        """
+        Hide the cursor by setting it to a blank (invisible) cursor
+
+        Raises:
+            RuntimeError: If not connected to display
+        """
+        if self._cursor_hidden:
+            return  # Already hidden
+
+        display = self.display_get()
+        screen = display.screen()
+        root = screen.root
+
+        # Create a blank cursor if we haven't already
+        if self._blank_cursor is None:
+            # Create a 1x1 blank pixmap
+            blank_pixmap = root.create_pixmap(1, 1, 1)
+
+            # Create cursor from blank pixmap (both foreground and background)
+            self._blank_cursor = root.create_cursor(
+                blank_pixmap, blank_pixmap,
+                (0, 0, 0),  # foreground color (doesn't matter, it's blank)
+                (0, 0, 0),  # background color
+                0, 0        # hotspot
+            )
+            blank_pixmap.free()
+
+        # Set the blank cursor
+        root.change_attributes(cursor=self._blank_cursor)
+        display.sync()
+        self._cursor_hidden = True
+
+    def cursor_show(self) -> None:
+        """
+        Restore the normal cursor (undo cursor_hide)
+
+        Raises:
+            RuntimeError: If not connected to display
+        """
+        if not self._cursor_hidden:
+            return  # Not hidden
+
+        display = self.display_get()
+        screen = display.screen()
+        root = screen.root
+
+        # Restore default cursor (0 = default)
+        root.change_attributes(cursor=0)
+        display.sync()
+        self._cursor_hidden = False
