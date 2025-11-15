@@ -119,6 +119,7 @@ def serverMessage_handle(
         message: Received message
         injector: Optional event injector for handling input events
         monitoring_boundaries: Mutable flag [bool] to enable/disable boundary monitoring
+                              When True, mouse events are treated as relative movements
         monitoring_start_time: Timestamp when monitoring was enabled
         display_manager: Optional display manager for cursor positioning
     """
@@ -161,18 +162,29 @@ def serverMessage_handle(
     elif message.msg_type == MessageType.MOUSE_EVENT:
         if injector:
             mouse_event = MessageParser.mouseEvent_parse(message)
-            injector.mouseEvent_inject(mouse_event)
-            # Log mouse events with position and button info
-            if mouse_event.button is not None:
+
+            # During REMOTE mode (monitoring_boundaries=True), treat movements as relative
+            if monitoring_boundaries and monitoring_boundaries[0] and mouse_event.event_type == EventType.MOUSE_MOVE:
+                # Apply as relative movement
+                injector.mousePointer_moveRelative(mouse_event.position.x, mouse_event.position.y)
                 logger.info(
-                    f"Mouse {mouse_event.event_type.value}: button={mouse_event.button} "
-                    f"pos=({mouse_event.position.x}, {mouse_event.position.y})"
+                    f"Mouse {mouse_event.event_type.value} (relative): "
+                    f"delta=({mouse_event.position.x}, {mouse_event.position.y})"
                 )
             else:
-                logger.info(
-                    f"Mouse {mouse_event.event_type.value}: "
-                    f"pos=({mouse_event.position.x}, {mouse_event.position.y})"
-                )
+                # Apply as absolute position or button event
+                injector.mouseEvent_inject(mouse_event)
+                # Log mouse events with position and button info
+                if mouse_event.button is not None:
+                    logger.info(
+                        f"Mouse {mouse_event.event_type.value}: button={mouse_event.button} "
+                        f"pos=({mouse_event.position.x}, {mouse_event.position.y})"
+                    )
+                else:
+                    logger.info(
+                        f"Mouse {mouse_event.event_type.value}: "
+                        f"pos=({mouse_event.position.x}, {mouse_event.position.y})"
+                    )
         else:
             logger.warning("Received mouse event but injector not available")
 

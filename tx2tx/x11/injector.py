@@ -41,6 +41,18 @@ class EventInjector:
         xtest.fake_input(display, X.MotionNotify, detail=0, x=position.x, y=position.y)
         display.sync()
 
+    def mousePointer_moveRelative(self, delta_x: int, delta_y: int) -> None:
+        """
+        Move mouse pointer by relative offset
+
+        Args:
+            delta_x: X offset (can be negative)
+            delta_y: Y offset (can be negative)
+        """
+        display = self._display_manager.display_get()
+        xtest.fake_input(display, X.MotionNotify, detail=1, x=delta_x, y=delta_y)
+        display.sync()
+
     def mouseButton_press(self, button: int) -> None:
         """
         Press mouse button

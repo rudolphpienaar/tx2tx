@@ -172,10 +172,6 @@ def clientMessage_handle(
                 logger.warning("Screen layout not available, using untransformed coordinates")
                 server_transition = client_transition
 
-            # Release cursor confinement
-            display_manager.cursor_release()
-            logger.info(f"[CURSOR] Released cursor confinement")
-
             # Position cursor at appropriate edge for smooth re-entry
             display_manager.cursorPosition_set(server_transition.position)
             logger.info(
@@ -259,6 +255,7 @@ def server_run(args: argparse.Namespace) -> None:
     # Control state (wrapped in list for mutable reference)
     control_state_ref = [ControlState.LOCAL]
     last_local_switch_time = [0.0]  # Timestamp of last REMOTE→LOCAL switch
+    last_remote_position = [None]  # Track position for relative movement during REMOTE
 
     try:
         network.server_start()
@@ -327,10 +324,11 @@ def server_run(args: argparse.Namespace) -> None:
                                 network.messageToAll_broadcast(leave_msg)
                                 logger.info(f"[NETWORK] Sent SCREEN_LEAVE to all clients")
 
-                                # Confine cursor at boundary to prevent visible movement
-                                display_manager.cursor_confine(transition.position)
+                                # Store position for relative movement tracking
+                                # Don't confine cursor - let it move freely (we'll track deltas)
+                                last_remote_position[0] = position
                                 logger.info(
-                                    f"[CURSOR] Confined cursor at ({transition.position.x}, {transition.position.y})"
+                                    f"[CURSOR] Tracking from position ({position.x}, {position.y})"
                                 )
 
                                 # Switch to remote control
@@ -338,14 +336,24 @@ def server_run(args: argparse.Namespace) -> None:
                                 logger.info("[STATE] Switched to REMOTE control")
 
                 elif control_state_ref[0] == ControlState.REMOTE:
-                    # During REMOTE control: LOCAL user's physical mouse movements
-                    # control the REMOTE cursor. Broadcast those movements to client.
-                    mouse_event = MouseEvent(
-                        event_type=EventType.MOUSE_MOVE,
-                        position=position
-                    )
-                    move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
-                    network.messageToAll_broadcast(move_msg)
+                    # During REMOTE control: Send relative mouse movements to client
+                    # This prevents issues with absolute coordinates from different screen spaces
+                    if last_remote_position[0] is not None:
+                        delta_x = position.x - last_remote_position[0].x
+                        delta_y = position.y - last_remote_position[0].y
+
+                        # Only send if there's actual movement
+                        if delta_x != 0 or delta_y != 0:
+                            # Send relative movement
+                            mouse_event = MouseEvent(
+                                event_type=EventType.MOUSE_MOVE,
+                                position=Position(x=delta_x, y=delta_y)
+                            )
+                            move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
+                            network.messageToAll_broadcast(move_msg)
+
+                        # Update last position
+                        last_remote_position[0] = position
 
             # Small sleep to prevent busy waiting
             time.sleep(config.server.poll_interval_ms / 1000.0)
