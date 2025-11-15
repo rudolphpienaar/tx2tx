@@ -354,8 +354,24 @@ def server_run(args: argparse.Namespace) -> None:
                             move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
                             network.messageToAll_broadcast(move_msg)
 
-                        # Update last position
-                        last_remote_position[0] = position
+                        # Warp LOCAL cursor back to center if getting close to edges
+                        # This prevents cursor from hitting screen boundaries which would
+                        # stop us from detecting further movement in that direction
+                        center_x = screen_geometry.width // 2
+                        center_y = screen_geometry.height // 2
+                        edge_margin = 100  # Warp when within 100px of any edge
+
+                        if (position.x < edge_margin or
+                            position.x > screen_geometry.width - edge_margin or
+                            position.y < edge_margin or
+                            position.y > screen_geometry.height - edge_margin):
+                            # Warp to center
+                            display_manager.cursorPosition_set(Position(x=center_x, y=center_y))
+                            last_remote_position[0] = Position(x=center_x, y=center_y)
+                            logger.debug(f"[CURSOR] Warped LOCAL cursor to center to avoid edges")
+                        else:
+                            # Update last position
+                            last_remote_position[0] = position
 
             # Small sleep to prevent busy waiting
             time.sleep(config.server.poll_interval_ms / 1000.0)
