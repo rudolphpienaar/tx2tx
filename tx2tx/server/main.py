@@ -262,6 +262,7 @@ def server_run(args: argparse.Namespace) -> None:
     control_state_ref = [ControlState.LOCAL]
     last_local_switch_time = [0.0]  # Timestamp of last REMOTE→LOCAL switch
     last_remote_position = [None]  # Track position for relative movement during REMOTE
+    cursor_just_warped = [False]  # Flag to skip delta calculation after cursor warp
 
     try:
         network.server_start()
@@ -349,38 +350,45 @@ def server_run(args: argparse.Namespace) -> None:
                     # During REMOTE control: Send relative mouse movements to client
                     # This prevents issues with absolute coordinates from different screen spaces
                     if last_remote_position[0] is not None:
-                        delta_x = position.x - last_remote_position[0].x
-                        delta_y = position.y - last_remote_position[0].y
-
-                        # Only send if there's actual movement
-                        if delta_x != 0 or delta_y != 0:
-                            # Send relative movement
-                            mouse_event = MouseEvent(
-                                event_type=EventType.MOUSE_MOVE,
-                                position=Position(x=delta_x, y=delta_y)
-                            )
-                            move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
-                            network.messageToAll_broadcast(move_msg)
-                            logger.debug(f"[REMOTE] Sent delta: ({delta_x}, {delta_y}) from pos ({position.x}, {position.y})")
-
-                        # Warp LOCAL cursor back to center if getting close to edges
-                        # This prevents cursor from hitting screen boundaries which would
-                        # stop us from detecting further movement in that direction
-                        center_x = screen_geometry.width // 2
-                        center_y = screen_geometry.height // 2
-                        edge_margin = 100  # Warp when within 100px of any edge
-
-                        if (position.x < edge_margin or
-                            position.x > screen_geometry.width - edge_margin or
-                            position.y < edge_margin or
-                            position.y > screen_geometry.height - edge_margin):
-                            # Warp to center
-                            display_manager.cursorPosition_set(Position(x=center_x, y=center_y))
-                            last_remote_position[0] = Position(x=center_x, y=center_y)
-                            logger.debug(f"[CURSOR] Warped LOCAL cursor to center to avoid edges")
-                        else:
-                            # Update last position
+                        # If we just warped the cursor, skip this iteration's delta calculation
+                        # The position will be garbage due to accumulated physical mouse movement
+                        if cursor_just_warped[0]:
+                            logger.debug(f"[CURSOR] Skipping delta after warp, updating baseline to ({position.x}, {position.y})")
                             last_remote_position[0] = position
+                            cursor_just_warped[0] = False
+                        else:
+                            delta_x = position.x - last_remote_position[0].x
+                            delta_y = position.y - last_remote_position[0].y
+
+                            # Only send if there's actual movement
+                            if delta_x != 0 or delta_y != 0:
+                                # Send relative movement
+                                mouse_event = MouseEvent(
+                                    event_type=EventType.MOUSE_MOVE,
+                                    position=Position(x=delta_x, y=delta_y)
+                                )
+                                move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
+                                network.messageToAll_broadcast(move_msg)
+                                logger.debug(f"[REMOTE] Sent delta: ({delta_x}, {delta_y}) from pos ({position.x}, {position.y})")
+
+                            # Warp LOCAL cursor back to center if getting close to edges
+                            # This prevents cursor from hitting screen boundaries which would
+                            # stop us from detecting further movement in that direction
+                            center_x = screen_geometry.width // 2
+                            center_y = screen_geometry.height // 2
+                            edge_margin = 100  # Warp when within 100px of any edge
+
+                            if (position.x < edge_margin or
+                                position.x > screen_geometry.width - edge_margin or
+                                position.y < edge_margin or
+                                position.y > screen_geometry.height - edge_margin):
+                                # Warp to center and set flag to skip next delta
+                                display_manager.cursorPosition_set(Position(x=center_x, y=center_y))
+                                cursor_just_warped[0] = True
+                                logger.debug(f"[CURSOR] Warped LOCAL cursor to center to avoid edges")
+                            else:
+                                # Update last position
+                                last_remote_position[0] = position
 
             # Small sleep to prevent busy waiting
             time.sleep(config.server.poll_interval_ms / 1000.0)
