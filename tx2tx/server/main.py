@@ -382,10 +382,13 @@ def server_run(args: argparse.Namespace) -> None:
                                 position.x > screen_geometry.width - edge_margin or
                                 position.y < edge_margin or
                                 position.y > screen_geometry.height - edge_margin):
-                                # Warp to center and set flag to skip next delta
-                                display_manager.cursorPosition_set(Position(x=center_x, y=center_y))
+                                # Warp to center and update baseline immediately to center position
+                                # (don't wait for next poll - physical mouse will push it back to edge)
+                                center_pos = Position(x=center_x, y=center_y)
+                                display_manager.cursorPosition_set(center_pos)
+                                last_remote_position[0] = center_pos
                                 cursor_just_warped[0] = True
-                                logger.debug(f"[CURSOR] Warped LOCAL cursor to center to avoid edges")
+                                logger.debug(f"[CURSOR] Warped LOCAL cursor to center, baseline set to ({center_x}, {center_y})")
                             else:
                                 # Update last position
                                 last_remote_position[0] = position
