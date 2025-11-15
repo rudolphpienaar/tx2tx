@@ -9,8 +9,9 @@ from tx2tx.common.types import Direction, Position, ScreenGeometry, ScreenTransi
 logger = logging.getLogger(__name__)
 
 # Cursor entry margin: position cursor this many pixels inside the screen edge
-# to avoid immediate boundary detection when edge_threshold=0
-ENTRY_MARGIN_PIXELS = 5
+# to avoid immediate boundary detection and ping-pong loops
+# Must be large enough to prevent velocity from triggering re-detection
+ENTRY_MARGIN_PIXELS = 50
 
 
 class ClientPosition(Enum):
