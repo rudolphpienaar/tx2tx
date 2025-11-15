@@ -10,6 +10,7 @@ from typing import NoReturn, Optional
 from tx2tx import __version__
 from tx2tx.client.network import ClientNetwork
 from tx2tx.common.config import ConfigLoader
+from tx2tx.common.types import EventType
 from tx2tx.protocol.message import Message, MessageParser, MessageType
 from tx2tx.x11.display import DisplayManager
 from tx2tx.x11.injector import EventInjector
