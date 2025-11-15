@@ -217,6 +217,7 @@ def server_run(args: argparse.Namespace) -> None:
     logger.info(f"tx2tx server v{__version__}")
     logger.info(f"Listening on {config.server.host}:{config.server.port}")
     logger.info(f"Edge threshold: {config.server.edge_threshold} pixels")
+    logger.info(f"Velocity threshold: {config.server.velocity_threshold} px/s (edge resistance)")
     logger.info(f"Display: {config.server.display or '$DISPLAY'}")
     logger.info(f"Max clients: {config.server.max_clients}")
 
@@ -233,7 +234,8 @@ def server_run(args: argparse.Namespace) -> None:
 
     pointer_tracker = PointerTracker(
         display_manager=display_manager,
-        edge_threshold=config.server.edge_threshold
+        edge_threshold=config.server.edge_threshold,
+        velocity_threshold=config.server.velocity_threshold
     )
 
     # Initialize screen layout for coordinate transformations

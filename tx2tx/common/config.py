@@ -15,6 +15,7 @@ class ServerConfig:
     port: int
     display: Optional[str]
     edge_threshold: int
+    velocity_threshold: float  # Minimum velocity (px/s) to cross boundary
     poll_interval_ms: int
     max_clients: int
     client_position: str  # Position of client relative to server
@@ -128,6 +129,7 @@ class ConfigLoader:
             port=server_data["port"],
             display=server_data.get("display"),
             edge_threshold=server_data["edge_threshold"],
+            velocity_threshold=server_data.get("velocity_threshold", 100.0),  # Default 100 px/s
             poll_interval_ms=server_data["poll_interval_ms"],
             max_clients=server_data["max_clients"],
             client_position=server_data.get("client_position", "west"),  # Default to west
