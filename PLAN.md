@@ -370,7 +370,7 @@ display_manager.pointer_ungrab()
 
 ---
 
-### 🔄 Phase 2: Add ScreenContext Enum (CURRENT)
+### ✅ Phase 2: Add ScreenContext Enum (COMPLETED)
 
 **Goal:** Define the new state enum.
 
@@ -391,7 +391,7 @@ class ScreenContext(Enum):
 
 ---
 
-### Phase 3: Strip Out Broken Complexity
+### 🔄 Phase 3: Strip Out Broken Complexity (CURRENT)
 
 **Goal:** Remove all the delta tracking, warping, and complex REMOTE mode logic.
 
