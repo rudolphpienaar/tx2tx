@@ -41,6 +41,7 @@ class DisplayManager:
                 original_get_socket = unix_connect.get_socket
 
                 def _termux_get_socket(dname: str, protocol: object, host: object, dno: int) -> object:
+                    """Termux-specific socket locator that checks PREFIX/tmp before /tmp"""
                     # For unix sockets, check termux location first
                     if (protocol == 'unix' or (not protocol and (not host or host == 'unix'))):
                         termux_address = f"{os.environ['PREFIX']}/tmp/.X11-unix/X{dno}"

@@ -11,16 +11,14 @@ from typing import NoReturn, Optional
 from tx2tx import __version__
 from tx2tx.common.config import ConfigLoader
 from tx2tx.common.layout import ClientPosition, ScreenLayout
-from tx2tx.common.types import EventType, MouseEvent, Position, ScreenContext, ScreenGeometry, ScreenTransition
-from tx2tx.protocol.message import Message, MessageBuilder, MessageType
+from tx2tx.common.settings import settings
+from tx2tx.common.types import Direction, EventType, MouseEvent, NormalizedPoint, Position, Screen, ScreenContext, ScreenTransition
+from tx2tx.protocol.message import Message, MessageBuilder, MessageParser, MessageType
 from tx2tx.server.network import ClientConnection, ServerNetwork
 from tx2tx.x11.display import DisplayManager
 from tx2tx.x11.pointer import PointerTracker
 
 logger = logging.getLogger(__name__)
-
-
-# ControlState removed - now using ScreenContext from types.py
 
 
 def arguments_parse() -> argparse.Namespace:
@@ -113,7 +111,7 @@ def clientMessage_handle(
     context: Optional[list[ScreenContext]] = None,
     display_manager: Optional[DisplayManager] = None,
     screen_layout: Optional[ScreenLayout] = None,
-    server_geometry: Optional[ScreenGeometry] = None
+    server_screen: Optional[Screen] = None
 ) -> None:
     """
     Handle message received from client
@@ -124,7 +122,7 @@ def clientMessage_handle(
         context: Mutable reference [ScreenContext] to track global screen context
         display_manager: Display manager for cursor control
         screen_layout: Screen layout for coordinate transformation
-        server_geometry: Server screen geometry for coordinate transformation
+        server_screen: Server screen for coordinate transformation
     """
     logger.info(f"Received {message.msg_type.value} from {client.address}")
 
@@ -144,7 +142,6 @@ def clientMessage_handle(
         logger.debug("Keepalive received")
     elif message.msg_type == MessageType.SCREEN_ENTER:
         # Client is returning control to server
-        from tx2tx.protocol.message import MessageParser
         client_transition = MessageParser.screenTransition_parse(message)
         logger.info(
             f"Client re-entry at {client_transition.direction.value} edge "
@@ -153,17 +150,17 @@ def clientMessage_handle(
 
         if context is not None and display_manager is not None:
             # Transform client coordinates to server coordinates
-            if screen_layout is not None and server_geometry is not None:
+            if screen_layout is not None and server_screen is not None:
                 if client.screen_width and client.screen_height:
-                    client_geometry = ScreenGeometry(
+                    client_screen = Screen(
                         width=client.screen_width,
                         height=client.screen_height
                     )
                     # Transform client exit coordinates to server re-entry coordinates
                     server_transition = screen_layout.toServerCoordinates_transform(
                         client_transition=client_transition,
-                        client_geometry=client_geometry,
-                        server_geometry=server_geometry
+                        client_geometry=client_screen,
+                        server_geometry=server_screen
                     )
                     logger.info(
                         f"Transformed to server: {server_transition.direction.value} at "
@@ -219,6 +216,9 @@ def server_run(args: argparse.Namespace) -> None:
     except Exception as e:
         print(f"Error loading config: {e}", file=sys.stderr)
         sys.exit(1)
+
+    # Initialize settings singleton with loaded config
+    settings.initialize(config)
 
     # Setup logging
     logging_setup(config.logging.level, config.logging.format, config.logging.file)
@@ -288,6 +288,7 @@ def server_run(args: argparse.Namespace) -> None:
 
             # Receive messages from clients with callback closure
             def message_handler(client: ClientConnection, message: Message) -> None:
+                """Handle incoming messages from clients and track context switches"""
                 clientMessage_handle(
                     client, message, context_ref, display_manager,
                     screen_layout, screen_geometry
@@ -304,11 +305,11 @@ def server_run(args: argparse.Namespace) -> None:
                 position = pointer_tracker.position_query()
 
                 if context_ref[0] == ScreenContext.CENTER:
-                    # Add hysteresis: skip boundary detection for 200ms after switching to CENTER
+                    # Add hysteresis: skip boundary detection after switching to CENTER
                     # This prevents immediate re-detection of boundary after cursor release
                     time_since_center_switch = time.time() - last_center_switch_time[0]
 
-                    if time_since_center_switch >= 0.2:
+                    if time_since_center_switch >= settings.HYSTERESIS_DELAY_SEC:
                         # Detect boundary crossings
                         transition = pointer_tracker.boundary_detect(position, screen_geometry)
 
@@ -319,7 +320,6 @@ def server_run(args: argparse.Namespace) -> None:
                             )
 
                             # FIX Issue 1: Map direction to context instead of hardcoding WEST
-                            from tx2tx.common.types import Direction
                             direction_to_context = {
                                 Direction.LEFT: ScreenContext.WEST,
                                 Direction.RIGHT: ScreenContext.EAST,
@@ -383,10 +383,10 @@ def server_run(args: argparse.Namespace) -> None:
                         if velocity >= config.server.velocity_threshold:
                             logger.info(f"[BOUNDARY] Returning from {context_ref[0].value.upper()} at ({position.x}, {position.y})")
 
-                            # Send hide signal to client
+                            # Send hide signal to client (negative coordinates = hide)
                             hide_event = MouseEvent(
                                 event_type=EventType.MOUSE_MOVE,
-                                position=Position(x=-10000, y=-10000)  # -1.0 encoded
+                                normalized_point=NormalizedPoint(x=-1.0, y=-1.0)
                             )
                             hide_msg = MessageBuilder.mouseEventMessage_create(hide_event)
                             network.messageToAll_broadcast(hide_msg)
@@ -400,11 +400,11 @@ def server_run(args: argparse.Namespace) -> None:
                             if previous_context == ScreenContext.WEST:
                                 entry_pos = Position(x=1, y=position.y)
                             elif previous_context == ScreenContext.EAST:
-                                entry_pos = Position(x=screen_geometry.width - 2, y=position.y)
+                                entry_pos = Position(x=screen_geometry.width - settings.EDGE_ENTRY_OFFSET, y=position.y)
                             elif previous_context == ScreenContext.NORTH:
                                 entry_pos = Position(x=position.x, y=1)
                             else:  # SOUTH
-                                entry_pos = Position(x=position.x, y=screen_geometry.height - 2)
+                                entry_pos = Position(x=position.x, y=screen_geometry.height - settings.EDGE_ENTRY_OFFSET)
 
                             # Position cursor at entry edge
                             display_manager.cursorPosition_set(entry_pos)
@@ -424,24 +424,23 @@ def server_run(args: argparse.Namespace) -> None:
                             # Record timestamp
                             last_center_switch_time[0] = time.time()
                     else:
-                        # FIX Issue 5: Consolidate duplicate coordinate sending
                         # Not returning to CENTER - send normalized coordinates to active client
-                        norm_x = position.x / screen_geometry.width
-                        norm_y = position.y / screen_geometry.height
+                        normalized_point = screen_geometry.normalize(position)
 
-                        # Encode normalized floats as integers (multiply by 10000)
-                        COORD_SCALE_FACTOR = 10000  # FIX Issue 10: Named constant
                         mouse_event = MouseEvent(
                             event_type=EventType.MOUSE_MOVE,
-                            position=Position(x=int(norm_x * COORD_SCALE_FACTOR), y=int(norm_y * COORD_SCALE_FACTOR))
+                            normalized_point=normalized_point
                         )
                         move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
                         network.messageToAll_broadcast(move_msg)
 
-                        logger.debug(f"[{context_ref[0].value.upper()}] Sent norm=({norm_x:.4f}, {norm_y:.4f})")
+                        logger.debug(
+                            f"[{context_ref[0].value.upper()}] Sent "
+                            f"normalized=({normalized_point.x:.4f}, {normalized_point.y:.4f})"
+                        )
 
             # Small sleep to prevent busy waiting
-            time.sleep(config.server.poll_interval_ms / 1000.0)
+            time.sleep(config.server.poll_interval_ms / settings.POLL_INTERVAL_DIVISOR)
 
     except Exception as e:
         logger.error(f"Server error: {e}", exc_info=True)

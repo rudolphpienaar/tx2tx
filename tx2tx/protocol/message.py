@@ -10,6 +10,7 @@ from tx2tx.common.types import (
     EventType,
     KeyEvent,
     MouseEvent,
+    NormalizedPoint,
     Position,
     ScreenTransition,
 )
@@ -120,12 +121,27 @@ class MessageBuilder:
 
     @staticmethod
     def mouseEventMessage_create(event: MouseEvent) -> Message:
-        """Create mouse event message"""
+        """Create mouse event message
+
+        Serializes mouse event for protocol transmission. Uses normalized_point
+        if available (for MOUSE_MOVE across different resolutions), otherwise
+        uses position (for button events with pixel coordinates).
+        """
         payload: Dict[str, Any] = {
             "event_type": event.event_type.value,
-            "x": event.position.x,
-            "y": event.position.y
         }
+
+        # Prefer normalized_point for protocol (resolution-independent)
+        if event.normalized_point is not None:
+            payload["norm_x"] = event.normalized_point.x
+            payload["norm_y"] = event.normalized_point.y
+        elif event.position is not None:
+            # Fallback to pixel position (for button events)
+            payload["x"] = event.position.x
+            payload["y"] = event.position.y
+        else:
+            raise ValueError("MouseEvent must have either position or normalized_point")
+
         if event.button is not None:
             payload["button"] = event.button
 
@@ -162,6 +178,9 @@ class MessageParser:
         """
         Parse mouse event from message
 
+        Deserializes mouse event from protocol. Handles both normalized coordinates
+        (norm_x, norm_y) and pixel coordinates (x, y).
+
         Args:
             msg: Protocol message
 
@@ -169,11 +188,24 @@ class MessageParser:
             MouseEvent object
         """
         payload = msg.payload
-        return MouseEvent(
-            event_type=EventType(payload["event_type"]),
-            position=Position(x=payload["x"], y=payload["y"]),
-            button=payload.get("button")
-        )
+        event_type = EventType(payload["event_type"])
+
+        # Check for normalized coordinates (v2.0 protocol)
+        if "norm_x" in payload and "norm_y" in payload:
+            return MouseEvent(
+                event_type=event_type,
+                normalized_point=NormalizedPoint(x=payload["norm_x"], y=payload["norm_y"]),
+                button=payload.get("button")
+            )
+        # Fallback to pixel coordinates (v1.0 protocol or button events)
+        elif "x" in payload and "y" in payload:
+            return MouseEvent(
+                event_type=event_type,
+                position=Position(x=payload["x"], y=payload["y"]),
+                button=payload.get("button")
+            )
+        else:
+            raise ValueError("MouseEvent message must contain either (norm_x, norm_y) or (x, y)")
 
     @staticmethod
     def keyEvent_parse(msg: Message) -> KeyEvent:

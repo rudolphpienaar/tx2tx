@@ -1,0 +1,90 @@
+[1m============================= test session starts ==============================[0m
+platform linux -- Python 3.12.12, pytest-9.0.1, pluggy-1.6.0 -- /data/data/com.termux/files/usr/bin/python3.12
+cachedir: .pytest_cache
+rootdir: /data/data/com.termux/files/home/src/tx2tx
+configfile: pytest.ini
+plugins: cov-7.0.0
+[1mcollecting ... [0mcollected 80 items
+
+tests/unit/test_types.py::TestPosition::test_creation [32mPASSED[0m[32m             [  1%][0m
+tests/unit/test_types.py::TestPosition::test_immutable [32mPASSED[0m[32m            [  2%][0m
+tests/unit/test_types.py::TestPosition::test_isWithinBounds [32mPASSED[0m[32m       [  3%][0m
+tests/unit/test_types.py::TestNormalizedPoint::test_creation_valid [32mPASSED[0m[32m [  5%][0m
+tests/unit/test_types.py::TestNormalizedPoint::test_creation_invalid [32mPASSED[0m[32m [  6%][0m
+tests/unit/test_types.py::TestNormalizedPoint::test_negative_coords_allowed [32mPASSED[0m[32m [  7%][0m
+tests/unit/test_types.py::TestNormalizedPoint::test_immutable [32mPASSED[0m[32m     [  8%][0m
+tests/unit/test_types.py::TestScreen::test_creation [32mPASSED[0m[32m               [ 10%][0m
+tests/unit/test_types.py::TestScreen::test_contains [32mPASSED[0m[32m               [ 11%][0m
+tests/unit/test_types.py::TestScreen::test_normalize [32mPASSED[0m[32m              [ 12%][0m
+tests/unit/test_types.py::TestScreen::test_denormalize [32mPASSED[0m[32m            [ 13%][0m
+tests/unit/test_types.py::TestScreen::test_round_trip [32mPASSED[0m[32m             [ 15%][0m
+tests/unit/test_types.py::TestScreen::test_different_resolutions [32mPASSED[0m[32m  [ 16%][0m
+tests/unit/test_protocol.py::TestMessageSerialization::test_serialize_deserialize_round_trip [32mPASSED[0m[32m [ 17%][0m
+tests/unit/test_protocol.py::TestMessageSerialization::test_serialize_contains_msg_type [32mPASSED[0m[32m [ 18%][0m
+tests/unit/test_protocol.py::TestMessageBuilder::test_hello_message [32mPASSED[0m[32m [ 20%][0m
+tests/unit/test_protocol.py::TestMessageBuilder::test_hello_message_without_screen [32mPASSED[0m[32m [ 21%][0m
+tests/unit/test_protocol.py::TestMessageBuilder::test_screen_info_message [32mPASSED[0m[32m [ 22%][0m
+tests/unit/test_protocol.py::TestMessageBuilder::test_screen_enter_message [32mPASSED[0m[32m [ 23%][0m
+tests/unit/test_protocol.py::TestMessageBuilder::test_mouse_event_with_normalized_point [32mPASSED[0m[32m [ 25%][0m
+tests/unit/test_protocol.py::TestMessageBuilder::test_mouse_event_with_pixel_position [32mPASSED[0m[32m [ 26%][0m
+tests/unit/test_protocol.py::TestMessageBuilder::test_mouse_event_hide_signal [32mPASSED[0m[32m [ 27%][0m
+tests/unit/test_protocol.py::TestMessageBuilder::test_key_event_message [32mPASSED[0m[32m [ 28%][0m
+tests/unit/test_protocol.py::TestMessageBuilder::test_keepalive_message [32mPASSED[0m[32m [ 30%][0m
+tests/unit/test_protocol.py::TestMessageBuilder::test_error_message [32mPASSED[0m[32m [ 31%][0m
+tests/unit/test_protocol.py::TestMessageParser::test_parse_mouse_event_normalized [32mPASSED[0m[32m [ 32%][0m
+tests/unit/test_protocol.py::TestMessageParser::test_parse_mouse_event_pixels [32mPASSED[0m[32m [ 33%][0m
+tests/unit/test_protocol.py::TestMessageParser::test_parse_mouse_event_missing_coords [32mPASSED[0m[32m [ 35%][0m
+tests/unit/test_protocol.py::TestMessageParser::test_parse_key_event [32mPASSED[0m[32m [ 36%][0m
+tests/unit/test_protocol.py::TestMessageParser::test_parse_key_event_without_keysym [32mPASSED[0m[32m [ 37%][0m
+tests/unit/test_protocol.py::TestMessageParser::test_parse_screen_transition [32mPASSED[0m[32m [ 38%][0m
+tests/unit/test_protocol.py::TestProtocolRoundTrip::test_mouse_move_round_trip [32mPASSED[0m[32m [ 40%][0m
+tests/unit/test_protocol.py::TestProtocolRoundTrip::test_screen_transition_round_trip [32mPASSED[0m[32m [ 41%][0m
+tests/unit/test_settings.py::TestSettingsSingleton::test_singleton_same_instance [32mPASSED[0m[32m [ 42%][0m
+tests/unit/test_settings.py::TestSettingsSingleton::test_global_settings_is_singleton [32mPASSED[0m[32m [ 43%][0m
+tests/unit/test_settings.py::TestSettingsConstants::test_server_constants [32mPASSED[0m[32m [ 45%][0m
+tests/unit/test_settings.py::TestSettingsConstants::test_client_constants [32mPASSED[0m[32m [ 46%][0m
+tests/unit/test_settings.py::TestSettingsConstants::test_pointer_tracking_constants [32mPASSED[0m[32m [ 47%][0m
+tests/unit/test_settings.py::TestSettingsInitialization::test_initialize_with_config [32mPASSED[0m[32m [ 48%][0m
+tests/unit/test_settings.py::TestSettingsInitialization::test_config_property_before_init_raises [32mPASSED[0m[32m [ 50%][0m
+tests/unit/test_settings.py::TestSettingsInitialization::test_initialize_multiple_times [32mPASSED[0m[32m [ 51%][0m
+tests/unit/test_settings.py::TestSettingsDocumentation::test_constants_have_docstrings [32mPASSED[0m[32m [ 52%][0m
+tests/unit/test_settings.py::TestSettingsThreadSafety::test_singleton_initialization_idempotent [32mPASSED[0m[32m [ 53%][0m
+tests/unit/test_config.py::TestConfigLoaderYAMLLoading::test_yaml_load_valid_file [32mPASSED[0m[32m [ 55%][0m
+tests/unit/test_config.py::TestConfigLoaderYAMLLoading::test_yaml_load_missing_file_raises [32mPASSED[0m[32m [ 56%][0m
+tests/unit/test_config.py::TestConfigLoaderYAMLLoading::test_yaml_load_invalid_yaml_raises [32mPASSED[0m[32m [ 57%][0m
+tests/unit/test_config.py::TestConfigLoaderYAMLLoading::test_yaml_load_non_dict_raises [32mPASSED[0m[32m [ 58%][0m
+tests/unit/test_config.py::TestConfigLoaderParsing::test_config_parse_minimal [32mPASSED[0m[32m [ 60%][0m
+tests/unit/test_config.py::TestConfigLoaderParsing::test_config_parse_with_defaults [32mPASSED[0m[32m [ 61%][0m
+tests/unit/test_config.py::TestConfigLoaderParsing::test_config_parse_with_named_clients [32mPASSED[0m[32m [ 62%][0m
+tests/unit/test_config.py::TestConfigLoaderParsing::test_config_parse_missing_required_field_raises [32mPASSED[0m[32m [ 63%][0m
+tests/unit/test_config.py::TestConfigLoaderFileFinding::test_configFile_find_current_directory [32mPASSED[0m[32m [ 65%][0m
+tests/unit/test_config.py::TestConfigLoaderFileFinding::test_configFile_find_returns_none_when_not_found [32mPASSED[0m[32m [ 66%][0m
+tests/unit/test_config.py::TestConfigLoaderFullLoad::test_config_load_explicit_path [32mPASSED[0m[32m [ 67%][0m
+tests/unit/test_config.py::TestConfigLoaderFullLoad::test_config_load_auto_discover_raises_when_not_found [32mPASSED[0m[32m [ 68%][0m
+tests/unit/test_config.py::TestConfigLoaderOverrides::test_configWithOverrides_load_server_overrides [32mPASSED[0m[32m [ 70%][0m
+tests/unit/test_config.py::TestConfigLoaderOverrides::test_configWithOverrides_load_client_overrides [32mPASSED[0m[32m [ 71%][0m
+tests/unit/test_config.py::TestConfigLoaderOverrides::test_configWithOverrides_load_none_values_ignored [32mPASSED[0m[32m [ 72%][0m
+tests/unit/test_config.py::TestConfigDataclasses::test_server_config_creation [32mPASSED[0m[32m [ 73%][0m
+tests/unit/test_config.py::TestConfigDataclasses::test_named_client_config_creation [32mPASSED[0m[32m [ 75%][0m
+tests/unit/test_config.py::TestConfigDataclasses::test_client_reconnect_config_creation [32mPASSED[0m[32m [ 76%][0m
+tests/unit/test_pointer.py::TestPointerTrackerVelocityCalculation::test_velocity_calculate_insufficient_samples [32mPASSED[0m[32m [ 77%][0m
+tests/unit/test_pointer.py::TestPointerTrackerVelocityCalculation::test_velocity_calculate_zero_time_delta [32mPASSED[0m[32m [ 78%][0m
+tests/unit/test_pointer.py::TestPointerTrackerVelocityCalculation::test_velocity_calculate_manhattan_distance [32mPASSED[0m[32m [ 80%][0m
+tests/unit/test_pointer.py::TestPointerTrackerVelocityCalculation::test_velocity_calculate_fast_movement [32mPASSED[0m[32m [ 81%][0m
+tests/unit/test_pointer.py::TestPointerTrackerVelocityCalculation::test_velocity_calculate_slow_movement [32mPASSED[0m[32m [ 82%][0m
+tests/unit/test_pointer.py::TestPointerTrackerVelocityCalculation::test_velocity_calculate_multi_sample_history [32mPASSED[0m[32m [ 83%][0m
+tests/unit/test_pointer.py::TestPointerTrackerBoundaryDetection::test_boundary_detect_left_edge_with_velocity [32mPASSED[0m[32m [ 85%][0m
+tests/unit/test_pointer.py::TestPointerTrackerBoundaryDetection::test_boundary_detect_right_edge_with_velocity [32mPASSED[0m[32m [ 86%][0m
+tests/unit/test_pointer.py::TestPointerTrackerBoundaryDetection::test_boundary_detect_top_edge_with_velocity [32mPASSED[0m[32m [ 87%][0m
+tests/unit/test_pointer.py::TestPointerTrackerBoundaryDetection::test_boundary_detect_bottom_edge_with_velocity [32mPASSED[0m[32m [ 88%][0m
+tests/unit/test_pointer.py::TestPointerTrackerBoundaryDetection::test_boundary_detect_at_edge_insufficient_velocity [32mPASSED[0m[32m [ 90%][0m
+tests/unit/test_pointer.py::TestPointerTrackerBoundaryDetection::test_boundary_detect_center_screen_with_velocity [32mPASSED[0m[32m [ 91%][0m
+tests/unit/test_pointer.py::TestPointerTrackerBoundaryDetection::test_boundary_detect_exactly_at_threshold [32mPASSED[0m[32m [ 92%][0m
+tests/unit/test_pointer.py::TestPointerTrackerBoundaryDetection::test_boundary_detect_just_inside_threshold [32mPASSED[0m[32m [ 93%][0m
+tests/unit/test_pointer.py::TestPointerTrackerEdgeCases::test_custom_velocity_threshold [32mPASSED[0m[32m [ 95%][0m
+tests/unit/test_pointer.py::TestPointerTrackerEdgeCases::test_default_velocity_threshold [32mPASSED[0m[32m [ 96%][0m
+tests/unit/test_pointer.py::TestPointerTrackerEdgeCases::test_zero_edge_threshold [32mPASSED[0m[32m [ 97%][0m
+tests/unit/test_pointer.py::TestPointerTrackerEdgeCases::test_positionLast_get_initially_none [32mPASSED[0m[32m [ 98%][0m
+tests/unit/test_pointer.py::TestPointerTrackerEdgeCases::test_corner_positions_prioritize_horizontal [32mPASSED[0m[32m [100%][0m
+
+[32m============================== [32m[1m80 passed[0m[32m in 0.28s[0m[32m ==============================[0m

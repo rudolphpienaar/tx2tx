@@ -4,6 +4,7 @@ import time
 from collections import deque
 from typing import Optional
 
+from tx2tx.common.settings import settings
 from tx2tx.common.types import Direction, Position, ScreenGeometry, ScreenTransition
 from tx2tx.x11.display import DisplayManager
 
@@ -15,7 +16,7 @@ class PointerTracker:
         self,
         display_manager: DisplayManager,
         edge_threshold: int = 0,
-        velocity_threshold: float = 100.0  # pixels per second
+        velocity_threshold: float | None = None
     ) -> None:
         """
         Initialize pointer tracker
@@ -27,10 +28,10 @@ class PointerTracker:
         """
         self._display_manager: DisplayManager = display_manager
         self._edge_threshold: int = edge_threshold
-        self._velocity_threshold: float = velocity_threshold
+        self._velocity_threshold: float = velocity_threshold if velocity_threshold is not None else settings.DEFAULT_VELOCITY_THRESHOLD
         self._last_position: Optional[Position] = None
         # Track recent positions for velocity calculation (position, timestamp)
-        self._position_history: deque[tuple[Position, float]] = deque(maxlen=5)
+        self._position_history: deque[tuple[Position, float]] = deque(maxlen=settings.POSITION_HISTORY_SIZE)
 
     def position_query(self) -> Position:
         """
@@ -59,7 +60,7 @@ class PointerTracker:
         Returns:
             Velocity in pixels per second (Manhattan distance)
         """
-        if len(self._position_history) < 2:
+        if len(self._position_history) < settings.MIN_SAMPLES_FOR_VELOCITY:
             return 0.0
 
         # Compare most recent position to oldest in history

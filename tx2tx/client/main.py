@@ -10,7 +10,8 @@ from typing import NoReturn, Optional
 from tx2tx import __version__
 from tx2tx.client.network import ClientNetwork
 from tx2tx.common.config import ConfigLoader
-from tx2tx.common.types import EventType
+from tx2tx.common.settings import settings
+from tx2tx.common.types import EventType, MouseEvent, Position, Screen
 from tx2tx.protocol.message import Message, MessageParser, MessageType
 from tx2tx.x11.display import DisplayManager
 from tx2tx.x11.injector import EventInjector
@@ -150,32 +151,37 @@ def serverMessage_handle(
             mouse_event = MessageParser.mouseEvent_parse(message)
 
             if mouse_event.event_type == EventType.MOUSE_MOVE:
-                # Decode normalized coordinates (encoded as int * COORD_SCALE_FACTOR)
-                COORD_SCALE_FACTOR = 10000.0  # Must match server's encoding
-                norm_x = mouse_event.position.x / COORD_SCALE_FACTOR
-                norm_y = mouse_event.position.y / COORD_SCALE_FACTOR
+                # Handle normalized coordinates (v2.0 protocol)
+                if mouse_event.normalized_point is not None:
+                    norm_point = mouse_event.normalized_point
 
-                # Check for hide signal
-                if norm_x < 0 or norm_y < 0:
-                    display_manager.cursor_hide()
-                    logger.info("Cursor hidden")
+                    # Check for hide signal (negative coordinates)
+                    if norm_point.x < 0 or norm_point.y < 0:
+                        display_manager.cursor_hide()
+                        logger.info("Cursor hidden")
+                    else:
+                        # Convert normalized coordinates to client pixel position
+                        client_screen = display_manager.screenGeometry_get()
+                        pixel_position = client_screen.denormalize(norm_point)
+
+                        # Create pixel position mouse event for injection
+                        actual_event = MouseEvent(
+                            event_type=EventType.MOUSE_MOVE,
+                            position=pixel_position
+                        )
+
+                        # Show cursor and move
+                        display_manager.cursor_show()
+                        injector.mouseEvent_inject(actual_event)
+                        logger.debug(
+                            f"Cursor at ({pixel_position.x}, {pixel_position.y}) "
+                            f"from normalized ({norm_point.x:.4f}, {norm_point.y:.4f})"
+                        )
                 else:
-                    # Scale to client resolution
-                    client_geom = display_manager.screenGeometry_get()
-                    actual_x = int(norm_x * client_geom.width)
-                    actual_y = int(norm_y * client_geom.height)
-
-                    # Create actual position mouse event for injection
-                    from tx2tx.common.types import MouseEvent as ME, Position
-                    actual_event = ME(
-                        event_type=EventType.MOUSE_MOVE,
-                        position=Position(x=actual_x, y=actual_y)
-                    )
-
-                    # Show cursor and move
-                    display_manager.cursor_show()
-                    injector.mouseEvent_inject(actual_event)
-                    logger.debug(f"Cursor at ({actual_x}, {actual_y})")
+                    # Fallback for old protocol or pixel-based events
+                    logger.warning("Received MOUSE_MOVE without normalized_point (old protocol?)")
+                    if mouse_event.position:
+                        injector.mouseEvent_inject(mouse_event)
             else:
                 # Button events
                 injector.mouseEvent_inject(mouse_event)
@@ -229,6 +235,9 @@ def client_run(args: argparse.Namespace) -> None:
     except Exception as e:
         print(f"Error loading config: {e}", file=sys.stderr)
         sys.exit(1)
+
+    # Initialize settings singleton with loaded config
+    settings.initialize(config)
 
     # Setup logging
     logging_setup(config.logging.level, config.logging.format, config.logging.file)
@@ -295,7 +304,7 @@ def client_run(args: argparse.Namespace) -> None:
                     serverMessage_handle(message, event_injector, display_manager)
 
                 # Small sleep to prevent busy waiting
-                time.sleep(0.01)
+                time.sleep(settings.RECONNECT_CHECK_INTERVAL)
 
             except ConnectionError as e:
                 logger.error(f"Connection error: {e}")
