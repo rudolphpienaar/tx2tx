@@ -146,14 +146,35 @@ def serverMessage_handle(
         # Client should stop receiving mouse events
 
     elif message.msg_type == MessageType.MOUSE_EVENT:
-        if injector:
+        if injector and display_manager:
             mouse_event = MessageParser.mouseEvent_parse(message)
-            # TODO: Will handle normalized coordinates in Phase 5
+
             if mouse_event.event_type == EventType.MOUSE_MOVE:
-                injector.mouseEvent_inject(mouse_event)
-                logger.debug(
-                    f"Mouse move: pos=({mouse_event.position.x}, {mouse_event.position.y})"
-                )
+                # Decode normalized coordinates (encoded as int * 10000)
+                norm_x = mouse_event.position.x / 10000.0
+                norm_y = mouse_event.position.y / 10000.0
+
+                # Check for hide signal
+                if norm_x < 0 or norm_y < 0:
+                    display_manager.cursor_hide()
+                    logger.info("Cursor hidden")
+                else:
+                    # Scale to client resolution
+                    client_geom = display_manager.screenGeometry_get()
+                    actual_x = int(norm_x * client_geom.width)
+                    actual_y = int(norm_y * client_geom.height)
+
+                    # Create actual position mouse event for injection
+                    from tx2tx.common.types import MouseEvent as ME, Position
+                    actual_event = ME(
+                        event_type=EventType.MOUSE_MOVE,
+                        position=Position(x=actual_x, y=actual_y)
+                    )
+
+                    # Show cursor and move
+                    display_manager.cursor_show()
+                    injector.mouseEvent_inject(actual_event)
+                    logger.debug(f"Cursor at ({actual_x}, {actual_y})")
             else:
                 # Button events
                 injector.mouseEvent_inject(mouse_event)
@@ -161,7 +182,7 @@ def serverMessage_handle(
                     f"Mouse {mouse_event.event_type.value}: button={mouse_event.button}"
                 )
         else:
-            logger.warning("Received mouse event but injector not available")
+            logger.warning("Received mouse event but injector or display_manager not available")
 
     elif message.msg_type == MessageType.KEY_EVENT:
         if injector:

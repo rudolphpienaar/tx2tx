@@ -11,7 +11,7 @@ from typing import NoReturn, Optional
 from tx2tx import __version__
 from tx2tx.common.config import ConfigLoader
 from tx2tx.common.layout import ClientPosition, ScreenLayout
-from tx2tx.common.types import EventType, MouseEvent, Position, ScreenGeometry, ScreenTransition
+from tx2tx.common.types import EventType, MouseEvent, Position, ScreenContext, ScreenGeometry, ScreenTransition
 from tx2tx.protocol.message import Message, MessageBuilder, MessageType
 from tx2tx.server.network import ClientConnection, ServerNetwork
 from tx2tx.x11.display import DisplayManager
@@ -20,10 +20,7 @@ from tx2tx.x11.pointer import PointerTracker
 logger = logging.getLogger(__name__)
 
 
-class ControlState(Enum):
-    """Server control state"""
-    LOCAL = "local"  # Server has control of mouse
-    REMOTE = "remote"  # Client has control of mouse
+# ControlState removed - now using ScreenContext from types.py
 
 
 def arguments_parse() -> argparse.Namespace:
@@ -113,7 +110,7 @@ def logging_setup(level: str, log_format: str, log_file: Optional[str]) -> None:
 def clientMessage_handle(
     client: ClientConnection,
     message: Message,
-    control_state: Optional[list[ControlState]] = None,
+    context: Optional[list[ScreenContext]] = None,
     display_manager: Optional[DisplayManager] = None,
     screen_layout: Optional[ScreenLayout] = None,
     server_geometry: Optional[ScreenGeometry] = None
@@ -124,7 +121,7 @@ def clientMessage_handle(
     Args:
         client: Client connection
         message: Received message
-        control_state: Mutable reference [ControlState] to track server control state
+        context: Mutable reference [ScreenContext] to track global screen context
         display_manager: Display manager for cursor control
         screen_layout: Screen layout for coordinate transformation
         server_geometry: Server screen geometry for coordinate transformation
@@ -154,7 +151,7 @@ def clientMessage_handle(
             f"({client_transition.position.x}, {client_transition.position.y})"
         )
 
-        if control_state is not None and display_manager is not None:
+        if context is not None and display_manager is not None:
             # Transform client coordinates to server coordinates
             if screen_layout is not None and server_geometry is not None:
                 if client.screen_width and client.screen_height:
@@ -179,9 +176,9 @@ def clientMessage_handle(
                 logger.warning("Screen layout not available, using untransformed coordinates")
                 server_transition = client_transition
 
-            # Show LOCAL cursor again
+            # Show CENTER cursor again
             display_manager.cursor_show()
-            logger.info("[CURSOR] Restored LOCAL cursor visibility")
+            logger.info("[CURSOR] Restored CENTER cursor visibility")
 
             # Position cursor at appropriate edge for smooth re-entry
             display_manager.cursorPosition_set(server_transition.position)
@@ -189,9 +186,9 @@ def clientMessage_handle(
                 f"[CURSOR] Positioned at server re-entry point ({server_transition.position.x}, {server_transition.position.y})"
             )
 
-            # Switch back to local control
-            control_state[0] = ControlState.LOCAL
-            logger.info("[STATE] Switched to LOCAL control")
+            # Switch back to CENTER context
+            context[0] = ScreenContext.CENTER
+            logger.info("[STATE] Switched to CENTER context")
     else:
         logger.warning(f"Unexpected message type: {message.msg_type.value}")
 
@@ -275,9 +272,9 @@ def server_run(args: argparse.Namespace) -> None:
         max_clients=config.server.max_clients
     )
 
-    # Control state (wrapped in list for mutable reference)
-    control_state_ref = [ControlState.LOCAL]
-    last_local_switch_time = [0.0]  # Timestamp of last REMOTE→LOCAL switch
+    # Screen context (wrapped in list for mutable reference)
+    context_ref = [ScreenContext.CENTER]
+    last_center_switch_time = [0.0]  # Timestamp of last non-CENTER→CENTER switch
 
     try:
         network.server_start()
@@ -292,12 +289,12 @@ def server_run(args: argparse.Namespace) -> None:
             # Receive messages from clients with callback closure
             def message_handler(client: ClientConnection, message: Message) -> None:
                 clientMessage_handle(
-                    client, message, control_state_ref, display_manager,
+                    client, message, context_ref, display_manager,
                     screen_layout, screen_geometry
                 )
-                # Record timestamp when switching back to LOCAL
-                if control_state_ref[0] == ControlState.LOCAL and message.msg_type == MessageType.SCREEN_ENTER:
-                    last_local_switch_time[0] = time.time()
+                # Record timestamp when switching back to CENTER
+                if context_ref[0] == ScreenContext.CENTER and message.msg_type == MessageType.SCREEN_ENTER:
+                    last_center_switch_time[0] = time.time()
 
             network.clientData_receive(message_handler)
 
@@ -306,12 +303,12 @@ def server_run(args: argparse.Namespace) -> None:
                 # Poll pointer position
                 position = pointer_tracker.position_query()
 
-                if control_state_ref[0] == ControlState.LOCAL:
-                    # Add hysteresis: skip boundary detection for 200ms after switching to LOCAL
+                if context_ref[0] == ScreenContext.CENTER:
+                    # Add hysteresis: skip boundary detection for 200ms after switching to CENTER
                     # This prevents immediate re-detection of boundary after cursor release
-                    time_since_local_switch = time.time() - last_local_switch_time[0]
+                    time_since_center_switch = time.time() - last_center_switch_time[0]
 
-                    if time_since_local_switch >= 0.2:
+                    if time_since_center_switch >= 0.2:
                         # Detect boundary crossings
                         transition = pointer_tracker.boundary_detect(position, screen_geometry)
 
@@ -321,19 +318,87 @@ def server_run(args: argparse.Namespace) -> None:
                                 f"({transition.position.x}, {transition.position.y})"
                             )
 
+                            # CENTER → WEST transition
+                            context_ref[0] = ScreenContext.WEST
+
+                            # Grab pointer and keyboard (isolate input from desktop)
+                            display_manager.pointer_grab()
+                            display_manager.keyboard_grab()
+                            logger.info("[INPUT] Grabbed pointer and keyboard")
+
                             # Hide cursor and position away from edge
                             display_manager.cursor_hide()
                             edge_position = Position(x=screen_geometry.width - 1, y=position.y)
                             display_manager.cursorPosition_set(edge_position)
                             logger.info(f"[CURSOR] Hidden and positioned at ({edge_position.x}, {edge_position.y})")
 
-                            # Switch to remote control
-                            control_state_ref[0] = ControlState.REMOTE
-                            logger.info("[STATE] Switched to REMOTE control")
+                            logger.info(f"[STATE] → WEST context")
 
-                elif control_state_ref[0] == ControlState.REMOTE:
-                    # TODO: Will be replaced with normalized coordinate transmission (Phase 5)
-                    pass
+                elif context_ref[0] != ScreenContext.CENTER:
+                    # Check if returning to CENTER (cursor hits right edge)
+                    if position.x >= (screen_geometry.width - 1):
+                        velocity = pointer_tracker.velocity_calculate()
+                        if velocity >= config.server.velocity_threshold:
+                            logger.info(f"[BOUNDARY] Returning from {context_ref[0].value.upper()} at ({position.x}, {position.y})")
+
+                            # Send hide signal to client
+                            hide_event = MouseEvent(
+                                event_type=EventType.MOUSE_MOVE,
+                                position=Position(x=-10000, y=-10000)  # -1.0 encoded
+                            )
+                            hide_msg = MessageBuilder.mouseEventMessage_create(hide_event)
+                            network.messageToAll_broadcast(hide_msg)
+                            logger.info("[CLIENT] Sent hide signal")
+
+                            # WEST → CENTER transition
+                            context_ref[0] = ScreenContext.CENTER
+
+                            # Position cursor at left edge
+                            entry_pos = Position(x=1, y=position.y)
+                            display_manager.cursorPosition_set(entry_pos)
+                            logger.info(f"[CURSOR] Positioned at entry ({entry_pos.x}, {entry_pos.y})")
+
+                            # Show cursor
+                            display_manager.cursor_show()
+                            logger.info("[CURSOR] Shown")
+
+                            # Ungrab keyboard and pointer (return input to desktop)
+                            display_manager.keyboard_ungrab()
+                            display_manager.pointer_ungrab()
+                            logger.info("[INPUT] Ungrabbed keyboard and pointer")
+
+                            logger.info(f"[STATE] → CENTER context")
+
+                            # Record timestamp
+                            last_center_switch_time[0] = time.time()
+                        else:
+                            # Not returning yet - send normalized coordinates to active client
+                            norm_x = position.x / screen_geometry.width
+                            norm_y = position.y / screen_geometry.height
+
+                            # Encode normalized floats as integers (multiply by 10000)
+                            mouse_event = MouseEvent(
+                                event_type=EventType.MOUSE_MOVE,
+                                position=Position(x=int(norm_x * 10000), y=int(norm_y * 10000))
+                            )
+                            move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
+                            network.messageToAll_broadcast(move_msg)
+
+                            logger.debug(f"[{context_ref[0].value.upper()}] Sent norm=({norm_x:.4f}, {norm_y:.4f})")
+                    else:
+                        # Send normalized coordinates to active client
+                        norm_x = position.x / screen_geometry.width
+                        norm_y = position.y / screen_geometry.height
+
+                        # Encode normalized floats as integers (multiply by 10000)
+                        mouse_event = MouseEvent(
+                            event_type=EventType.MOUSE_MOVE,
+                            position=Position(x=int(norm_x * 10000), y=int(norm_y * 10000))
+                        )
+                        move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
+                        network.messageToAll_broadcast(move_msg)
+
+                        logger.debug(f"[{context_ref[0].value.upper()}] Sent norm=({norm_x:.4f}, {norm_y:.4f})")
 
             # Small sleep to prevent busy waiting
             time.sleep(config.server.poll_interval_ms / 1000.0)
