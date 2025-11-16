@@ -14,7 +14,6 @@ from tx2tx.common.types import EventType
 from tx2tx.protocol.message import Message, MessageParser, MessageType
 from tx2tx.x11.display import DisplayManager
 from tx2tx.x11.injector import EventInjector
-from tx2tx.x11.pointer import PointerTracker
 
 logger = logging.getLogger(__name__)
 
@@ -109,8 +108,6 @@ def logging_setup(level: str, log_format: str, log_file: Optional[str]) -> None:
 def serverMessage_handle(
     message: Message,
     injector: Optional[EventInjector] = None,
-    monitoring_boundaries: Optional[list[bool]] = None,
-    monitoring_start_time: Optional[list[float]] = None,
     display_manager: Optional[DisplayManager] = None
 ) -> None:
     """
@@ -119,9 +116,6 @@ def serverMessage_handle(
     Args:
         message: Received message
         injector: Optional event injector for handling input events
-        monitoring_boundaries: Mutable flag [bool] to enable/disable boundary monitoring
-                              When True, mouse events are treated as relative movements
-        monitoring_start_time: Timestamp when monitoring was enabled
         display_manager: Optional display manager for cursor positioning
     """
     logger.info(f"Received {message.msg_type.value} from server")
@@ -133,24 +127,8 @@ def serverMessage_handle(
         logger.info(f"Server screen info: {message.payload}")
 
     elif message.msg_type == MessageType.SCREEN_LEAVE:
-        transition = MessageParser.screenTransition_parse(message)
-        logger.info(
-            f"[SCREEN_LEAVE] Received from server: entry_edge={transition.direction.value} "
-            f"pos=({transition.position.x}, {transition.position.y})"
-        )
-
-        # Position cursor at entry point
-        if display_manager:
-            display_manager.cursorPosition_set(transition.position)
-            logger.info(
-                f"[CURSOR] Positioned cursor at client entry point ({transition.position.x}, {transition.position.y})"
-            )
-
-        # Client should now be receiving mouse events and monitoring boundaries
-        if monitoring_boundaries is not None and monitoring_start_time is not None:
-            monitoring_boundaries[0] = True
-            monitoring_start_time[0] = time.time()
-            logger.info("[STATE] Client started monitoring boundaries for re-entry")
+        # TODO: Will handle SCREEN_LEAVE in Phase 5 (normalized coordinates)
+        logger.info("[SCREEN_LEAVE] Received from server (not yet implemented)")
 
     elif message.msg_type == MessageType.SCREEN_ENTER:
         transition = MessageParser.screenTransition_parse(message)
@@ -163,29 +141,18 @@ def serverMessage_handle(
     elif message.msg_type == MessageType.MOUSE_EVENT:
         if injector:
             mouse_event = MessageParser.mouseEvent_parse(message)
-
-            # During REMOTE mode (monitoring_boundaries=True), treat movements as relative
-            if monitoring_boundaries and monitoring_boundaries[0] and mouse_event.event_type == EventType.MOUSE_MOVE:
-                # Apply as relative movement
-                logger.info(
-                    f"[REMOTE MODE] Applying relative movement: "
-                    f"delta=({mouse_event.position.x}, {mouse_event.position.y}) monitoring={monitoring_boundaries[0]}"
-                )
-                injector.mousePointer_moveRelative(mouse_event.position.x, mouse_event.position.y)
-            else:
-                # Apply as absolute position or button event
+            # TODO: Will handle normalized coordinates in Phase 5
+            if mouse_event.event_type == EventType.MOUSE_MOVE:
                 injector.mouseEvent_inject(mouse_event)
-                # Log mouse events with position and button info
-                if mouse_event.button is not None:
-                    logger.info(
-                        f"Mouse {mouse_event.event_type.value}: button={mouse_event.button} "
-                        f"pos=({mouse_event.position.x}, {mouse_event.position.y})"
-                    )
-                else:
-                    logger.info(
-                        f"Mouse {mouse_event.event_type.value}: "
-                        f"pos=({mouse_event.position.x}, {mouse_event.position.y})"
-                    )
+                logger.debug(
+                    f"Mouse move: pos=({mouse_event.position.x}, {mouse_event.position.y})"
+                )
+            else:
+                # Button events
+                injector.mouseEvent_inject(mouse_event)
+                logger.info(
+                    f"Mouse {mouse_event.event_type.value}: button={mouse_event.button}"
+                )
         else:
             logger.warning("Received mouse event but injector not available")
 
@@ -269,12 +236,6 @@ def client_run(args: argparse.Namespace) -> None:
 
     logger.info("XTest extension verified, event injection ready")
 
-    # Initialize pointer tracker for boundary detection (for re-entry)
-    pointer_tracker = PointerTracker(
-        display_manager=display_manager,
-        edge_threshold=0  # Detect at exact screen edge
-    )
-
     # Initialize network client
     network = ClientNetwork(
         host=host,
@@ -283,10 +244,6 @@ def client_run(args: argparse.Namespace) -> None:
         reconnect_max_attempts=config.client.reconnect.max_attempts,
         reconnect_delay=config.client.reconnect.delay_seconds
     )
-
-    # Boundary monitoring flag (mutable reference for serverMessage_handle)
-    monitoring_boundaries = [False]
-    monitoring_start_time = [0.0]  # Timestamp when monitoring was enabled
 
     try:
         # Connect to server with screen geometry
@@ -304,33 +261,7 @@ def client_run(args: argparse.Namespace) -> None:
                 messages = network.messages_receive()
 
                 for message in messages:
-                    serverMessage_handle(message, event_injector, monitoring_boundaries, monitoring_start_time, display_manager)
-
-                # Check for boundary crossings when monitoring is enabled
-                if monitoring_boundaries[0]:
-                    # Add hysteresis: skip boundary detection for 200ms after starting monitoring
-                    # This prevents immediate re-entry if client cursor happens to be near edge
-                    time_since_monitoring_start = time.time() - monitoring_start_time[0]
-
-                    if time_since_monitoring_start >= 0.2:
-                        position = pointer_tracker.position_query()
-                        transition = pointer_tracker.boundary_detect(position, screen_geometry)
-
-                        if transition:
-                            logger.info(
-                                f"[BOUNDARY] Client boundary crossed: {transition.direction.value} at "
-                                f"({transition.position.x}, {transition.position.y})"
-                            )
-
-                            # Send screen enter message to server
-                            from tx2tx.protocol.message import MessageBuilder
-                            enter_msg = MessageBuilder.screenEnterMessage_create(transition)
-                            network.message_send(enter_msg)
-                            logger.info("[NETWORK] Sent SCREEN_ENTER to server")
-
-                            # Stop monitoring boundaries
-                            monitoring_boundaries[0] = False
-                            logger.info("[STATE] Client stopped monitoring boundaries")
+                    serverMessage_handle(message, event_injector, display_manager)
 
                 # Small sleep to prevent busy waiting
                 time.sleep(0.01)

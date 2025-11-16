@@ -261,8 +261,6 @@ def server_run(args: argparse.Namespace) -> None:
     # Control state (wrapped in list for mutable reference)
     control_state_ref = [ControlState.LOCAL]
     last_local_switch_time = [0.0]  # Timestamp of last REMOTE→LOCAL switch
-    last_remote_position = [None]  # Track position for relative movement during REMOTE
-    cursor_just_warped = [False]  # Flag to skip delta calculation after cursor warp
 
     try:
         network.server_start()
@@ -306,92 +304,19 @@ def server_run(args: argparse.Namespace) -> None:
                                 f"({transition.position.x}, {transition.position.y})"
                             )
 
-                            # Transform coordinates for client screen
-                            # Get first client to determine screen geometry
-                            clients_list = network.clients
-                            if clients_list:
-                                client = clients_list[0]
-                                if client.screen_width and client.screen_height:
-                                    client_geometry = ScreenGeometry(
-                                        width=client.screen_width,
-                                        height=client.screen_height
-                                    )
-                                    # Transform server exit coordinates to client entry coordinates
-                                    client_transition = screen_layout.toClientCoordinates_transform(
-                                        server_transition=transition,
-                                        server_geometry=screen_geometry,
-                                        client_geometry=client_geometry
-                                    )
-                                    leave_msg = MessageBuilder.screenLeaveMessage_create(client_transition)
-                                else:
-                                    logger.warning("Client screen geometry not available, using untransformed coordinates")
-                                    leave_msg = MessageBuilder.screenLeaveMessage_create(transition)
+                            # Hide cursor and position away from edge
+                            display_manager.cursor_hide()
+                            edge_position = Position(x=screen_geometry.width - 1, y=position.y)
+                            display_manager.cursorPosition_set(edge_position)
+                            logger.info(f"[CURSOR] Hidden and positioned at ({edge_position.x}, {edge_position.y})")
 
-                                # Send screen leave message to all clients
-                                network.messageToAll_broadcast(leave_msg)
-                                logger.info(f"[NETWORK] Sent SCREEN_LEAVE to all clients")
-
-                                # Store position for relative movement tracking
-                                # Don't confine cursor - let it move freely (we'll track deltas)
-                                last_remote_position[0] = position
-                                logger.info(
-                                    f"[CURSOR] Tracking from position ({position.x}, {position.y})"
-                                )
-
-                                # Hide LOCAL cursor during REMOTE control
-                                display_manager.cursor_hide()
-                                logger.info("[CURSOR] Hidden LOCAL cursor")
-
-                                # Switch to remote control
-                                control_state_ref[0] = ControlState.REMOTE
-                                logger.info("[STATE] Switched to REMOTE control")
+                            # Switch to remote control
+                            control_state_ref[0] = ControlState.REMOTE
+                            logger.info("[STATE] Switched to REMOTE control")
 
                 elif control_state_ref[0] == ControlState.REMOTE:
-                    # During REMOTE control: Send relative mouse movements to client
-                    # This prevents issues with absolute coordinates from different screen spaces
-                    if last_remote_position[0] is not None:
-                        # If we just warped the cursor, skip this iteration's delta calculation
-                        # The position will be garbage due to accumulated physical mouse movement
-                        if cursor_just_warped[0]:
-                            logger.debug(f"[CURSOR] Skipping delta after warp, updating baseline to ({position.x}, {position.y})")
-                            last_remote_position[0] = position
-                            cursor_just_warped[0] = False
-                        else:
-                            delta_x = position.x - last_remote_position[0].x
-                            delta_y = position.y - last_remote_position[0].y
-
-                            # Only send if there's actual movement
-                            if delta_x != 0 or delta_y != 0:
-                                # Send relative movement
-                                mouse_event = MouseEvent(
-                                    event_type=EventType.MOUSE_MOVE,
-                                    position=Position(x=delta_x, y=delta_y)
-                                )
-                                move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
-                                network.messageToAll_broadcast(move_msg)
-                                logger.debug(f"[REMOTE] Sent delta: ({delta_x}, {delta_y}) from pos ({position.x}, {position.y})")
-
-                            # Warp LOCAL cursor back to center if getting close to edges
-                            # This prevents cursor from hitting screen boundaries which would
-                            # stop us from detecting further movement in that direction
-                            center_x = screen_geometry.width // 2
-                            center_y = screen_geometry.height // 2
-                            edge_margin = 100  # Warp when within 100px of any edge
-
-                            if (position.x < edge_margin or
-                                position.x > screen_geometry.width - edge_margin or
-                                position.y < edge_margin or
-                                position.y > screen_geometry.height - edge_margin):
-                                # Warp to center and update baseline immediately to center position
-                                # (don't wait for next poll - physical mouse will push it back to edge)
-                                center_pos = Position(x=center_x, y=center_y)
-                                display_manager.cursorPosition_set(center_pos)
-                                last_remote_position[0] = center_pos
-                                cursor_just_warped[0] = True
-                                logger.debug(f"[CURSOR] Warped LOCAL cursor to center, baseline set to ({center_x}, {center_y})")
-                            else:
-                                # Update last position
-                                last_remote_position[0] = position
+                    # TODO: Will be replaced with normalized coordinate transmission (Phase 5)
+                    pass
 
             # Small sleep to prevent busy waiting
             time.sleep(config.server.poll_interval_ms / 1000.0)
