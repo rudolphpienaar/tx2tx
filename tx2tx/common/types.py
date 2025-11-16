@@ -24,6 +24,15 @@ class Direction(Enum):
     BOTTOM = "bottom"
 
 
+class ScreenContext(Enum):
+    """Global context - which screen has active control"""
+    CENTER = "center"  # Server has control, cursor shown
+    WEST = "west"      # West client has control, cursor hidden
+    EAST = "east"      # East client has control, cursor hidden
+    NORTH = "north"    # North client has control, cursor hidden
+    SOUTH = "south"    # South client has control, cursor hidden
+
+
 @dataclass(frozen=True)
 class Position:
     """2D position coordinates"""
