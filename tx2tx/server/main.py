@@ -318,25 +318,67 @@ def server_run(args: argparse.Namespace) -> None:
                                 f"({transition.position.x}, {transition.position.y})"
                             )
 
-                            # CENTER → WEST transition
-                            context_ref[0] = ScreenContext.WEST
+                            # FIX Issue 1: Map direction to context instead of hardcoding WEST
+                            from tx2tx.common.types import Direction
+                            direction_to_context = {
+                                Direction.LEFT: ScreenContext.WEST,
+                                Direction.RIGHT: ScreenContext.EAST,
+                                Direction.TOP: ScreenContext.NORTH,
+                                Direction.BOTTOM: ScreenContext.SOUTH
+                            }
+                            new_context = direction_to_context.get(transition.direction)
+                            if not new_context:
+                                logger.error(f"Invalid transition direction: {transition.direction}")
+                                continue
+
+                            context_ref[0] = new_context
+
+                            # FIX Issue 2: Calculate opposite edge position based on direction
+                            if transition.direction == Direction.LEFT:
+                                edge_position = Position(x=screen_geometry.width - 1, y=position.y)
+                            elif transition.direction == Direction.RIGHT:
+                                edge_position = Position(x=1, y=position.y)
+                            elif transition.direction == Direction.TOP:
+                                edge_position = Position(x=position.x, y=screen_geometry.height - 1)
+                            else:  # BOTTOM
+                                edge_position = Position(x=position.x, y=1)
 
                             # Hide cursor and position away from edge (BEFORE grab)
-                            display_manager.cursor_hide()
-                            edge_position = Position(x=screen_geometry.width - 1, y=position.y)
-                            display_manager.cursorPosition_set(edge_position)
-                            logger.info(f"[CURSOR] Hidden and positioned at ({edge_position.x}, {edge_position.y})")
+                            try:
+                                display_manager.cursor_hide()
+                                display_manager.cursorPosition_set(edge_position)
+                                logger.info(f"[CURSOR] Hidden and positioned at ({edge_position.x}, {edge_position.y})")
 
-                            # Grab pointer and keyboard (isolate input from desktop)
-                            display_manager.pointer_grab()
-                            display_manager.keyboard_grab()
-                            logger.info("[INPUT] Grabbed pointer and keyboard")
+                                # Grab pointer and keyboard (isolate input from desktop)
+                                display_manager.pointer_grab()
+                                display_manager.keyboard_grab()
+                                logger.info("[INPUT] Grabbed pointer and keyboard")
 
-                            logger.info(f"[STATE] → WEST context")
+                                logger.info(f"[STATE] → {new_context.value.upper()} context")
+                            except Exception as e:
+                                # FIX Issue 7: Cleanup on error
+                                logger.error(f"Transition failed: {e}", exc_info=True)
+                                try:
+                                    display_manager.keyboard_ungrab()
+                                    display_manager.pointer_ungrab()
+                                    display_manager.cursor_show()
+                                except:
+                                    pass
+                                context_ref[0] = ScreenContext.CENTER
+                                logger.warning("Reverted to CENTER after failed transition")
 
                 elif context_ref[0] != ScreenContext.CENTER:
-                    # Check if returning to CENTER (cursor hits right edge)
-                    if position.x >= (screen_geometry.width - 1):
+                    # FIX Issue 3: Determine which edge to check based on current context
+                    return_edges = {
+                        ScreenContext.WEST: lambda p, g: p.x >= g.width - 1,
+                        ScreenContext.EAST: lambda p, g: p.x <= 0,
+                        ScreenContext.NORTH: lambda p, g: p.y >= g.height - 1,
+                        ScreenContext.SOUTH: lambda p, g: p.y <= 0
+                    }
+
+                    should_return = return_edges[context_ref[0]](position, screen_geometry)
+
+                    if should_return:
                         velocity = pointer_tracker.velocity_calculate()
                         if velocity >= config.server.velocity_threshold:
                             logger.info(f"[BOUNDARY] Returning from {context_ref[0].value.upper()} at ({position.x}, {position.y})")
@@ -350,11 +392,21 @@ def server_run(args: argparse.Namespace) -> None:
                             network.messageToAll_broadcast(hide_msg)
                             logger.info("[CLIENT] Sent hide signal")
 
-                            # WEST → CENTER transition
+                            # Store current context before changing
+                            previous_context = context_ref[0]
                             context_ref[0] = ScreenContext.CENTER
 
-                            # Position cursor at left edge
-                            entry_pos = Position(x=1, y=position.y)
+                            # FIX Issue 4: Calculate entry position based on which context we're leaving
+                            if previous_context == ScreenContext.WEST:
+                                entry_pos = Position(x=1, y=position.y)
+                            elif previous_context == ScreenContext.EAST:
+                                entry_pos = Position(x=screen_geometry.width - 2, y=position.y)
+                            elif previous_context == ScreenContext.NORTH:
+                                entry_pos = Position(x=position.x, y=1)
+                            else:  # SOUTH
+                                entry_pos = Position(x=position.x, y=screen_geometry.height - 2)
+
+                            # Position cursor at entry edge
                             display_manager.cursorPosition_set(entry_pos)
                             logger.info(f"[CURSOR] Positioned at entry ({entry_pos.x}, {entry_pos.y})")
 
@@ -371,29 +423,17 @@ def server_run(args: argparse.Namespace) -> None:
 
                             # Record timestamp
                             last_center_switch_time[0] = time.time()
-                        else:
-                            # Not returning yet - send normalized coordinates to active client
-                            norm_x = position.x / screen_geometry.width
-                            norm_y = position.y / screen_geometry.height
-
-                            # Encode normalized floats as integers (multiply by 10000)
-                            mouse_event = MouseEvent(
-                                event_type=EventType.MOUSE_MOVE,
-                                position=Position(x=int(norm_x * 10000), y=int(norm_y * 10000))
-                            )
-                            move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
-                            network.messageToAll_broadcast(move_msg)
-
-                            logger.debug(f"[{context_ref[0].value.upper()}] Sent norm=({norm_x:.4f}, {norm_y:.4f})")
                     else:
-                        # Send normalized coordinates to active client
+                        # FIX Issue 5: Consolidate duplicate coordinate sending
+                        # Not returning to CENTER - send normalized coordinates to active client
                         norm_x = position.x / screen_geometry.width
                         norm_y = position.y / screen_geometry.height
 
                         # Encode normalized floats as integers (multiply by 10000)
+                        COORD_SCALE_FACTOR = 10000  # FIX Issue 10: Named constant
                         mouse_event = MouseEvent(
                             event_type=EventType.MOUSE_MOVE,
-                            position=Position(x=int(norm_x * 10000), y=int(norm_y * 10000))
+                            position=Position(x=int(norm_x * COORD_SCALE_FACTOR), y=int(norm_y * COORD_SCALE_FACTOR))
                         )
                         move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
                         network.messageToAll_broadcast(move_msg)

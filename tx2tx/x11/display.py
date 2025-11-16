@@ -224,7 +224,9 @@ class DisplayManager:
         if not xfixes_worked:
             logger.warning("XFixes not available, cursor will remain visible")
             logger.warning("System will continue to function normally")
-            self._cursor_hidden = True  # Mark as "hidden" to prevent retry loops
+            # FIX Issue 9: Don't mark as hidden if cursor is actually visible
+            # This prevents state inconsistency
+            # self._cursor_hidden remains False
 
     def cursor_show(self) -> None:
         """

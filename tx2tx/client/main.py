@@ -150,9 +150,10 @@ def serverMessage_handle(
             mouse_event = MessageParser.mouseEvent_parse(message)
 
             if mouse_event.event_type == EventType.MOUSE_MOVE:
-                # Decode normalized coordinates (encoded as int * 10000)
-                norm_x = mouse_event.position.x / 10000.0
-                norm_y = mouse_event.position.y / 10000.0
+                # Decode normalized coordinates (encoded as int * COORD_SCALE_FACTOR)
+                COORD_SCALE_FACTOR = 10000.0  # Must match server's encoding
+                norm_x = mouse_event.position.x / COORD_SCALE_FACTOR
+                norm_y = mouse_event.position.y / COORD_SCALE_FACTOR
 
                 # Check for hide signal
                 if norm_x < 0 or norm_y < 0:
