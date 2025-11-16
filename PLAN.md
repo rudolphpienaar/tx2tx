@@ -454,7 +454,7 @@ elif message.msg_type == MessageType.MOUSE_EVENT:
 
 ---
 
-### 🔄 Phase 4: Update Configuration for Named Clients (CURRENT)
+### ✅ Phase 4: Update Configuration for Named Clients (COMPLETED)
 
 **Goal:** Support named clients with positions in config.
 
@@ -521,7 +521,7 @@ parser.add_argument(
 
 ---
 
-### Phase 5: Implement Normalized Coordinates
+### ✅ Phase 5: Implement Normalized Coordinates (COMPLETED)
 
 **Goal:** Server sends normalized (0.0-1.0) coordinates, client scales to actual resolution.
 
@@ -578,7 +578,7 @@ elif message.msg_type == MessageType.MOUSE_EVENT:
 
 ---
 
-### Phase 6: Implement Full State Machine
+### ✅ Phase 6: Implement Full State Machine (COMPLETED)
 
 **Goal:** Complete CENTER ↔ WEST transitions with proper cursor positioning.
 
@@ -636,7 +636,7 @@ elif context[0] == ScreenContext.WEST:
 
 ---
 
-### Phase 7: Testing and Validation
+### 🔄 Phase 7: Testing and Validation (CURRENT)
 
 **Test sequence:**
 1. Start server: `tx2tx`
