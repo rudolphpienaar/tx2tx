@@ -95,12 +95,12 @@ def main() -> NoReturn:
     args = arguments_parse()
 
     try:
-        if args.server:
-            # --server specified: run as client, connecting to that server
+        if args.server or args.client:
+            # --server or --client specified: run as client
             from tx2tx.client.main import client_run
             client_run(args)
         else:
-            # No --server: run as server
+            # No --server or --client: run as server
             from tx2tx.server.main import server_run
             server_run(args)
         # Both client_run and server_run are NoReturn, so this is unreachable

@@ -205,30 +205,39 @@ class DisplayManager:
         root = screen.root
 
         # Try XFixes first (modern, simple)
+        xfixes_worked = False
         try:
+            # Check if extension exists
             if display.has_extension('XFIXES') or display.query_extension('XFIXES'):
                 root.xfixes_hide_cursor()
                 display.sync()
                 self._cursor_hidden = True
+                xfixes_worked = True
                 logger.debug("Cursor hidden using XFixes")
                 return
-        except (AttributeError, Exception) as e:
-            logger.debug(f"XFixes not available: {e}")
+        except Exception as e:
+            logger.debug(f"XFixes failed, using fallback: {e}")
+            xfixes_worked = False
 
         # Fallback: Create invisible pixmap cursor
-        pixmap = root.create_pixmap(1, 1, 1)
-        gc = pixmap.create_gc(foreground=0, background=0)
-        pixmap.fill_rectangle(gc, 0, 0, 1, 1)
+        if not xfixes_worked:
+            try:
+                pixmap = root.create_pixmap(1, 1, 1)
+                gc = pixmap.create_gc(foreground=0, background=0)
+                pixmap.fill_rectangle(gc, 0, 0, 1, 1)
 
-        invisible_cursor = pixmap.create_cursor(
-            pixmap, (0, 0, 0), (0, 0, 0), 0, 0
-        )
-        root.change_attributes(cursor=invisible_cursor)
-        display.sync()
+                invisible_cursor = pixmap.create_cursor(
+                    pixmap, (0, 0, 0), (0, 0, 0), 0, 0
+                )
+                root.change_attributes(cursor=invisible_cursor)
+                display.sync()
 
-        self._blank_cursor = invisible_cursor
-        self._cursor_hidden = True
-        logger.debug("Cursor hidden using pixmap fallback")
+                self._blank_cursor = invisible_cursor
+                self._cursor_hidden = True
+                logger.debug("Cursor hidden using pixmap fallback")
+            except Exception as e:
+                logger.error(f"Failed to hide cursor with pixmap fallback: {e}")
+                raise
 
     def cursor_show(self) -> None:
         """
@@ -245,21 +254,29 @@ class DisplayManager:
         root = screen.root
 
         # Try XFixes first
+        xfixes_worked = False
         try:
             if display.has_extension('XFIXES') or display.query_extension('XFIXES'):
                 root.xfixes_show_cursor()
                 display.sync()
                 self._cursor_hidden = False
+                xfixes_worked = True
                 logger.debug("Cursor shown using XFixes")
                 return
-        except (AttributeError, Exception) as e:
-            logger.debug(f"XFixes not available: {e}")
+        except Exception as e:
+            logger.debug(f"XFixes failed, using fallback: {e}")
+            xfixes_worked = False
 
         # Fallback: Restore default cursor
-        root.change_attributes(cursor=0)  # 0 = use default cursor
-        display.sync()
-        self._cursor_hidden = False
-        logger.debug("Cursor shown using default cursor")
+        if not xfixes_worked:
+            try:
+                root.change_attributes(cursor=0)  # 0 = use default cursor
+                display.sync()
+                self._cursor_hidden = False
+                logger.debug("Cursor shown using default cursor")
+            except Exception as e:
+                logger.error(f"Failed to show cursor: {e}")
+                raise
 
     def pointer_grab(self) -> None:
         """
