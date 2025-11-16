@@ -201,38 +201,12 @@ class DisplayManager:
         if self._cursor_hidden:
             return
 
-        display = self.display_get()
-        screen = display.screen()
-        root = screen.root
-
-        # Try XFixes first (modern, simple)
-        xfixes_worked = False
-        try:
-            # Check if extension exists
-            if display.has_extension('XFIXES') or display.query_extension('XFIXES'):
-                root.xfixes_hide_cursor()
-                display.sync()
-                self._cursor_hidden = True
-                xfixes_worked = True
-                logger.debug("Cursor hidden using XFixes")
-                return
-        except Exception as e:
-            logger.debug(f"XFixes failed, using fallback: {e}")
-            xfixes_worked = False
-            # Flush display to clear any error state from failed XFixes call
-            try:
-                display.sync()
-            except:
-                pass
-
-        # Fallback: Skip cursor hiding if XFixes not available
-        # (Cursor will remain visible but system will still work)
-        if not xfixes_worked:
-            logger.warning("XFixes not available, cursor will remain visible")
-            logger.warning("System will continue to function normally")
-            # FIX Issue 9: Don't mark as hidden if cursor is actually visible
-            # This prevents state inconsistency
-            # self._cursor_hidden remains False
+        # DISABLE XFixes: It causes BadRRCrtcError that corrupts X11 connection
+        # in termux-x11 environment, making all subsequent X11 calls hang.
+        # Cursor will remain visible but system will work.
+        logger.warning("Cursor hiding disabled (XFixes unstable in termux-x11)")
+        logger.warning("Cursor will remain visible but system will function normally")
+        # self._cursor_hidden remains False
 
     def cursor_show(self) -> None:
         """
