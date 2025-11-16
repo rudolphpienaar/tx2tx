@@ -73,6 +73,20 @@ def arguments_parse() -> argparse.Namespace:
         help="[Server] Pixels from edge to trigger transition (overrides config)"
     )
 
+    parser.add_argument(
+        "--name",
+        type=str,
+        default=None,
+        help="[Server] Server name for logging (overrides config)"
+    )
+
+    parser.add_argument(
+        "--client",
+        type=str,
+        default=None,
+        help="[Client] Client name from config (e.g., 'phomux')"
+    )
+
     return parser.parse_args()
 
 
