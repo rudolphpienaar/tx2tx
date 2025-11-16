@@ -399,11 +399,11 @@ def server_run(args: argparse.Namespace) -> None:
 
                             # FIX Issue 4: Calculate entry position based on which context we're leaving
                             if previous_context == ScreenContext.WEST:
-                                entry_pos = Position(x=1, y=position.y)
+                                entry_pos = Position(x=settings.EDGE_ENTRY_OFFSET, y=position.y)
                             elif previous_context == ScreenContext.EAST:
                                 entry_pos = Position(x=screen_geometry.width - settings.EDGE_ENTRY_OFFSET, y=position.y)
                             elif previous_context == ScreenContext.NORTH:
-                                entry_pos = Position(x=position.x, y=1)
+                                entry_pos = Position(x=position.x, y=settings.EDGE_ENTRY_OFFSET)
                             else:  # SOUTH
                                 entry_pos = Position(x=position.x, y=screen_geometry.height - settings.EDGE_ENTRY_OFFSET)
 
