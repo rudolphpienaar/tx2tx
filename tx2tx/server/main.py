@@ -321,16 +321,16 @@ def server_run(args: argparse.Namespace) -> None:
                             # CENTER → WEST transition
                             context_ref[0] = ScreenContext.WEST
 
-                            # Grab pointer and keyboard (isolate input from desktop)
-                            display_manager.pointer_grab()
-                            display_manager.keyboard_grab()
-                            logger.info("[INPUT] Grabbed pointer and keyboard")
-
-                            # Hide cursor and position away from edge
+                            # Hide cursor and position away from edge (BEFORE grab)
                             display_manager.cursor_hide()
                             edge_position = Position(x=screen_geometry.width - 1, y=position.y)
                             display_manager.cursorPosition_set(edge_position)
                             logger.info(f"[CURSOR] Hidden and positioned at ({edge_position.x}, {edge_position.y})")
+
+                            # Grab pointer and keyboard (isolate input from desktop)
+                            display_manager.pointer_grab()
+                            display_manager.keyboard_grab()
+                            logger.info("[INPUT] Grabbed pointer and keyboard")
 
                             logger.info(f"[STATE] → WEST context")
 

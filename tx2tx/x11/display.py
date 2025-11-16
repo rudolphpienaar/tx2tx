@@ -219,25 +219,12 @@ class DisplayManager:
             logger.debug(f"XFixes failed, using fallback: {e}")
             xfixes_worked = False
 
-        # Fallback: Create invisible pixmap cursor
+        # Fallback: Skip cursor hiding if XFixes not available
+        # (Cursor will remain visible but system will still work)
         if not xfixes_worked:
-            try:
-                pixmap = root.create_pixmap(1, 1, 1)
-                gc = pixmap.create_gc(foreground=0, background=0)
-                pixmap.fill_rectangle(gc, 0, 0, 1, 1)
-
-                invisible_cursor = pixmap.create_cursor(
-                    pixmap, (0, 0, 0), (0, 0, 0), 0, 0
-                )
-                root.change_attributes(cursor=invisible_cursor)
-                display.sync()
-
-                self._blank_cursor = invisible_cursor
-                self._cursor_hidden = True
-                logger.debug("Cursor hidden using pixmap fallback")
-            except Exception as e:
-                logger.error(f"Failed to hide cursor with pixmap fallback: {e}")
-                raise
+            logger.warning("XFixes not available, cursor will remain visible")
+            logger.warning("System will continue to function normally")
+            self._cursor_hidden = True  # Mark as "hidden" to prevent retry loops
 
     def cursor_show(self) -> None:
         """
