@@ -79,6 +79,13 @@ def arguments_parse() -> argparse.Namespace:
         help="X11 display name (overrides config)"
     )
 
+    parser.add_argument(
+        "--name",
+        type=str,
+        default=None,
+        help="Server name for logging and identification (default: from config)"
+    )
+
     return parser.parse_args()
 
 
@@ -202,6 +209,7 @@ def server_run(args: argparse.Namespace) -> None:
     try:
         config = ConfigLoader.configWithOverrides_load(
             file_path=config_path,
+            name=args.name,
             host=args.host,
             port=args.port,
             edge_threshold=args.edge_threshold,
@@ -219,11 +227,20 @@ def server_run(args: argparse.Namespace) -> None:
     logging_setup(config.logging.level, config.logging.format, config.logging.file)
 
     logger.info(f"tx2tx server v{__version__}")
+    logger.info(f"Server name: {config.server.name}")
     logger.info(f"Listening on {config.server.host}:{config.server.port}")
     logger.info(f"Edge threshold: {config.server.edge_threshold} pixels")
     logger.info(f"Velocity threshold: {config.server.velocity_threshold} px/s (edge resistance)")
     logger.info(f"Display: {config.server.display or '$DISPLAY'}")
     logger.info(f"Max clients: {config.server.max_clients}")
+
+    # Log configured clients
+    if config.clients:
+        logger.info(f"Configured clients: {len(config.clients)}")
+        for client in config.clients:
+            logger.info(f"  - {client.name} (position: {client.position})")
+    else:
+        logger.warning("No clients configured in config.yml")
 
     # Initialize X11 display and pointer tracking
     display_manager = DisplayManager(display_name=config.server.display)

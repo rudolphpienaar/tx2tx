@@ -9,8 +9,16 @@ import yaml
 
 
 @dataclass
+class NamedClientConfig:
+    """Named client configuration (for server's clients list)"""
+    name: str
+    position: str  # "west", "east", "north", "south"
+
+
+@dataclass
 class ServerConfig:
     """Server configuration settings"""
+    name: str
     host: str
     port: int
     display: Optional[str]
@@ -18,7 +26,7 @@ class ServerConfig:
     velocity_threshold: float  # Minimum velocity (px/s) to cross boundary
     poll_interval_ms: int
     max_clients: int
-    client_position: str  # Position of client relative to server
+    client_position: str  # DEPRECATED: Position of client relative to server
 
 
 @dataclass
@@ -30,8 +38,8 @@ class ClientReconnectConfig:
 
 
 @dataclass
-class ClientConfig:
-    """Client configuration settings"""
+class ClientConnectionConfig:
+    """Client connection configuration settings"""
     server_address: str
     display: Optional[str]
     reconnect: ClientReconnectConfig
@@ -57,7 +65,8 @@ class LoggingConfig:
 class Config:
     """Complete application configuration"""
     server: ServerConfig
-    client: ClientConfig
+    clients: list[NamedClientConfig]
+    client: ClientConnectionConfig
     protocol: ProtocolConfig
     logging: LoggingConfig
 
@@ -125,6 +134,7 @@ class ConfigLoader:
         # Parse server config
         server_data = data["server"]
         server = ServerConfig(
+            name=server_data.get("name", "TX2TX"),  # Default to TX2TX
             host=server_data["host"],
             port=server_data["port"],
             display=server_data.get("display"),
@@ -132,10 +142,20 @@ class ConfigLoader:
             velocity_threshold=server_data.get("velocity_threshold", 100.0),  # Default 100 px/s
             poll_interval_ms=server_data["poll_interval_ms"],
             max_clients=server_data["max_clients"],
-            client_position=server_data.get("client_position", "west"),  # Default to west
+            client_position=server_data.get("client_position", "west"),  # DEPRECATED: Default to west
         )
 
-        # Parse client config
+        # Parse named clients list
+        clients_data = data.get("clients", [])
+        clients = [
+            NamedClientConfig(
+                name=client_entry["name"],
+                position=client_entry["position"]
+            )
+            for client_entry in clients_data
+        ]
+
+        # Parse client connection config
         client_data = data["client"]
         reconnect_data = client_data["reconnect"]
         reconnect = ClientReconnectConfig(
@@ -143,7 +163,7 @@ class ConfigLoader:
             max_attempts=reconnect_data["max_attempts"],
             delay_seconds=reconnect_data["delay_seconds"],
         )
-        client = ClientConfig(
+        client = ClientConnectionConfig(
             server_address=client_data["server_address"],
             display=client_data.get("display"),
             reconnect=reconnect,
@@ -167,6 +187,7 @@ class ConfigLoader:
 
         return Config(
             server=server,
+            clients=clients,
             client=client,
             protocol=protocol,
             logging=logging,
@@ -222,6 +243,8 @@ class ConfigLoader:
         config = ConfigLoader.config_load(file_path)
 
         # Apply overrides to server config
+        if "name" in overrides and overrides["name"] is not None:
+            config.server.name = overrides["name"]
         if "host" in overrides and overrides["host"] is not None:
             config.server.host = overrides["host"]
         if "port" in overrides and overrides["port"] is not None:

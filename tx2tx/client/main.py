@@ -56,6 +56,13 @@ def arguments_parse() -> argparse.Namespace:
         help="X11 display name (overrides config)"
     )
 
+    parser.add_argument(
+        "--name",
+        type=str,
+        default=None,
+        help="Client name for logging and identification (e.g., 'phomux')"
+    )
+
     return parser.parse_args()
 
 
@@ -212,6 +219,8 @@ def client_run(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     logger.info(f"tx2tx client v{__version__}")
+    if args.name:
+        logger.info(f"Client name: {args.name}")
     logger.info(f"Connecting to {host}:{port}")
     logger.info(f"Display: {config.client.display or '$DISPLAY'}")
 

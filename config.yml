@@ -2,6 +2,9 @@
 
 # Server configuration
 server:
+  # Server name for logging and identification
+  name: "TX2TX"
+
   # Host address to bind to
   host: "0.0.0.0"
 
@@ -24,9 +27,18 @@ server:
   # Maximum number of concurrent clients
   max_clients: 1
 
+  # DEPRECATED: client_position (use clients list below instead)
   # Position of client screen relative to server
   # Options: north, northeast, east, southeast, south, southwest, west, northwest
   client_position: "west"
+
+# Named clients configuration
+clients:
+  - name: "phomux"
+    position: "west"
+  # Future clients can be added here with different positions:
+  # - name: "desktop"
+  #   position: "east"
 
 # Client configuration
 client:
