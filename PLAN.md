@@ -391,7 +391,7 @@ class ScreenContext(Enum):
 
 ---
 
-### 🔄 Phase 3: Strip Out Broken Complexity (CURRENT)
+### ✅ Phase 3: Strip Out Broken Complexity (COMPLETED)
 
 **Goal:** Remove all the delta tracking, warping, and complex REMOTE mode logic.
 
@@ -454,7 +454,7 @@ elif message.msg_type == MessageType.MOUSE_EVENT:
 
 ---
 
-### Phase 4: Update Configuration for Named Clients
+### 🔄 Phase 4: Update Configuration for Named Clients (CURRENT)
 
 **Goal:** Support named clients with positions in config.
 
