@@ -334,14 +334,15 @@ def server_run(args: argparse.Namespace) -> None:
                             context_ref[0] = new_context
 
                             # FIX Issue 2: Calculate opposite edge position based on direction
+                            # Position cursor safely away from the return edge to avoid immediate return detection
                             if transition.direction == Direction.LEFT:
-                                edge_position = Position(x=screen_geometry.width - 1, y=position.y)
+                                edge_position = Position(x=screen_geometry.width - settings.EDGE_ENTRY_OFFSET - 1, y=position.y)
                             elif transition.direction == Direction.RIGHT:
-                                edge_position = Position(x=1, y=position.y)
+                                edge_position = Position(x=settings.EDGE_ENTRY_OFFSET, y=position.y)
                             elif transition.direction == Direction.TOP:
-                                edge_position = Position(x=position.x, y=screen_geometry.height - 1)
+                                edge_position = Position(x=position.x, y=screen_geometry.height - settings.EDGE_ENTRY_OFFSET - 1)
                             else:  # BOTTOM
-                                edge_position = Position(x=position.x, y=1)
+                                edge_position = Position(x=position.x, y=settings.EDGE_ENTRY_OFFSET)
 
                             # Hide cursor and position away from edge (BEFORE grab)
                             try:
