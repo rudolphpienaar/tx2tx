@@ -636,48 +636,571 @@ elif context[0] == ScreenContext.WEST:
 
 ---
 
-### 🔄 Phase 7: Testing and Validation (CURRENT)
+### 🔄 Phase 7: Input Isolation Testing (CURRENT)
+
+**Goal:** Verify that pointer/keyboard grab prevents server desktop from seeing input during REMOTE mode.
 
 **Test sequence:**
-1. Start server: `tx2tx`
-2. Start client: `tx2tx --client phomux`
-3. Move mouse left from server, cross x=0
-   - Verify: server cursor disappears
-   - Verify: client cursor appears at right edge
-   - Verify: client cursor follows server mouse movements
-4. Move mouse right on server (controlling client), reach client right edge
-   - Verify: client cursor disappears
-   - Verify: server cursor reappears at left edge
-5. Repeat cycle multiple times
-6. Check logs match expected format
+
+1. **Baseline test - CENTER mode:**
+   ```bash
+   tx2tx
+   ```
+   - Move mouse on server screen → cursor should move normally
+   - Click on server desktop → clicks should register
+   - Type on server → keyboard input should work
+   - Verify: All input works normally
+
+2. **Start client and test transition:**
+   ```bash
+   # On server (TX2TX):
+   tx2tx
+
+   # On client (phomux):
+   tx2tx --client phomux
+   ```
+
+3. **Test CENTER → WEST transition:**
+   - Move mouse left, cross x=0 boundary
+   - Verify: Server cursor disappears
+   - Verify: Client cursor appears
+   - Verify: Client cursor follows server mouse
+   - **CRITICAL: Try clicking on server desktop while in WEST mode**
+     - Expected: Server desktop should NOT react to clicks
+     - Expected: Logs show "[INPUT] Grabbed pointer and keyboard"
+   - **CRITICAL: Try typing while in WEST mode**
+     - Expected: Server desktop should NOT see keyboard input
+     - Expected: No text appears in server terminal or apps
+   - Verify: Only client receives input events
+
+4. **Test cursor movement in WEST mode:**
+   - Move mouse in various patterns
+   - Verify: Client cursor follows smoothly
+   - Verify: Normalized coordinates work (check logs)
+   - Verify: Cursor reaches all edges of client screen
+
+5. **Test WEST → CENTER transition:**
+   - Move mouse right on server (controlling client cursor)
+   - Reach right edge of client screen (server cursor x = width-1)
+   - Verify: Client cursor disappears
+   - Verify: Server cursor reappears at left edge (x=1)
+   - Verify: Logs show "[INPUT] Ungrabbed keyboard and pointer"
+   - **CRITICAL: Try clicking on server desktop after return**
+     - Expected: Server desktop SHOULD react normally
+     - Expected: Clicks register on server apps/windows
+   - **CRITICAL: Try typing after return**
+     - Expected: Server desktop SHOULD receive keyboard input
+     - Expected: Text appears normally in server apps
+
+6. **Test rapid transitions:**
+   - Move left (CENTER → WEST)
+   - Immediately move right (WEST → CENTER)
+   - Repeat 10 times rapidly
+   - Verify: No ping-pong loops
+   - Verify: No stuck grab state
+   - Verify: Hysteresis works (200ms delay prevents immediate re-trigger)
+
+7. **Test edge cases:**
+   - Cross boundary very slowly (below velocity threshold)
+     - Expected: Should NOT trigger transition
+   - Cross boundary quickly
+     - Expected: Should trigger transition
+   - Try to click during transition
+     - Expected: No crashes, clean state handling
 
 **Success criteria:**
-- Smooth transitions in both directions
-- No ping-pong loops
-- Cursor movements responsive
-- Log output clear and informative
+- ✅ Smooth transitions in both directions
+- ✅ No ping-pong loops
+- ✅ Server desktop ISOLATED from input during WEST mode (pointer and keyboard grabbed)
+- ✅ Server desktop RECEIVES input normally in CENTER mode (pointer and keyboard ungrabbed)
+- ✅ Cursor movements responsive and accurate
+- ✅ Normalized coordinates work across different resolutions
+- ✅ Log output clear and informative
+- ✅ No crashes or stuck states
+
+**Known issues to watch for:**
+- Grab failing (check logs for "Failed to grab" errors)
+- Desktop still receiving input during REMOTE mode (grab not working)
+- Cursor not showing after return to CENTER (ungrab not working)
+- Keyboard input leaking to server during REMOTE mode
 
 ---
 
-### Phase 8: Future Enhancements
+### Phase 8: Mouse Button Events
 
-**After core functionality works:**
-1. Add EAST, NORTH, SOUTH support (generalize edge detection)
-2. Add keyboard event forwarding
-3. Optimize polling interval
-4. Add clipboard synchronization
-5. Performance profiling and optimization
+**Goal:** Forward mouse button clicks to client during REMOTE mode.
+
+**File:** `tx2tx/server/main.py`
+
+**Implementation - Read X11 Event Queue:**
+
+Add after pointer_tracker initialization:
+```python
+# X11 event reading for button events
+from Xlib import X
+
+def read_button_events(display_manager):
+    """Read pending button events from X11 queue"""
+    display = display_manager.display_get()
+
+    events = []
+    while display.pending_events() > 0:
+        event = display.next_event()
+
+        if event.type == X.ButtonPress:
+            events.append(MouseEvent(
+                event_type=EventType.MOUSE_BUTTON_PRESS,
+                position=Position(x=event.root_x, y=event.root_y),
+                button=event.detail  # 1=left, 2=middle, 3=right
+            ))
+        elif event.type == X.ButtonRelease:
+            events.append(MouseEvent(
+                event_type=EventType.MOUSE_BUTTON_RELEASE,
+                position=Position(x=event.root_x, y=event.root_y),
+                button=event.detail
+            ))
+
+    return events
+```
+
+**In main loop during REMOTE mode:**
+```python
+elif context_ref[0] != ScreenContext.CENTER:
+    # ... existing position transmission code ...
+
+    # Read and forward button events
+    button_events = read_button_events(display_manager)
+    for event in button_events:
+        # Normalize position
+        norm_x = event.position.x / screen_geometry.width
+        norm_y = event.position.y / screen_geometry.height
+
+        normalized_event = MouseEvent(
+            event_type=event.event_type,
+            position=Position(x=int(norm_x * 10000), y=int(norm_y * 10000)),
+            button=event.button
+        )
+        msg = MessageBuilder.mouseEventMessage_create(normalized_event)
+        network.messageToAll_broadcast(msg)
+        logger.debug(f"[BUTTON] {event.event_type.value} button={event.button}")
+```
+
+**File:** `tx2tx/client/main.py`
+
+**Update event handling:**
+```python
+elif message.msg_type == MessageType.MOUSE_EVENT:
+    if injector:
+        mouse_event = MessageParser.mouseEvent_parse(message)
+
+        # Handle button events
+        if mouse_event.isButtonEvent():
+            # Decode normalized coordinates
+            norm_x = mouse_event.position.x / 10000.0
+            norm_y = mouse_event.position.y / 10000.0
+
+            client_geom = display_manager.screenGeometry_get()
+            actual_x = int(norm_x * client_geom.width)
+            actual_y = int(norm_y * client_geom.height)
+
+            # Inject button event at normalized position
+            event_with_position = MouseEvent(
+                event_type=mouse_event.event_type,
+                position=Position(x=actual_x, y=actual_y),
+                button=mouse_event.button
+            )
+            injector.mouseEvent_inject(event_with_position)
+            logger.debug(f"[BUTTON] {mouse_event.event_type.value} at ({actual_x}, {actual_y})")
+
+        # ... existing MOUSE_MOVE handling ...
+```
+
+**File:** `tx2tx/x11/injector.py`
+
+**Update injection to handle buttons:**
+```python
+def mouseEvent_inject(self, event: MouseEvent) -> None:
+    """Inject mouse event (move or button)"""
+    display = self._display_manager.display_get()
+
+    if event.event_type == EventType.MOUSE_MOVE:
+        # Move cursor
+        self.mousePointer_move(event.position)
+
+    elif event.isButtonEvent():
+        # First move to position
+        self.mousePointer_move(event.position)
+
+        # Then inject button event
+        from Xlib.ext.xtest import fake_input
+        from Xlib import X
+
+        button_map = {1: 1, 2: 2, 3: 3}  # Left, Middle, Right
+        x11_button = button_map.get(event.button, 1)
+
+        if event.event_type == EventType.MOUSE_BUTTON_PRESS:
+            fake_input(display, X.ButtonPress, x11_button)
+        else:
+            fake_input(display, X.ButtonRelease, x11_button)
+
+        display.sync()
+```
+
+**Testing:**
+1. Transition to WEST mode
+2. Click left button while on client
+   - Verify: Client registers click at cursor position
+3. Try middle and right button clicks
+   - Verify: All buttons work
+4. Click and drag
+   - Verify: Drag operations work on client
+
+**Commit:** "Add mouse button event forwarding"
+
+---
+
+### Phase 9: Keyboard Event Forwarding
+
+**Goal:** Forward keyboard events to client during REMOTE mode.
+
+**File:** `tx2tx/server/main.py`
+
+**Add keyboard event reading:**
+```python
+def read_keyboard_events(display_manager):
+    """Read pending keyboard events from X11 queue"""
+    display = display_manager.display_get()
+
+    events = []
+    while display.pending_events() > 0:
+        event = display.next_event()
+
+        if event.type == X.KeyPress:
+            events.append(KeyEvent(
+                event_type=EventType.KEY_PRESS,
+                keycode=event.detail,
+                keysym=display.keycode_to_keysym(event.detail, 0)
+            ))
+        elif event.type == X.KeyRelease:
+            events.append(KeyEvent(
+                event_type=EventType.KEY_RELEASE,
+                keycode=event.detail,
+                keysym=display.keycode_to_keysym(event.detail, 0)
+            ))
+
+    return events
+```
+
+**In main loop during REMOTE mode:**
+```python
+# Read and forward keyboard events
+keyboard_events = read_keyboard_events(display_manager)
+for event in keyboard_events:
+    msg = MessageBuilder.keyEventMessage_create(event)
+    network.messageToAll_broadcast(msg)
+    logger.debug(f"[KEY] {event.event_type.value} keycode={event.keycode}")
+```
+
+**File:** `tx2tx/common/protocol.py`
+
+**Add KeyEvent message builder:**
+```python
+@staticmethod
+def keyEventMessage_create(event: KeyEvent) -> Message:
+    """Create keyboard event message"""
+    payload = {
+        "event_type": event.event_type.value,
+        "keycode": event.keycode,
+        "keysym": event.keysym
+    }
+    return Message(
+        msg_type=MessageType.KEY_EVENT,
+        payload=json.dumps(payload).encode('utf-8')
+    )
+```
+
+**File:** `tx2tx/client/main.py`
+
+**Add keyboard event handling:**
+```python
+elif message.msg_type == MessageType.KEY_EVENT:
+    if injector:
+        key_event = MessageParser.keyEvent_parse(message)
+        injector.keyEvent_inject(key_event)
+        logger.debug(f"[KEY] Injected {key_event.event_type.value}")
+```
+
+**File:** `tx2tx/x11/injector.py`
+
+**Add keyboard injection:**
+```python
+def keyEvent_inject(self, event: KeyEvent) -> None:
+    """Inject keyboard event"""
+    from Xlib.ext.xtest import fake_input
+    from Xlib import X
+
+    display = self._display_manager.display_get()
+
+    if event.event_type == EventType.KEY_PRESS:
+        fake_input(display, X.KeyPress, event.keycode)
+    else:
+        fake_input(display, X.KeyRelease, event.keycode)
+
+    display.sync()
+```
+
+**Testing:**
+1. Transition to WEST mode
+2. Type on server keyboard
+   - Verify: Server desktop does NOT see input (grabbed)
+   - Verify: Client receives and displays keystrokes
+3. Test special keys (Ctrl, Alt, Shift, Enter, Backspace)
+   - Verify: Modifier keys work correctly
+4. Test key combinations (Ctrl+C, Alt+Tab, etc.)
+   - Verify: Combinations work on client
+
+**Note:** Keysym mapping may differ between server and client. Future enhancement: send keysyms and have client translate to local keycodes.
+
+**Commit:** "Add keyboard event forwarding"
+
+---
+
+### Phase 10: Multi-Directional Support (EAST/NORTH/SOUTH)
+
+**Goal:** Generalize edge detection to support all four directions.
+
+**File:** `tx2tx/server/main.py`
+
+**Generalize transition logic:**
+```python
+if context_ref[0] == ScreenContext.CENTER:
+    transition = pointer_tracker.boundary_detect(position, screen_geometry)
+
+    if transition:
+        # Determine which context based on direction
+        direction_to_context = {
+            Direction.LEFT: ScreenContext.WEST,
+            Direction.RIGHT: ScreenContext.EAST,
+            Direction.TOP: ScreenContext.NORTH,
+            Direction.BOTTOM: ScreenContext.SOUTH
+        }
+
+        new_context = direction_to_context[transition.direction]
+        context_ref[0] = new_context
+
+        # Calculate opposite edge position
+        if transition.direction == Direction.LEFT:
+            edge_pos = Position(x=screen_geometry.width - 1, y=position.y)
+        elif transition.direction == Direction.RIGHT:
+            edge_pos = Position(x=1, y=position.y)
+        elif transition.direction == Direction.TOP:
+            edge_pos = Position(x=position.x, y=screen_geometry.height - 1)
+        else:  # BOTTOM
+            edge_pos = Position(x=position.x, y=1)
+
+        # Hide, grab, position
+        display_manager.pointer_grab()
+        display_manager.keyboard_grab()
+        display_manager.cursor_hide()
+        display_manager.cursorPosition_set(edge_pos)
+
+        logger.info(f"[STATE] → {new_context.value.upper()}")
+
+elif context_ref[0] != ScreenContext.CENTER:
+    # Determine which edge we should watch for return
+    return_edges = {
+        ScreenContext.WEST: lambda p, g: p.x >= g.width - 1,
+        ScreenContext.EAST: lambda p, g: p.x <= 0,
+        ScreenContext.NORTH: lambda p, g: p.y >= g.height - 1,
+        ScreenContext.SOUTH: lambda p, g: p.y <= 0
+    }
+
+    should_return = return_edges[context_ref[0]](position, screen_geometry)
+
+    if should_return:
+        # ... existing return logic ...
+```
+
+**File:** `config.yml`
+
+**Update for multiple clients:**
+```yaml
+clients:
+  - name: "phomux"
+    position: west
+  - name: "tablet"
+    position: east
+  - name: "laptop"
+    position: north
+```
+
+**File:** `tx2tx/server/main.py`
+
+**Add client routing:**
+```python
+# Map contexts to client names
+context_to_client = {}
+for client_config in config.clients:
+    position_to_context = {
+        "west": ScreenContext.WEST,
+        "east": ScreenContext.EAST,
+        "north": ScreenContext.NORTH,
+        "south": ScreenContext.SOUTH
+    }
+    context = position_to_context[client_config.position]
+    context_to_client[context] = client_config.name
+
+# When sending events, send only to active client
+if context_ref[0] != ScreenContext.CENTER:
+    target_client_name = context_to_client[context_ref[0]]
+
+    # Send event only to target client
+    network.messageToClient_send(target_client_name, msg)
+```
+
+**Commit:** "Add multi-directional support (EAST/NORTH/SOUTH)"
+
+---
+
+### Phase 11: Performance Optimization
+
+**Goal:** Optimize polling, reduce latency, minimize CPU usage.
+
+**File:** `config.yml`
+
+**Tunable parameters:**
+```yaml
+server:
+  poll_interval_ms: 8  # Reduce from 20ms to 8ms for 120Hz responsiveness
+  velocity_threshold: 50  # Lower threshold for easier transitions
+  edge_threshold: 0  # Stay at 0 for immediate detection
+```
+
+**File:** `tx2tx/server/main.py`
+
+**Adaptive polling:**
+```python
+# Use faster polling during REMOTE mode, slower during CENTER
+if context_ref[0] == ScreenContext.CENTER:
+    poll_interval = config.server.poll_interval_ms / 1000.0
+else:
+    poll_interval = config.server.poll_interval_ms / 2000.0  # 2x faster when remote
+
+time.sleep(poll_interval)
+```
+
+**File:** `tx2tx/network/server.py`
+
+**Add message batching:**
+```python
+# Batch multiple position updates if network is slow
+position_buffer = []
+
+def send_batched():
+    if position_buffer:
+        # Send only the latest position (discard intermediate ones)
+        latest = position_buffer[-1]
+        network.messageToAll_broadcast(latest)
+        position_buffer.clear()
+```
+
+**Testing:**
+- Measure CPU usage during idle (CENTER mode)
+- Measure CPU usage during active control (REMOTE mode)
+- Measure latency from server mouse movement to client cursor movement
+- Target: <10ms latency, <5% CPU during idle, <15% during active
+
+**Commit:** "Optimize polling and reduce latency"
+
+---
+
+### Phase 12: Future Enhancements
+
+**After core functionality is stable:**
+
+1. **Clipboard synchronization:**
+   - Monitor clipboard changes on server and client
+   - Sync clipboard content when transitioning contexts
+   - Handle text, images, and files
+
+2. **Display scaling compensation:**
+   - Handle different DPI settings between server and client
+   - Adjust mouse acceleration/sensitivity
+   - Optional coordinate scaling factors in config
+
+3. **Security hardening:**
+   - Add authentication for client connections
+   - Encrypt network traffic (TLS)
+   - Validate all input from network
+
+4. **Error recovery:**
+   - Auto-reconnect client if connection drops
+   - Graceful handling of display disconnection
+   - State recovery after crashes
+
+5. **Configuration UI:**
+   - Web-based config editor
+   - Real-time connection monitoring
+   - Visual layout editor for multi-screen setup
+
+6. **Platform support:**
+   - Wayland support (currently X11 only)
+   - Windows support (via Win32 API)
+   - macOS support (via Quartz/CGEvent)
 
 ---
 
 ### Commit Strategy
 
 Each phase should be a separate commit:
-1. "Implement input isolation: cursor hiding and pointer/keyboard grab"
-2. "Add ScreenContext enum for global state tracking"
-3. "Strip out delta tracking and cursor warping complexity"
-4. "Add named client configuration support"
-5. "Implement normalized coordinate transmission"
-6. "Implement full CENTER ↔ WEST state transitions with input grab/ungrab"
-7. "Update documentation and tests"
+
+**Completed (v2.0.0):**
+1. ✅ "Implement input isolation: cursor hiding and pointer/keyboard grab (v2.0.0 Phase 1)"
+2. ✅ "Add ScreenContext enum for global state tracking (v2.0.0 Phase 2)"
+3. ✅ "Strip out delta tracking and cursor warping complexity (v2.0.0 Phase 3)"
+4. ✅ "Add named client configuration support (v2.0.0 Phase 4)"
+5. ✅ "Implement normalized coordinates and full state machine (v2.0.0 Phases 5-6)"
+
+**Current:**
+6. 🔄 "Test and validate input isolation" (Phase 7 - in progress)
+
+**Upcoming (v2.1.0+):**
+7. ⏳ "Add mouse button event forwarding (v2.1.0 Phase 8)"
+8. ⏳ "Add keyboard event forwarding (v2.1.0 Phase 9)"
+9. ⏳ "Add multi-directional support: EAST/NORTH/SOUTH (v2.2.0 Phase 10)"
+10. ⏳ "Optimize polling and reduce latency (v2.3.0 Phase 11)"
+11. ⏳ "Future enhancements (v3.0.0+ Phase 12)"
+
+---
+
+## Version Roadmap
+
+**v2.0.0 (Current):** ✅ Core server-authoritative architecture with CENTER ↔ WEST transitions
+- Input isolation via pointer/keyboard grab
+- Normalized coordinates
+- Full state machine
+- Named client configuration
+
+**v2.1.0 (Next):** Mouse and keyboard event forwarding
+- Button clicks forwarded to client
+- Keyboard typing forwarded to client
+- Full input control on remote client
+
+**v2.2.0:** Multi-directional support
+- EAST, NORTH, SOUTH edges
+- Multiple simultaneous clients
+- Client routing by position
+
+**v2.3.0:** Performance optimization
+- Adaptive polling rates
+- Latency reduction
+- CPU usage optimization
+- Message batching
+
+**v3.0.0+:** Advanced features
+- Clipboard synchronization
+- Display scaling
+- Security hardening
+- Error recovery
+- Cross-platform support
 
