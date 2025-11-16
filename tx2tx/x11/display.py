@@ -219,6 +219,11 @@ class DisplayManager:
         except Exception as e:
             logger.debug(f"XFixes failed, using fallback: {e}")
             xfixes_worked = False
+            # Flush display to clear any error state from failed XFixes call
+            try:
+                display.sync()
+            except:
+                pass
 
         # Fallback: Skip cursor hiding if XFixes not available
         # (Cursor will remain visible but system will still work)
