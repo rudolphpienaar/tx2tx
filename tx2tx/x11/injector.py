@@ -73,7 +73,10 @@ class EventInjector:
         from tx2tx.common.types import EventType
 
         if event.event_type == EventType.MOUSE_MOVE:
-            self.mousePointer_move(event.position)
+            if event.position:
+                self.mousePointer_move(event.position)
+            else:
+                raise ValueError("MOUSE_MOVE event requires position field for injection")
         elif event.event_type == EventType.MOUSE_BUTTON_PRESS and event.button:
             self.mouseButton_press(event.button)
         elif event.event_type == EventType.MOUSE_BUTTON_RELEASE and event.button:
