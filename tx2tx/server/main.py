@@ -346,7 +346,9 @@ def server_run(args: argparse.Namespace) -> None:
 
                             # Hide cursor and position away from edge (BEFORE grab)
                             try:
+                                logger.info(f"[DEBUG] About to hide cursor and position at ({edge_position.x}, {edge_position.y})")
                                 display_manager.cursor_hide()
+                                logger.info(f"[DEBUG] Cursor hide completed")
                                 display_manager.cursorPosition_set(edge_position)
                                 logger.info(f"[CURSOR] Hidden and positioned at ({edge_position.x}, {edge_position.y})")
 
