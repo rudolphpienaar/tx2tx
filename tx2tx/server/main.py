@@ -144,48 +144,14 @@ def clientMessage_handle(
         # Client is returning control to server
         client_transition = MessageParser.screenTransition_parse(message)
         logger.info(
-            f"Client re-entry at {client_transition.direction.value} edge "
-            f"({client_transition.position.x}, {client_transition.position.y})"
+            f"[SCREEN_ENTER] Client crossed {client_transition.direction.value} edge - "
+            f"returning control to server"
         )
 
-        if context is not None and display_manager is not None:
-            # Transform client coordinates to server coordinates
-            if screen_layout is not None and server_screen is not None:
-                if client.screen_width and client.screen_height:
-                    client_screen = Screen(
-                        width=client.screen_width,
-                        height=client.screen_height
-                    )
-                    # Transform client exit coordinates to server re-entry coordinates
-                    server_transition = screen_layout.toServerCoordinates_transform(
-                        client_transition=client_transition,
-                        client_geometry=client_screen,
-                        server_geometry=server_screen
-                    )
-                    logger.info(
-                        f"Transformed to server: {server_transition.direction.value} at "
-                        f"({server_transition.position.x}, {server_transition.position.y})"
-                    )
-                else:
-                    logger.warning("Client screen geometry not available, using untransformed coordinates")
-                    server_transition = client_transition
-            else:
-                logger.warning("Screen layout not available, using untransformed coordinates")
-                server_transition = client_transition
-
-            # Show CENTER cursor again
-            display_manager.cursor_show()
-            logger.info("[CURSOR] Restored CENTER cursor visibility")
-
-            # Position cursor at appropriate edge for smooth re-entry
-            display_manager.cursorPosition_set(server_transition.position)
-            logger.info(
-                f"[CURSOR] Positioned at server re-entry point ({server_transition.position.x}, {server_transition.position.y})"
-            )
-
+        if context is not None:
             # Switch back to CENTER context
             context[0] = ScreenContext.CENTER
-            logger.info("[STATE] Switched to CENTER context")
+            logger.info("[STATE] → CENTER context (client returned control)")
     else:
         logger.warning(f"Unexpected message type: {message.msg_type.value}")
 
@@ -355,6 +321,11 @@ def server_run(args: argparse.Namespace) -> None:
                                 # display_manager.cursorPosition_set(edge_position)
                                 logger.info(f"[CURSOR] NOT repositioning - letting cursor move naturally")
 
+                                # Send SCREEN_LEAVE to client (server is leaving, client becomes active)
+                                leave_msg = MessageBuilder.screenLeaveMessage_create(transition)
+                                network.messageToAll_broadcast(leave_msg)
+                                logger.info(f"[CLIENT] Sent SCREEN_LEAVE - client now active")
+
                                 # DEBUG: No grabs at all - just test mouse transitions
                                 # display_manager.keyboard_grab()
                                 logger.info("[INPUT] No grabs (DEBUG MODE)")
@@ -372,71 +343,11 @@ def server_run(args: argparse.Namespace) -> None:
                                 logger.warning("Reverted to CENTER after failed transition")
 
                 elif context_ref[0] != ScreenContext.CENTER:
-                    # FIX Issue 3: Determine which edge to check based on current context
-                    return_edges = {
-                        ScreenContext.WEST: lambda p, g: p.x >= g.width - 1,
-                        ScreenContext.EAST: lambda p, g: p.x <= 0,
-                        ScreenContext.NORTH: lambda p, g: p.y >= g.height - 1,
-                        ScreenContext.SOUTH: lambda p, g: p.y <= 0
-                    }
-
-                    should_return = return_edges[context_ref[0]](position, screen_geometry)
-
-                    # DEBUG: Log return edge detection
-                    if context_ref[0] == ScreenContext.WEST:
-                        logger.debug(f"[RETURN CHECK] WEST: pos.x={position.x} >= {screen_geometry.width - 1} ? {should_return}, velocity={velocity:.1f} >= {config.server.velocity_threshold}")
-                    elif context_ref[0] == ScreenContext.EAST:
-                        logger.debug(f"[RETURN CHECK] EAST: pos.x={position.x} <= 0 ? {should_return}, velocity={velocity:.1f} >= {config.server.velocity_threshold}")
-                    elif context_ref[0] == ScreenContext.NORTH:
-                        logger.debug(f"[RETURN CHECK] NORTH: pos.y={position.y} >= {screen_geometry.height - 1} ? {should_return}, velocity={velocity:.1f} >= {config.server.velocity_threshold}")
-                    elif context_ref[0] == ScreenContext.SOUTH:
-                        logger.debug(f"[RETURN CHECK] SOUTH: pos.y={position.y} <= 0 ? {should_return}, velocity={velocity:.1f} >= {config.server.velocity_threshold}")
-
-                    if should_return:
-                        # TEMPORARY DEBUG: Bypass velocity check to test position tracking
-                        # if velocity >= config.server.velocity_threshold:
-                        if True:  # DEBUG: Always allow return when at edge
-                            logger.info(f"[BOUNDARY] Returning from {context_ref[0].value.upper()} at ({position.x}, {position.y}) velocity={velocity:.1f}")
-
-                            # Send hide signal to client (negative coordinates = hide)
-                            hide_event = MouseEvent(
-                                event_type=EventType.MOUSE_MOVE,
-                                normalized_point=NormalizedPoint(x=-1.0, y=-1.0)
-                            )
-                            hide_msg = MessageBuilder.mouseEventMessage_create(hide_event)
-                            network.messageToAll_broadcast(hide_msg)
-                            logger.info("[CLIENT] Sent hide signal")
-
-                            # Switch back to CENTER context
-                            previous_context = context_ref[0]
-                            context_ref[0] = ScreenContext.CENTER
-
-                            # DON'T reposition cursor - it's already where the user moved it
-                            logger.info(f"[CURSOR] NOT repositioning - cursor already at return position ({position.x}, {position.y})")
-
-                            # DEBUG: No grabs, so no ungrab needed
-                            # display_manager.keyboard_ungrab()
-                            logger.info("[INPUT] No ungrab needed (DEBUG MODE)")
-
-                            logger.info(f"[STATE] → CENTER context")
-
-                            # Record timestamp
-                            last_center_switch_time[0] = time.time()
-                    else:
-                        # Not returning to CENTER - send normalized coordinates to active client
-                        normalized_point = screen_geometry.normalize(position)
-
-                        mouse_event = MouseEvent(
-                            event_type=EventType.MOUSE_MOVE,
-                            normalized_point=normalized_point
-                        )
-                        move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
-                        network.messageToAll_broadcast(move_msg)
-
-                        logger.debug(
-                            f"[{context_ref[0].value.upper()}] Sent "
-                            f"normalized=({normalized_point.x:.4f}, {normalized_point.y:.4f})"
-                        )
+                    # In REMOTE mode - DON'T broadcast mouse movements
+                    # Client is active and detecting its own boundaries
+                    # Just wait for SCREEN_ENTER from client
+                    logger.debug(f"[{context_ref[0].value.upper()}] Client active - waiting for SCREEN_ENTER")
+                    pass  # Do nothing, wait for client to send SCREEN_ENTER
 
             # Small sleep to prevent busy waiting
             time.sleep(config.server.poll_interval_ms / settings.POLL_INTERVAL_DIVISOR)
