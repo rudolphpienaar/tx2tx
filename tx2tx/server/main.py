@@ -111,7 +111,8 @@ def clientMessage_handle(
     context: Optional[list[ScreenContext]] = None,
     display_manager: Optional[DisplayManager] = None,
     screen_layout: Optional[ScreenLayout] = None,
-    server_screen: Optional[Screen] = None
+    server_screen: Optional[Screen] = None,
+    last_center_time: Optional[list[float]] = None
 ) -> None:
     """
     Handle message received from client
@@ -143,15 +144,19 @@ def clientMessage_handle(
     elif message.msg_type == MessageType.SCREEN_ENTER:
         # Client is returning control to server
         client_transition = MessageParser.screenTransition_parse(message)
-        logger.info(
-            f"[SCREEN_ENTER] Client crossed {client_transition.direction.value} edge - "
-            f"returning control to server"
-        )
 
         if context is not None:
+            prev_context = context[0]
             # Switch back to CENTER context
             context[0] = ScreenContext.CENTER
-            logger.info("[STATE] → CENTER context (client returned control)")
+            logger.info(
+                f"[TRANSITION] Client returned control, mouse from {client_transition.direction.value.upper()}, "
+                f"{prev_context.value.upper()} → CENTER"
+            )
+
+            # Update hysteresis timestamp to prevent immediate re-detection
+            if last_center_time is not None:
+                last_center_time[0] = time.time()
     else:
         logger.warning(f"Unexpected message type: {message.msg_type.value}")
 
@@ -254,16 +259,13 @@ def server_run(args: argparse.Namespace) -> None:
             # Accept new connections
             network.connections_accept()
 
-            # Receive messages from clients with callback closure
+            # Receive messages from clients
             def message_handler(client: ClientConnection, message: Message) -> None:
-                """Handle incoming messages from clients and track context switches"""
+                """Handle incoming messages from clients"""
                 clientMessage_handle(
                     client, message, context_ref, display_manager,
-                    screen_layout, screen_geometry
+                    screen_layout, screen_geometry, last_center_switch_time
                 )
-                # Record timestamp when switching back to CENTER
-                if context_ref[0] == ScreenContext.CENTER and message.msg_type == MessageType.SCREEN_ENTER:
-                    last_center_switch_time[0] = time.time()
 
             network.clientData_receive(message_handler)
 
@@ -272,9 +274,6 @@ def server_run(args: argparse.Namespace) -> None:
                 # Poll pointer position
                 position = pointer_tracker.position_query()
                 velocity = pointer_tracker.velocity_calculate()
-
-                # DEBUG: Log position and velocity on every iteration
-                logger.debug(f"[POLL] context={context_ref[0].value} pos=({position.x},{position.y}) velocity={velocity:.1f}px/s")
 
                 if context_ref[0] == ScreenContext.CENTER:
                     # Add hysteresis: skip boundary detection after switching to CENTER
@@ -286,12 +285,7 @@ def server_run(args: argparse.Namespace) -> None:
                         transition = pointer_tracker.boundary_detect(position, screen_geometry)
 
                         if transition:
-                            logger.info(
-                                f"[BOUNDARY] Server boundary crossed: {transition.direction.value} at "
-                                f"({transition.position.x}, {transition.position.y})"
-                            )
-
-                            # FIX Issue 1: Map direction to context instead of hardcoding WEST
+                            # Map direction to context
                             direction_to_context = {
                                 Direction.LEFT: ScreenContext.WEST,
                                 Direction.RIGHT: ScreenContext.EAST,
@@ -302,6 +296,12 @@ def server_run(args: argparse.Namespace) -> None:
                             if not new_context:
                                 logger.error(f"Invalid transition direction: {transition.direction}")
                                 continue
+
+                            logger.info(
+                                f"[TRANSITION] Boundary crossed: pos=({transition.position.x},{transition.position.y}), "
+                                f"velocity={velocity:.1f}px/s, direction={transition.direction.value.upper()}, "
+                                f"CENTER → {new_context.value.upper()}"
+                            )
 
                             context_ref[0] = new_context
 
@@ -345,11 +345,16 @@ def server_run(args: argparse.Namespace) -> None:
                                 logger.warning("Reverted to CENTER after failed transition")
 
                 elif context_ref[0] != ScreenContext.CENTER:
-                    # In REMOTE mode - DON'T broadcast mouse movements
-                    # Client is active and detecting its own boundaries
-                    # Just wait for SCREEN_ENTER from client
-                    logger.debug(f"[{context_ref[0].value.upper()}] Client active - waiting for SCREEN_ENTER")
-                    pass  # Do nothing, wait for client to send SCREEN_ENTER
+                    # In REMOTE mode - KEEP broadcasting so client cursor moves
+                    # Client will detect boundaries while injecting
+                    normalized_point = screen_geometry.normalize(position)
+
+                    mouse_event = MouseEvent(
+                        event_type=EventType.MOUSE_MOVE,
+                        normalized_point=normalized_point
+                    )
+                    move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
+                    network.messageToAll_broadcast(move_msg)
 
             # Small sleep to prevent busy waiting
             time.sleep(config.server.poll_interval_ms / settings.POLL_INTERVAL_DIVISOR)

@@ -139,13 +139,13 @@ def serverMessage_handle(
 
     elif message.msg_type == MessageType.SCREEN_LEAVE:
         transition = MessageParser.screenTransition_parse(message)
-        logger.info(
-            f"[SCREEN_LEAVE] Server crossed {transition.direction.value} edge - CLIENT NOW ACTIVE"
-        )
         # Activate client - start detecting boundaries for return
         if client_active is not None:
             client_active[0] = True
-            logger.info("[CLIENT ACTIVE] Now detecting boundaries for return to server")
+            logger.info(
+                f"[CLIENT ACTIVE] Mouse arrived from {transition.direction.value.upper()}, "
+                f"now detecting boundaries for return"
+            )
 
     elif message.msg_type == MessageType.SCREEN_ENTER:
         transition = MessageParser.screenTransition_parse(message)
@@ -162,8 +162,7 @@ def serverMessage_handle(
             # ONLY inject events when client is INACTIVE (server has control)
             # When client is ACTIVE, ignore server's mouse events
             if client_active is not None and client_active[0]:
-                logger.debug("[CLIENT ACTIVE] Ignoring MOUSE_EVENT from server (client has control)")
-                return  # Don't inject anything
+                return  # Don't inject anything when client is active
 
             if mouse_event.event_type == EventType.MOUSE_MOVE:
                 # Handle normalized coordinates (v2.0 protocol)
@@ -335,25 +334,21 @@ def client_run(args: argparse.Namespace) -> None:
                     position = pointer_tracker.position_query()
                     velocity = pointer_tracker.velocity_calculate()
 
-                    logger.debug(f"[CLIENT POLL] pos=({position.x},{position.y}) velocity={velocity:.1f}px/s")
-
                     # Detect boundary crossings
                     transition = pointer_tracker.boundary_detect(position, screen_geometry)
 
                     if transition:
                         logger.info(
-                            f"[CLIENT BOUNDARY] Crossed {transition.direction.value} edge at "
-                            f"({transition.position.x}, {transition.position.y}) - RETURNING TO SERVER"
+                            f"[CLIENT INACTIVE] Mouse leaving towards {transition.direction.value.upper()}, "
+                            f"pos=({transition.position.x},{transition.position.y}), velocity={velocity:.1f}px/s"
                         )
 
                         # Send SCREEN_ENTER to server (client is entering server's screen)
                         enter_msg = MessageBuilder.screenEnterMessage_create(transition)
                         network.message_send(enter_msg)
-                        logger.info("[CLIENT] Sent SCREEN_ENTER to server")
 
                         # Deactivate client
                         client_active_ref[0] = False
-                        logger.info("[CLIENT INACTIVE] Returning control to server")
 
                 # Small sleep to prevent busy waiting
                 time.sleep(settings.RECONNECT_CHECK_INTERVAL)
