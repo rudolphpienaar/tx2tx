@@ -348,11 +348,12 @@ def server_run(args: argparse.Namespace) -> None:
                             else:  # BOTTOM
                                 edge_position = Position(x=position.x, y=settings.EDGE_ENTRY_OFFSET)
 
-                            # Position cursor away from edge (no hiding, no grabs)
+                            # DON'T position cursor - let it move naturally for return detection
                             try:
                                 logger.info(f"[TRANSITION] Moving to {new_context.value.upper()}")
-                                display_manager.cursorPosition_set(edge_position)
-                                logger.info(f"[CURSOR] Positioned at ({edge_position.x}, {edge_position.y})")
+                                # DON'T position cursor - breaks return detection!
+                                # display_manager.cursorPosition_set(edge_position)
+                                logger.info(f"[CURSOR] NOT repositioning - letting cursor move naturally")
 
                                 # DEBUG: No grabs at all - just test mouse transitions
                                 # display_manager.keyboard_grab()
@@ -406,23 +407,12 @@ def server_run(args: argparse.Namespace) -> None:
                             network.messageToAll_broadcast(hide_msg)
                             logger.info("[CLIENT] Sent hide signal")
 
-                            # Store current context before changing
+                            # Switch back to CENTER context
                             previous_context = context_ref[0]
                             context_ref[0] = ScreenContext.CENTER
 
-                            # FIX Issue 4: Calculate entry position based on which context we're leaving
-                            if previous_context == ScreenContext.WEST:
-                                entry_pos = Position(x=settings.EDGE_ENTRY_OFFSET, y=position.y)
-                            elif previous_context == ScreenContext.EAST:
-                                entry_pos = Position(x=screen_geometry.width - settings.EDGE_ENTRY_OFFSET, y=position.y)
-                            elif previous_context == ScreenContext.NORTH:
-                                entry_pos = Position(x=position.x, y=settings.EDGE_ENTRY_OFFSET)
-                            else:  # SOUTH
-                                entry_pos = Position(x=position.x, y=screen_geometry.height - settings.EDGE_ENTRY_OFFSET)
-
-                            # Position cursor at entry edge
-                            display_manager.cursorPosition_set(entry_pos)
-                            logger.info(f"[CURSOR] Positioned at entry ({entry_pos.x}, {entry_pos.y})")
+                            # DON'T reposition cursor - it's already where the user moved it
+                            logger.info(f"[CURSOR] NOT repositioning - cursor already at return position ({position.x}, {position.y})")
 
                             # DEBUG: No grabs, so no ungrab needed
                             # display_manager.keyboard_ungrab()
