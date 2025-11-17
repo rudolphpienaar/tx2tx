@@ -131,7 +131,7 @@ class ClientNetwork:
         try:
             data = message.json_serialize() + "\n"
             self.socket.sendall(data.encode("utf-8"))
-            logger.debug(f"Sent to server: {message.msg_type.value}")
+            # Removed debug log - too noisy
 
         except (socket.error, OSError) as e:
             self.is_connected = False
