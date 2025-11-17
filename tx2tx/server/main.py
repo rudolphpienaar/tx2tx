@@ -284,6 +284,11 @@ def server_run(args: argparse.Namespace) -> None:
                         # Detect boundary crossings
                         transition = pointer_tracker.boundary_detect(position, screen_geometry)
 
+                        # DEBUG: Log when at edge but no transition (velocity too low?)
+                        if position.x <= 5 or position.x >= screen_geometry.width - 6 or position.y <= 5 or position.y >= screen_geometry.height - 6:
+                            if not transition:
+                                logger.info(f"[DEBUG] At edge but no transition: pos=({position.x},{position.y}), velocity={velocity:.1f}px/s, threshold=10.0px/s")
+
                         if transition:
                             # Map direction to context
                             direction_to_context = {
