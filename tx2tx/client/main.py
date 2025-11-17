@@ -159,10 +159,11 @@ def serverMessage_handle(
         if injector and display_manager:
             mouse_event = MessageParser.mouseEvent_parse(message)
 
-            # Deactivate client - server is sending movements again (server regained control)
+            # ONLY inject events when client is INACTIVE (server has control)
+            # When client is ACTIVE, ignore server's mouse events
             if client_active is not None and client_active[0]:
-                client_active[0] = False
-                logger.info("[CLIENT INACTIVE] Server regained control")
+                logger.debug("[CLIENT ACTIVE] Ignoring MOUSE_EVENT from server (client has control)")
+                return  # Don't inject anything
 
             if mouse_event.event_type == EventType.MOUSE_MOVE:
                 # Handle normalized coordinates (v2.0 protocol)
@@ -291,12 +292,13 @@ def client_run(args: argparse.Namespace) -> None:
     logger.info("XTest extension verified, event injection ready")
 
     # Initialize pointer tracker for boundary detection (when client is active)
+    # TEMP: Use very low velocity threshold for testing (bypass velocity check)
     pointer_tracker = PointerTracker(
         display_manager=display_manager,
         edge_threshold=5,  # Use same threshold as server
-        velocity_threshold=100.0  # Use same velocity threshold
+        velocity_threshold=10.0  # TEMP: Very low threshold for testing
     )
-    logger.info("Pointer tracker initialized for boundary detection")
+    logger.info("Pointer tracker initialized (velocity_threshold=10.0 for testing)")
 
     # Initialize network client
     network = ClientNetwork(

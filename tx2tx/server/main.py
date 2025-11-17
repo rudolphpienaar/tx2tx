@@ -216,11 +216,13 @@ def server_run(args: argparse.Namespace) -> None:
         logger.error(f"Failed to connect to X11 display: {e}")
         sys.exit(1)
 
+    # TEMP: Use very low velocity threshold for testing (bypass velocity check)
     pointer_tracker = PointerTracker(
         display_manager=display_manager,
         edge_threshold=config.server.edge_threshold,
-        velocity_threshold=config.server.velocity_threshold
+        velocity_threshold=10.0  # TEMP: Very low threshold instead of config.server.velocity_threshold
     )
+    logger.info("Pointer tracker initialized (velocity_threshold=10.0 for testing)")
 
     # Initialize screen layout for coordinate transformations
     try:
