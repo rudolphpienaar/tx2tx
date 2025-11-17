@@ -39,7 +39,7 @@ class ClientConnection:
         """
         data = message.json_serialize() + "\n"
         self.socket.sendall(data.encode("utf-8"))
-        logger.debug(f"Sent to {self.address}: {message.msg_type.value}")
+        # Removed debug log - too noisy
 
     def data_receive(self) -> List[Message]:
         """
@@ -73,7 +73,7 @@ class ClientConnection:
                     try:
                         msg = Message.json_deserialize(line)
                         messages.append(msg)
-                        logger.debug(f"Received from {self.address}: {msg.msg_type.value}")
+                        # Removed debug log - too noisy
                     except Exception as e:
                         logger.error(f"Failed to parse message from {self.address}: {e}")
 
