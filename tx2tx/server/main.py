@@ -303,6 +303,10 @@ def server_run(args: argparse.Namespace) -> None:
             if network.clients_count() > 0:
                 # Poll pointer position
                 position = pointer_tracker.position_query()
+                velocity = pointer_tracker.velocity_calculate()
+
+                # DEBUG: Log position and velocity on every iteration
+                logger.debug(f"[POLL] context={context_ref[0].value} pos=({position.x},{position.y}) velocity={velocity:.1f}px/s")
 
                 if context_ref[0] == ScreenContext.CENTER:
                     # Add hysteresis: skip boundary detection after switching to CENTER
@@ -344,26 +348,22 @@ def server_run(args: argparse.Namespace) -> None:
                             else:  # BOTTOM
                                 edge_position = Position(x=position.x, y=settings.EDGE_ENTRY_OFFSET)
 
-                            # Hide cursor and position away from edge (BEFORE grab)
+                            # Position cursor away from edge (no hiding, no grabs)
                             try:
-                                logger.info(f"[DEBUG] About to hide cursor and position at ({edge_position.x}, {edge_position.y})")
-                                display_manager.cursor_hide()
-                                logger.info(f"[DEBUG] Cursor hide completed")
+                                logger.info(f"[TRANSITION] Moving to {new_context.value.upper()}")
                                 display_manager.cursorPosition_set(edge_position)
-                                logger.info(f"[CURSOR] Hidden and positioned at ({edge_position.x}, {edge_position.y})")
+                                logger.info(f"[CURSOR] Positioned at ({edge_position.x}, {edge_position.y})")
 
-                                # Grab pointer and keyboard (isolate input from desktop)
-                                display_manager.pointer_grab()
-                                display_manager.keyboard_grab()
-                                logger.info("[INPUT] Grabbed pointer and keyboard")
+                                # DEBUG: No grabs at all - just test mouse transitions
+                                # display_manager.keyboard_grab()
+                                logger.info("[INPUT] No grabs (DEBUG MODE)")
 
                                 logger.info(f"[STATE] → {new_context.value.upper()} context")
                             except Exception as e:
-                                # FIX Issue 7: Cleanup on error
+                                # Cleanup on error
                                 logger.error(f"Transition failed: {e}", exc_info=True)
                                 try:
-                                    display_manager.keyboard_ungrab()
-                                    display_manager.pointer_ungrab()
+                                    # display_manager.keyboard_ungrab()
                                     display_manager.cursor_show()
                                 except:
                                     pass
@@ -381,10 +381,21 @@ def server_run(args: argparse.Namespace) -> None:
 
                     should_return = return_edges[context_ref[0]](position, screen_geometry)
 
+                    # DEBUG: Log return edge detection
+                    if context_ref[0] == ScreenContext.WEST:
+                        logger.debug(f"[RETURN CHECK] WEST: pos.x={position.x} >= {screen_geometry.width - 1} ? {should_return}, velocity={velocity:.1f} >= {config.server.velocity_threshold}")
+                    elif context_ref[0] == ScreenContext.EAST:
+                        logger.debug(f"[RETURN CHECK] EAST: pos.x={position.x} <= 0 ? {should_return}, velocity={velocity:.1f} >= {config.server.velocity_threshold}")
+                    elif context_ref[0] == ScreenContext.NORTH:
+                        logger.debug(f"[RETURN CHECK] NORTH: pos.y={position.y} >= {screen_geometry.height - 1} ? {should_return}, velocity={velocity:.1f} >= {config.server.velocity_threshold}")
+                    elif context_ref[0] == ScreenContext.SOUTH:
+                        logger.debug(f"[RETURN CHECK] SOUTH: pos.y={position.y} <= 0 ? {should_return}, velocity={velocity:.1f} >= {config.server.velocity_threshold}")
+
                     if should_return:
-                        velocity = pointer_tracker.velocity_calculate()
-                        if velocity >= config.server.velocity_threshold:
-                            logger.info(f"[BOUNDARY] Returning from {context_ref[0].value.upper()} at ({position.x}, {position.y})")
+                        # TEMPORARY DEBUG: Bypass velocity check to test position tracking
+                        # if velocity >= config.server.velocity_threshold:
+                        if True:  # DEBUG: Always allow return when at edge
+                            logger.info(f"[BOUNDARY] Returning from {context_ref[0].value.upper()} at ({position.x}, {position.y}) velocity={velocity:.1f}")
 
                             # Send hide signal to client (negative coordinates = hide)
                             hide_event = MouseEvent(
@@ -413,14 +424,9 @@ def server_run(args: argparse.Namespace) -> None:
                             display_manager.cursorPosition_set(entry_pos)
                             logger.info(f"[CURSOR] Positioned at entry ({entry_pos.x}, {entry_pos.y})")
 
-                            # Show cursor
-                            display_manager.cursor_show()
-                            logger.info("[CURSOR] Shown")
-
-                            # Ungrab keyboard and pointer (return input to desktop)
-                            display_manager.keyboard_ungrab()
-                            display_manager.pointer_ungrab()
-                            logger.info("[INPUT] Ungrabbed keyboard and pointer")
+                            # DEBUG: No grabs, so no ungrab needed
+                            # display_manager.keyboard_ungrab()
+                            logger.info("[INPUT] No ungrab needed (DEBUG MODE)")
 
                             logger.info(f"[STATE] → CENTER context")
 
