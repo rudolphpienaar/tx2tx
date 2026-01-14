@@ -127,25 +127,28 @@ KEY_EVENT(...)
 - `ScreenContext` enum.
 - Normalized coordinates.
 
-### 🔄 Phase 3: Server-Authoritative Return Logic (In Progress)
-- **Goal:** Implement "Remote -> Center" transitions purely on Server.
-- **Tasks:**
-    - Fix `server/main.py` transition logic (remove hardcoding).
-    - Implement `return_edges` dictionary for all directions.
-    - Implement `entry_pos` calculation for all directions.
-    - Remove reliance on `SCREEN_ENTER` message.
+### ✅ Phase 3: Server-Authoritative Return Logic (Completed)
+- "Remote -> Center" transitions implemented purely on Server.
+- Removed reliance on client messages for return transitions.
 
-### 🔄 Phase 4: Client Dumb Terminal (In Progress)
-- **Goal:** Remove all control logic from Client.
-- **Tasks:**
-    - Remove `PointerTracker` from client.
-    - Remove boundary detection loop.
-    - Remove `SCREEN_ENTER` sending.
-    - Make client purely reactive.
+### ✅ Phase 4: Client Dumb Terminal (Completed)
+- Client is purely reactive.
+- Removed boundary detection and control logic from client.
 
-### Phase 5: Event Forwarding (Next)
-- Mouse button events.
-- Keyboard events.
+### ✅ Phase 5: Event Forwarding (Completed)
+- Mouse button events (clicks) forwarded to client.
+- Keyboard events forwarded to client.
+- Client denormalizes coordinates for all mouse events.
 
-### Phase 6: Multi-Directional Support
-- Add East/North/South client configuration support.
+### ✅ Phase 6: Multi-Directional Support (Completed)
+- Multi-client routing implemented.
+- Messages routed only to the active client based on context.
+- Handshake includes client name for identification.
+
+### Phase 7: Performance Optimization (Next)
+- Tune polling intervals.
+- Minimize latency.
+
+### Phase 8: Integration Testing
+- Comprehensive multi-client simulation.
+- Verify event forwarding under load.
