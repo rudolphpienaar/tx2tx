@@ -11,7 +11,7 @@ from Xlib import display as xdisplay, X
 from Xlib.display import Display
 
 
-class TestHarness:
+class Harness:
     def __init__(self):
         self.server_proc = None
         self.client_proc = None
@@ -222,7 +222,7 @@ class TestHarness:
 
 def main():
     """Main entry point"""
-    harness = TestHarness()
+    harness = Harness()
 
     def signal_handler(sig, frame):
         print("\n[INTERRUPTED] Cleaning up...")

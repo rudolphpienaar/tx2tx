@@ -142,21 +142,7 @@ def clientMessage_handle(
     elif message.msg_type == MessageType.KEEPALIVE:
         logger.debug("Keepalive received")
     elif message.msg_type == MessageType.SCREEN_ENTER:
-        # Client is returning control to server
-        client_transition = MessageParser.screenTransition_parse(message)
-
-        if context is not None:
-            prev_context = context[0]
-            # Switch back to CENTER context
-            context[0] = ScreenContext.CENTER
-            logger.info(
-                f"[TRANSITION] Client returned control, mouse from {client_transition.direction.value.upper()}, "
-                f"{prev_context.value.upper()} → CENTER"
-            )
-
-            # Update hysteresis timestamp to prevent immediate re-detection
-            if last_center_time is not None:
-                last_center_time[0] = time.time()
+        logger.warning("Received deprecated SCREEN_ENTER message from client (ignored)")
     else:
         logger.warning(f"Unexpected message type: {message.msg_type.value}")
 
@@ -284,11 +270,6 @@ def server_run(args: argparse.Namespace) -> None:
                         # Detect boundary crossings
                         transition = pointer_tracker.boundary_detect(position, screen_geometry)
 
-                        # DEBUG: Log when at edge but no transition (velocity too low?)
-                        if position.x <= 5 or position.x >= screen_geometry.width - 6 or position.y <= 5 or position.y >= screen_geometry.height - 6:
-                            if not transition:
-                                logger.info(f"[DEBUG] At edge but no transition: pos=({position.x},{position.y}), velocity={velocity:.1f}px/s, threshold=10.0px/s")
-
                         if transition:
                             # Map direction to context
                             direction_to_context = {
@@ -308,41 +289,40 @@ def server_run(args: argparse.Namespace) -> None:
                                 f"CENTER → {new_context.value.upper()}"
                             )
 
-                            context_ref[0] = new_context
-
-                            # FIX Issue 2: Calculate opposite edge position based on direction
-                            # Position cursor safely away from the return edge to avoid immediate return detection
-                            if transition.direction == Direction.LEFT:
-                                edge_position = Position(x=screen_geometry.width - settings.EDGE_ENTRY_OFFSET - 1, y=position.y)
-                            elif transition.direction == Direction.RIGHT:
-                                edge_position = Position(x=settings.EDGE_ENTRY_OFFSET, y=position.y)
-                            elif transition.direction == Direction.TOP:
-                                edge_position = Position(x=position.x, y=screen_geometry.height - settings.EDGE_ENTRY_OFFSET - 1)
-                            else:  # BOTTOM
-                                edge_position = Position(x=position.x, y=settings.EDGE_ENTRY_OFFSET)
-
-                            # DON'T position cursor - let it move naturally for return detection
                             try:
-                                logger.info(f"[TRANSITION] Moving to {new_context.value.upper()}")
-                                # DON'T position cursor - breaks return detection!
-                                # display_manager.cursorPosition_set(edge_position)
-                                logger.info(f"[CURSOR] NOT repositioning - letting cursor move naturally")
+                                context_ref[0] = new_context
 
-                                # Send SCREEN_LEAVE to client (server is leaving, client becomes active)
-                                leave_msg = MessageBuilder.screenLeaveMessage_create(transition)
-                                network.messageToAll_broadcast(leave_msg)
-                                logger.info(f"[CLIENT] Sent SCREEN_LEAVE - client now active")
+                                # Calculate position on OPPOSITE edge (where we enter the new context)
+                                # e.g., Crossing LEFT edge means we start at RIGHT edge of new context
+                                if transition.direction == Direction.LEFT:
+                                    # Start at Right Edge of Server Screen (simulating Remote Screen)
+                                    edge_position = Position(x=screen_geometry.width - settings.EDGE_ENTRY_OFFSET - 1, y=position.y)
+                                elif transition.direction == Direction.RIGHT:
+                                    edge_position = Position(x=settings.EDGE_ENTRY_OFFSET, y=position.y)
+                                elif transition.direction == Direction.TOP:
+                                    edge_position = Position(x=position.x, y=screen_geometry.height - settings.EDGE_ENTRY_OFFSET - 1)
+                                else:  # BOTTOM
+                                    edge_position = Position(x=position.x, y=settings.EDGE_ENTRY_OFFSET)
 
-                                # DEBUG: No grabs at all - just test mouse transitions
-                                # display_manager.keyboard_grab()
-                                logger.info("[INPUT] No grabs (DEBUG MODE)")
+                                # 1. Hide Cursor
+                                display_manager.cursor_hide()
+
+                                # 2. Grab Input
+                                display_manager.pointer_grab()
+                                display_manager.keyboard_grab()
+
+                                # 3. Reposition Cursor
+                                display_manager.cursorPosition_set(edge_position)
+                                logger.info(f"[CURSOR] Repositioned to ({edge_position.x}, {edge_position.y})")
 
                                 logger.info(f"[STATE] → {new_context.value.upper()} context")
+
                             except Exception as e:
                                 # Cleanup on error
                                 logger.error(f"Transition failed: {e}", exc_info=True)
                                 try:
-                                    # display_manager.keyboard_ungrab()
+                                    display_manager.keyboard_ungrab()
+                                    display_manager.pointer_ungrab()
                                     display_manager.cursor_show()
                                 except:
                                     pass
@@ -350,16 +330,89 @@ def server_run(args: argparse.Namespace) -> None:
                                 logger.warning("Reverted to CENTER after failed transition")
 
                 elif context_ref[0] != ScreenContext.CENTER:
-                    # In REMOTE mode - KEEP broadcasting so client cursor moves
-                    # Client will detect boundaries while injecting
-                    normalized_point = screen_geometry.normalize(position)
+                    # In REMOTE mode - Server Authoritative Return Logic
+                    
+                    # 1. Check for Return Condition
+                    # Determine which edge triggers return based on current context
+                    should_return = False
+                    
+                    if context_ref[0] == ScreenContext.WEST:
+                        # West Client: Return when hitting RIGHT edge of server screen
+                        should_return = position.x >= screen_geometry.width - 1
+                    elif context_ref[0] == ScreenContext.EAST:
+                        # East Client: Return when hitting LEFT edge
+                        should_return = position.x <= 0
+                    elif context_ref[0] == ScreenContext.NORTH:
+                        # North Client: Return when hitting BOTTOM edge
+                        should_return = position.y >= screen_geometry.height - 1
+                    elif context_ref[0] == ScreenContext.SOUTH:
+                        # South Client: Return when hitting TOP edge
+                        should_return = position.y <= 0
 
-                    mouse_event = MouseEvent(
-                        event_type=EventType.MOUSE_MOVE,
-                        normalized_point=normalized_point
-                    )
-                    move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
-                    network.messageToAll_broadcast(move_msg)
+                    # Check velocity for return (to prevent accidental triggers)
+                    # Use lower threshold for return to make it feel natural
+                    if should_return and velocity >= (config.server.velocity_threshold * 0.5):
+                        logger.info(f"[BOUNDARY] Returning from {context_ref[0].value.upper()} at ({position.x}, {position.y})")
+                        
+                        try:
+                            # 1. Send Hide Signal to Client
+                            hide_event = MouseEvent(
+                                event_type=EventType.MOUSE_MOVE,
+                                normalized_point=NormalizedPoint(x=-1.0, y=-1.0)
+                            )
+                            hide_msg = MessageBuilder.mouseEventMessage_create(hide_event)
+                            network.messageToAll_broadcast(hide_msg)
+
+                            # 2. Switch Context
+                            prev_context = context_ref[0]
+                            context_ref[0] = ScreenContext.CENTER
+                            last_center_switch_time[0] = time.time()
+
+                            # 3. Calculate Entry Position (Inverse of Exit)
+                            if prev_context == ScreenContext.WEST:
+                                # Returning from West -> Enter at Left Edge
+                                entry_pos = Position(x=1, y=position.y)
+                            elif prev_context == ScreenContext.EAST:
+                                # Returning from East -> Enter at Right Edge
+                                entry_pos = Position(x=screen_geometry.width - 2, y=position.y)
+                            elif prev_context == ScreenContext.NORTH:
+                                # Returning from North -> Enter at Top Edge
+                                entry_pos = Position(x=position.x, y=1)
+                            else: # SOUTH
+                                # Returning from South -> Enter at Bottom Edge
+                                entry_pos = Position(x=position.x, y=screen_geometry.height - 2)
+
+                            # 4. Restore Desktop State
+                            display_manager.cursorPosition_set(entry_pos)
+                            display_manager.cursor_show()
+                            display_manager.keyboard_ungrab()
+                            display_manager.pointer_ungrab()
+                            
+                            logger.info(f"[STATE] → CENTER, cursor shown at ({entry_pos.x}, {entry_pos.y})")
+
+                        except Exception as e:
+                            logger.error(f"Return transition failed: {e}", exc_info=True)
+                            # Try to ensure we are at least in a usable state
+                            try:
+                                display_manager.cursor_show()
+                                display_manager.keyboard_ungrab()
+                                display_manager.pointer_ungrab()
+                            except:
+                                pass
+                            context_ref[0] = ScreenContext.CENTER
+
+                    else:
+                        # Not returning - Broadcast movement
+                        normalized_point = screen_geometry.normalize(position)
+
+                        mouse_event = MouseEvent(
+                            event_type=EventType.MOUSE_MOVE,
+                            normalized_point=normalized_point
+                        )
+                        move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
+                        network.messageToAll_broadcast(move_msg)
+                        
+                        # TODO: Broadcast Button and Key Events here
 
             # Small sleep to prevent busy waiting
             time.sleep(config.server.poll_interval_ms / settings.POLL_INTERVAL_DIVISOR)

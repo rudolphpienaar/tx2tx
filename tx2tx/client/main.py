@@ -11,11 +11,10 @@ from tx2tx import __version__
 from tx2tx.client.network import ClientNetwork
 from tx2tx.common.config import ConfigLoader
 from tx2tx.common.settings import settings
-from tx2tx.common.types import Direction, EventType, MouseEvent, Position, Screen, ScreenTransition
-from tx2tx.protocol.message import Message, MessageBuilder, MessageParser, MessageType
+from tx2tx.common.types import EventType, MouseEvent, Position
+from tx2tx.protocol.message import Message, MessageParser, MessageType
 from tx2tx.x11.display import DisplayManager
 from tx2tx.x11.injector import EventInjector
-from tx2tx.x11.pointer import PointerTracker
 
 logger = logging.getLogger(__name__)
 
@@ -117,8 +116,7 @@ def logging_setup(level: str, log_format: str, log_file: Optional[str]) -> None:
 def serverMessage_handle(
     message: Message,
     injector: Optional[EventInjector] = None,
-    display_manager: Optional[DisplayManager] = None,
-    client_active: Optional[list[bool]] = None
+    display_manager: Optional[DisplayManager] = None
 ) -> None:
     """
     Handle message received from server
@@ -127,7 +125,6 @@ def serverMessage_handle(
         message: Received message
         injector: Optional event injector for handling input events
         display_manager: Optional display manager for cursor positioning
-        client_active: Mutable reference [bool] to track if client is actively receiving control
     """
     logger.info(f"Received {message.msg_type.value} from server")
 
@@ -138,31 +135,16 @@ def serverMessage_handle(
         logger.info(f"Server screen info: {message.payload}")
 
     elif message.msg_type == MessageType.SCREEN_LEAVE:
-        transition = MessageParser.screenTransition_parse(message)
-        # Activate client - start detecting boundaries for return
-        if client_active is not None:
-            client_active[0] = True
-            logger.info(
-                f"[CLIENT ACTIVE] Mouse arrived from {transition.direction.value.upper()}, "
-                f"now detecting boundaries for return"
-            )
+        # Deprecated: Server now handles state. Just log it.
+        logger.debug("Received SCREEN_LEAVE (informational)")
 
     elif message.msg_type == MessageType.SCREEN_ENTER:
-        transition = MessageParser.screenTransition_parse(message)
-        logger.info(
-            f"Server regained control at {transition.direction.value} edge "
-            f"({transition.position.x}, {transition.position.y})"
-        )
-        # Client should stop receiving mouse events
+        # Deprecated: Server now handles state. Just log it.
+        logger.debug("Received SCREEN_ENTER (informational)")
 
     elif message.msg_type == MessageType.MOUSE_EVENT:
         if injector and display_manager:
             mouse_event = MessageParser.mouseEvent_parse(message)
-
-            # ONLY inject events when client is INACTIVE (server has control)
-            # When client is ACTIVE, ignore server's mouse events
-            if client_active is not None and client_active[0]:
-                return  # Don't inject anything when client is active
 
             if mouse_event.event_type == EventType.MOUSE_MOVE:
                 # Handle normalized coordinates (v2.0 protocol)
@@ -290,15 +272,6 @@ def client_run(args: argparse.Namespace) -> None:
 
     logger.info("XTest extension verified, event injection ready")
 
-    # Initialize pointer tracker for boundary detection (when client is active)
-    # TEMP: Use very low velocity threshold for testing (bypass velocity check)
-    pointer_tracker = PointerTracker(
-        display_manager=display_manager,
-        edge_threshold=5,  # Use same threshold as server
-        velocity_threshold=10.0  # TEMP: Very low threshold for testing
-    )
-    logger.info("Pointer tracker initialized (velocity_threshold=10.0 for testing)")
-
     # Initialize network client
     network = ClientNetwork(
         host=host,
@@ -307,9 +280,6 @@ def client_run(args: argparse.Namespace) -> None:
         reconnect_max_attempts=config.client.reconnect.max_attempts,
         reconnect_delay=config.client.reconnect.delay_seconds
     )
-
-    # Client active state (wrapped in list for mutable reference)
-    client_active_ref = [False]
 
     try:
         # Connect to server with screen geometry
@@ -327,28 +297,7 @@ def client_run(args: argparse.Namespace) -> None:
                 messages = network.messages_receive()
 
                 for message in messages:
-                    serverMessage_handle(message, event_injector, display_manager, client_active_ref)
-
-                # When client is active, poll for boundary crossings to return to server
-                if client_active_ref[0]:
-                    position = pointer_tracker.position_query()
-                    velocity = pointer_tracker.velocity_calculate()
-
-                    # Detect boundary crossings
-                    transition = pointer_tracker.boundary_detect(position, screen_geometry)
-
-                    if transition:
-                        logger.info(
-                            f"[CLIENT INACTIVE] Mouse leaving towards {transition.direction.value.upper()}, "
-                            f"pos=({transition.position.x},{transition.position.y}), velocity={velocity:.1f}px/s"
-                        )
-
-                        # Send SCREEN_ENTER to server (client is entering server's screen)
-                        enter_msg = MessageBuilder.screenEnterMessage_create(transition)
-                        network.message_send(enter_msg)
-
-                        # Deactivate client
-                        client_active_ref[0] = False
+                    serverMessage_handle(message, event_injector, display_manager)
 
                 # Small sleep to prevent busy waiting
                 time.sleep(settings.RECONNECT_CHECK_INTERVAL)
