@@ -6,19 +6,65 @@ import sys
 import time
 from enum import Enum
 from pathlib import Path
-from typing import NoReturn, Optional
+from typing import NoReturn, Optional, Union
+
+from Xlib import X
 
 from tx2tx import __version__
 from tx2tx.common.config import ConfigLoader
 from tx2tx.common.layout import ClientPosition, ScreenLayout
 from tx2tx.common.settings import settings
-from tx2tx.common.types import Direction, EventType, MouseEvent, NormalizedPoint, Position, Screen, ScreenContext, ScreenTransition
+from tx2tx.common.types import Direction, EventType, KeyEvent, MouseEvent, NormalizedPoint, Position, Screen, ScreenContext, ScreenTransition
 from tx2tx.protocol.message import Message, MessageBuilder, MessageParser, MessageType
 from tx2tx.server.network import ClientConnection, ServerNetwork
 from tx2tx.x11.display import DisplayManager
 from tx2tx.x11.pointer import PointerTracker
 
 logger = logging.getLogger(__name__)
+
+
+def read_input_events(display_manager: DisplayManager) -> list[Union[MouseEvent, KeyEvent]]:
+    """
+    Read pending X11 input events (buttons and keys)
+
+    Args:
+        display_manager: Display manager instance
+
+    Returns:
+        List of MouseEvent and KeyEvent objects
+    """
+    display = display_manager.display_get()
+    events = []
+
+    while display.pending_events() > 0:
+        event = display.next_event()
+
+        if event.type == X.ButtonPress:
+            events.append(MouseEvent(
+                event_type=EventType.MOUSE_BUTTON_PRESS,
+                position=Position(x=event.root_x, y=event.root_y),
+                button=event.detail
+            ))
+        elif event.type == X.ButtonRelease:
+            events.append(MouseEvent(
+                event_type=EventType.MOUSE_BUTTON_RELEASE,
+                position=Position(x=event.root_x, y=event.root_y),
+                button=event.detail
+            ))
+        elif event.type == X.KeyPress:
+            events.append(KeyEvent(
+                event_type=EventType.KEY_PRESS,
+                keycode=event.detail,
+                keysym=display.keycode_to_keysym(event.detail, 0)
+            ))
+        elif event.type == X.KeyRelease:
+            events.append(KeyEvent(
+                event_type=EventType.KEY_RELEASE,
+                keycode=event.detail,
+                keysym=display.keycode_to_keysym(event.detail, 0)
+            ))
+
+    return events
 
 
 def arguments_parse() -> argparse.Namespace:
@@ -412,7 +458,28 @@ def server_run(args: argparse.Namespace) -> None:
                         move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
                         network.messageToAll_broadcast(move_msg)
                         
-                        # TODO: Broadcast Button and Key Events here
+                        # Broadcast Input Events (Buttons & Keys)
+                        input_events = read_input_events(display_manager)
+                        for event in input_events:
+                            msg = None
+                            if isinstance(event, MouseEvent):
+                                # Normalize position for button events
+                                if event.position:
+                                    norm_pos = screen_geometry.normalize(event.position)
+                                    # Create new event with normalized point
+                                    norm_event = MouseEvent(
+                                        event_type=event.event_type,
+                                        normalized_point=norm_pos,
+                                        button=event.button
+                                    )
+                                    msg = MessageBuilder.mouseEventMessage_create(norm_event)
+                                    logger.debug(f"[BUTTON] {event.event_type.value} button={event.button}")
+                            elif isinstance(event, KeyEvent):
+                                msg = MessageBuilder.keyEventMessage_create(event)
+                                logger.debug(f"[KEY] {event.event_type.value} keycode={event.keycode}")
+
+                            if msg:
+                                network.messageToAll_broadcast(msg)
 
             # Small sleep to prevent busy waiting
             time.sleep(config.server.poll_interval_ms / settings.POLL_INTERVAL_DIVISOR)

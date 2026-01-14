@@ -145,45 +145,43 @@ def serverMessage_handle(
     elif message.msg_type == MessageType.MOUSE_EVENT:
         if injector and display_manager:
             mouse_event = MessageParser.mouseEvent_parse(message)
+            actual_event = mouse_event
 
-            if mouse_event.event_type == EventType.MOUSE_MOVE:
-                # Handle normalized coordinates (v2.0 protocol)
-                if mouse_event.normalized_point is not None:
-                    norm_point = mouse_event.normalized_point
+            # Handle normalized coordinates (v2.0 protocol)
+            if mouse_event.normalized_point is not None:
+                norm_point = mouse_event.normalized_point
 
-                    # Check for hide signal (negative coordinates)
-                    if norm_point.x < 0 or norm_point.y < 0:
-                        display_manager.cursor_hide()
-                        logger.info("Cursor hidden")
-                    else:
-                        # Convert normalized coordinates to client pixel position
-                        client_screen = display_manager.screenGeometry_get()
-                        pixel_position = client_screen.denormalize(norm_point)
-
-                        # Create pixel position mouse event for injection
-                        actual_event = MouseEvent(
-                            event_type=EventType.MOUSE_MOVE,
-                            position=pixel_position
-                        )
-
-                        # Show cursor and move
-                        display_manager.cursor_show()
-                        injector.mouseEvent_inject(actual_event)
-                        logger.debug(
-                            f"Cursor at ({pixel_position.x}, {pixel_position.y}) "
-                            f"from normalized ({norm_point.x:.4f}, {norm_point.y:.4f})"
-                        )
+                # Check for hide signal (negative coordinates)
+                if norm_point.x < 0 or norm_point.y < 0:
+                    display_manager.cursor_hide()
+                    logger.info("Cursor hidden")
+                    return
                 else:
-                    # Fallback for old protocol or pixel-based events
-                    logger.warning("Received MOUSE_MOVE without normalized_point (old protocol?)")
-                    if mouse_event.position:
-                        injector.mouseEvent_inject(mouse_event)
+                    # Convert normalized coordinates to client pixel position
+                    client_screen = display_manager.screenGeometry_get()
+                    pixel_position = client_screen.denormalize(norm_point)
+
+                    # Create pixel position mouse event for injection
+                    actual_event = MouseEvent(
+                        event_type=mouse_event.event_type,
+                        position=pixel_position,
+                        button=mouse_event.button
+                    )
+
+                    # Ensure cursor is shown
+                    display_manager.cursor_show()
+
+            # Inject event
+            try:
+                injector.mouseEvent_inject(actual_event)
+            except ValueError as e:
+                logger.warning(f"Failed to inject mouse event: {e}")
+
+            if actual_event.event_type == EventType.MOUSE_MOVE:
+                if actual_event.position:
+                    logger.debug(f"Cursor at ({actual_event.position.x}, {actual_event.position.y})")
             else:
-                # Button events
-                injector.mouseEvent_inject(mouse_event)
-                logger.info(
-                    f"Mouse {mouse_event.event_type.value}: button={mouse_event.button}"
-                )
+                logger.info(f"Mouse {actual_event.event_type.value}: button={actual_event.button}")
         else:
             logger.warning("Received mouse event but injector or display_manager not available")
 
