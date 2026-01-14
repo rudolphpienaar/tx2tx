@@ -46,13 +46,14 @@ class ClientNetwork:
         self.is_connected: bool = False
         self.reconnect_attempts: int = 0
 
-    def connection_establish(self, screen_width: int | None = None, screen_height: int | None = None) -> None:
+    def connection_establish(self, screen_width: int | None = None, screen_height: int | None = None, client_name: str | None = None) -> None:
         """
         Connect to server
 
         Args:
             screen_width: Optional screen width to send in handshake
             screen_height: Optional screen height to send in handshake
+            client_name: Optional client name for identification
 
         Raises:
             ConnectionError: If unable to connect after max attempts
@@ -70,7 +71,8 @@ class ClientNetwork:
                 # Send hello message with optional screen geometry
                 hello_msg = MessageBuilder.helloMessage_create(
                     screen_width=screen_width,
-                    screen_height=screen_height
+                    screen_height=screen_height,
+                    client_name=client_name
                 )
                 self.message_send(hello_msg)
 

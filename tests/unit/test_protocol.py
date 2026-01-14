@@ -53,6 +53,18 @@ class TestMessageBuilder:
         assert msg.payload["screen_width"] == 1920
         assert msg.payload["screen_height"] == 1080
 
+    def test_hello_message_with_client_name(self):
+        """Test HELLO message creation with client name"""
+        msg = MessageBuilder.helloMessage_create(
+            version="2.0.0",
+            screen_width=1920,
+            screen_height=1080,
+            client_name="phomux"
+        )
+
+        assert msg.msg_type == MessageType.HELLO
+        assert msg.payload["client_name"] == "phomux"
+
     def test_hello_message_without_screen(self):
         """Test HELLO message without screen dimensions"""
         msg = MessageBuilder.helloMessage_create(version="2.0.0")

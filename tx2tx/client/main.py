@@ -283,7 +283,8 @@ def client_run(args: argparse.Namespace) -> None:
         # Connect to server with screen geometry
         network.connection_establish(
             screen_width=screen_geometry.width,
-            screen_height=screen_geometry.height
+            screen_height=screen_geometry.height,
+            client_name=args.name
         )
 
         # Main event loop

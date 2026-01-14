@@ -68,7 +68,7 @@ class MessageBuilder:
     """Builds protocol messages from events and data"""
 
     @staticmethod
-    def helloMessage_create(version: str = "0.1.0", screen_width: int | None = None, screen_height: int | None = None) -> Message:
+    def helloMessage_create(version: str = "0.1.0", screen_width: int | None = None, screen_height: int | None = None, client_name: str | None = None) -> Message:
         """
         Create hello/handshake message
 
@@ -76,11 +76,14 @@ class MessageBuilder:
             version: Protocol version
             screen_width: Optional screen width in pixels
             screen_height: Optional screen height in pixels
+            client_name: Optional client name for identification
         """
         payload: dict[str, Any] = {"version": version}
         if screen_width is not None and screen_height is not None:
             payload["screen_width"] = screen_width
             payload["screen_height"] = screen_height
+        if client_name is not None:
+            payload["client_name"] = client_name
 
         return Message(
             msg_type=MessageType.HELLO,

@@ -29,6 +29,7 @@ class ClientConnection:
         self.buffer: str = ""
         self.screen_width: int | None = None
         self.screen_height: int | None = None
+        self.name: str | None = None
 
     def message_send(self, message: Message) -> None:
         """
@@ -229,6 +230,28 @@ class ServerNetwork:
             except Exception as e:
                 logger.error(f"Error sending to {client.address}: {e}")
                 self.client_disconnect(client)
+
+    def messageToClient_send(self, client_name: str, message: Message) -> bool:
+        """
+        Send message to a specific client by name
+
+        Args:
+            client_name: Name of client to send to
+            message: Message to send
+
+        Returns:
+            True if sent, False if client not found
+        """
+        target_client = next((c for c in self.clients if c.name == client_name), None)
+        if target_client:
+            try:
+                target_client.message_send(message)
+                return True
+            except Exception as e:
+                logger.error(f"Error sending to {target_client.address}: {e}")
+                self.client_disconnect(target_client)
+                return False
+        return False
 
     def clients_count(self) -> int:
         """

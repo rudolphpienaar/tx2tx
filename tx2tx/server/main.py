@@ -179,12 +179,15 @@ def clientMessage_handle(
         if "screen_width" in payload and "screen_height" in payload:
             client.screen_width = payload["screen_width"]
             client.screen_height = payload["screen_height"]
-            logger.info(
-                f"Client handshake: version={payload.get('version')}, "
-                f"screen={client.screen_width}x{client.screen_height}"
-            )
-        else:
-            logger.info(f"Client handshake: {message.payload}")
+        
+        if "client_name" in payload:
+            client.name = payload["client_name"]
+            
+        logger.info(
+            f"Client handshake: version={payload.get('version')}, "
+            f"screen={client.screen_width}x{client.screen_height}, "
+            f"name={client.name}"
+        )
     elif message.msg_type == MessageType.KEEPALIVE:
         logger.debug("Keepalive received")
     elif message.msg_type == MessageType.SCREEN_ENTER:
@@ -276,6 +279,16 @@ def server_run(args: argparse.Namespace) -> None:
         port=config.server.port,
         max_clients=config.server.max_clients
     )
+
+    # Map context to client name
+    context_to_client = {}
+    if config.clients:
+        for client_cfg in config.clients:
+            try:
+                ctx = ScreenContext(client_cfg.position.lower())
+                context_to_client[ctx] = client_cfg.name
+            except ValueError:
+                logger.warning(f"Invalid position '{client_cfg.position}' for client {client_cfg.name}")
 
     # Screen context (wrapped in list for mutable reference)
     context_ref = [ScreenContext.CENTER]
@@ -377,11 +390,12 @@ def server_run(args: argparse.Namespace) -> None:
 
                 elif context_ref[0] != ScreenContext.CENTER:
                     # In REMOTE mode - Server Authoritative Return Logic
-                    
+                    target_client_name = context_to_client.get(context_ref[0])
+
                     # 1. Check for Return Condition
                     # Determine which edge triggers return based on current context
                     should_return = False
-                    
+
                     if context_ref[0] == ScreenContext.WEST:
                         # West Client: Return when hitting RIGHT edge of server screen
                         should_return = position.x >= screen_geometry.width - 1
@@ -399,15 +413,16 @@ def server_run(args: argparse.Namespace) -> None:
                     # Use lower threshold for return to make it feel natural
                     if should_return and velocity >= (config.server.velocity_threshold * 0.5):
                         logger.info(f"[BOUNDARY] Returning from {context_ref[0].value.upper()} at ({position.x}, {position.y})")
-                        
+
                         try:
                             # 1. Send Hide Signal to Client
-                            hide_event = MouseEvent(
-                                event_type=EventType.MOUSE_MOVE,
-                                normalized_point=NormalizedPoint(x=-1.0, y=-1.0)
-                            )
-                            hide_msg = MessageBuilder.mouseEventMessage_create(hide_event)
-                            network.messageToAll_broadcast(hide_msg)
+                            if target_client_name:
+                                hide_event = MouseEvent(
+                                    event_type=EventType.MOUSE_MOVE,
+                                    normalized_point=NormalizedPoint(x=-1.0, y=-1.0)
+                                )
+                                hide_msg = MessageBuilder.mouseEventMessage_create(hide_event)
+                                network.messageToClient_send(target_client_name, hide_msg)
 
                             # 2. Switch Context
                             prev_context = context_ref[0]
@@ -433,7 +448,7 @@ def server_run(args: argparse.Namespace) -> None:
                             display_manager.cursor_show()
                             display_manager.keyboard_ungrab()
                             display_manager.pointer_ungrab()
-                            
+
                             logger.info(f"[STATE] → CENTER, cursor shown at ({entry_pos.x}, {entry_pos.y})")
 
                         except Exception as e:
@@ -448,38 +463,42 @@ def server_run(args: argparse.Namespace) -> None:
                             context_ref[0] = ScreenContext.CENTER
 
                     else:
-                        # Not returning - Broadcast movement
-                        normalized_point = screen_geometry.normalize(position)
+                        if target_client_name:
+                            # Not returning - Send events to active client
+                            normalized_point = screen_geometry.normalize(position)
 
-                        mouse_event = MouseEvent(
-                            event_type=EventType.MOUSE_MOVE,
-                            normalized_point=normalized_point
-                        )
-                        move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
-                        network.messageToAll_broadcast(move_msg)
-                        
-                        # Broadcast Input Events (Buttons & Keys)
-                        input_events = read_input_events(display_manager)
-                        for event in input_events:
-                            msg = None
-                            if isinstance(event, MouseEvent):
-                                # Normalize position for button events
-                                if event.position:
-                                    norm_pos = screen_geometry.normalize(event.position)
-                                    # Create new event with normalized point
-                                    norm_event = MouseEvent(
-                                        event_type=event.event_type,
-                                        normalized_point=norm_pos,
-                                        button=event.button
-                                    )
-                                    msg = MessageBuilder.mouseEventMessage_create(norm_event)
-                                    logger.debug(f"[BUTTON] {event.event_type.value} button={event.button}")
-                            elif isinstance(event, KeyEvent):
-                                msg = MessageBuilder.keyEventMessage_create(event)
-                                logger.debug(f"[KEY] {event.event_type.value} keycode={event.keycode}")
+                            mouse_event = MouseEvent(
+                                event_type=EventType.MOUSE_MOVE,
+                                normalized_point=normalized_point
+                            )
+                            move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
+                            network.messageToClient_send(target_client_name, move_msg)
 
-                            if msg:
-                                network.messageToAll_broadcast(msg)
+                            # Send Input Events (Buttons & Keys)
+                            input_events = read_input_events(display_manager)
+                            for event in input_events:
+                                msg = None
+                                if isinstance(event, MouseEvent):
+                                    # Normalize position for button events
+                                    if event.position:
+                                        norm_pos = screen_geometry.normalize(event.position)
+                                        # Create new event with normalized point
+                                        norm_event = MouseEvent(
+                                            event_type=event.event_type,
+                                            normalized_point=norm_pos,
+                                            button=event.button
+                                        )
+                                        msg = MessageBuilder.mouseEventMessage_create(norm_event)
+                                        logger.debug(f"[BUTTON] {event.event_type.value} button={event.button}")
+                                elif isinstance(event, KeyEvent):
+                                    msg = MessageBuilder.keyEventMessage_create(event)
+                                    logger.debug(f"[KEY] {event.event_type.value} keycode={event.keycode}")
+
+                                if msg:
+                                    network.messageToClient_send(target_client_name, msg)
+                        else:
+                            # Drain events if no client connected but in remote mode
+                            read_input_events(display_manager)
 
             # Small sleep to prevent busy waiting
             time.sleep(config.server.poll_interval_ms / settings.POLL_INTERVAL_DIVISOR)
