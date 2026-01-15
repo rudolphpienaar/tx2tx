@@ -50,6 +50,10 @@ The cursor transition logic was overly complex with verification loops, race con
 - Entry coordinate is **calculated**, not polled - eliminates race conditions
 - Client receives correct edge coordinate immediately on first frame
 - Server cursor warp happens AFTER client is notified
+- **Critical**: `continue` after transition skips REMOTE mode code in same iteration
+  - Without this, stale position (polled before transition) would be sent immediately after entry coordinate
+  - Position polled at x=0 → Transition → Send entry (x=1.0) → Fall through to REMOTE mode → Send stale position (x=0.0) ✗
+  - Now: Position polled at x=0 → Transition → Send entry (x=1.0) → **continue** → Next iteration polls fresh position ✓
 - Grab failures are handled gracefully instead of aborting
 - Much simpler code path - easier to debug and maintain
 
