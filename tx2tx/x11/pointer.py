@@ -124,6 +124,14 @@ class PointerTracker:
 
         return None
 
+    def reset(self) -> None:
+        """
+        Reset tracker state (clear history)
+        Useful after forced cursor moves (warps) to prevent false velocity spikes
+        """
+        self._position_history.clear()
+        self._last_position = None
+
     def positionLast_get(self) -> Optional[Position]:
         """Get last queried position"""
         return self._last_position

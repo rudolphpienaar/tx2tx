@@ -229,7 +229,7 @@ class DisplayManager:
 
     def cursor_hide(self) -> None:
         """
-        Hide cursor using blank cursor strategy (fallback for XFixes)
+        Hide cursor using XFixes extension (preferred) or blank cursor strategy (fallback)
 
         Raises:
             RuntimeError: If not connected to display
@@ -241,7 +241,18 @@ class DisplayManager:
         screen = display.screen()
         root = screen.root
 
-        # Try to use blank cursor
+        # method 1: XFixes (Preferred)
+        try:
+            if display.has_extension('XFIXES'):
+                display.xfixes.hide_cursor(root)
+                display.sync()
+                self._cursor_hidden = True
+                logger.debug("Cursor hidden (XFixes)")
+                return
+        except Exception as e:
+            logger.warning(f"XFixes hide_cursor failed: {e}")
+
+        # method 2: Blank Cursor (Fallback)
         try:
             cursor = self._ensure_blank_cursor()
             if cursor:
@@ -269,12 +280,24 @@ class DisplayManager:
         screen = display.screen()
         root = screen.root
 
+        # method 1: XFixes (Preferred)
+        try:
+            if display.has_extension('XFIXES'):
+                display.xfixes.show_cursor(root)
+                display.sync()
+                self._cursor_hidden = False
+                logger.debug("Cursor shown (XFixes)")
+                return
+        except Exception as e:
+            logger.warning(f"XFixes show_cursor failed: {e}")
+
+        # method 2: Restore Default (Fallback)
         try:
             # Restore default cursor (None/0)
             root.change_attributes(cursor=0)
             display.sync()
             self._cursor_hidden = False
-            logger.debug("Cursor shown")
+            logger.debug("Cursor shown (default)")
         except Exception as e:
             logger.error(f"Failed to show cursor: {e}")
 

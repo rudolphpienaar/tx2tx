@@ -424,6 +424,10 @@ def server_run(args: argparse.Namespace) -> None:
 
                                 # 3. Reposition Cursor
                                 display_manager.cursorPosition_set(edge_position)
+                                
+                                # 4. Reset velocity tracker to prevent immediate return
+                                pointer_tracker.reset()
+                                
                                 logger.info(f"[CURSOR] Repositioned to ({edge_position.x}, {edge_position.y})")
 
                                 logger.info(f"[STATE] → {new_context.value.upper()} context")
