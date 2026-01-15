@@ -437,9 +437,11 @@ def server_run(args: argparse.Namespace) -> None:
                                 # Set boundary crossed flag - this tells REMOTE mode to warp cursor
                                 # before sending any coordinates
                                 server_state.boundaryCrossed_set(warp_pos)
+                                logger.info(f"[BOUNDARY] Set boundary_crossed=True, target_warp_position=({warp_pos.x}, {warp_pos.y})")
 
                                 # Now transition state
                                 server_state.context = new_context
+                                logger.debug(f"[CONTEXT] Changed to {new_context.value.upper()}")
 
                                 # Grab input (may fail - handle gracefully)
                                 try:
@@ -480,22 +482,28 @@ def server_run(args: argparse.Namespace) -> None:
                     if server_state.boundary_crossed:
                         warp_target = server_state.target_warp_position
                         if warp_target:
+                            logger.debug(f"[WARP] boundary_crossed=True, attempting warp to target ({warp_target.x}, {warp_target.y})")
+
                             # Warp cursor to target position
                             display_manager.cursorPosition_set(warp_target)
+                            logger.debug(f"[WARP] cursorPosition_set() called")
 
                             # Re-query position to check if warp succeeded
                             actual_pos = pointer_tracker.position_query()
                             tolerance = 10  # pixels
+                            logger.debug(f"[WARP] After warp: actual_pos=({actual_pos.x}, {actual_pos.y}), target=({warp_target.x}, {warp_target.y})")
 
                             if abs(actual_pos.x - warp_target.x) <= tolerance and abs(actual_pos.y - warp_target.y) <= tolerance:
                                 # Warp succeeded - clear flag and continue with normal operation
                                 server_state.boundaryCrossed_clear()
                                 position = actual_pos  # Use fresh position
-                                logger.info(f"[WARP] Cursor warped to ({actual_pos.x}, {actual_pos.y}) - boundary crossing complete")
+                                logger.info(f"[WARP] SUCCESS - Cursor at ({actual_pos.x}, {actual_pos.y}), boundary_crossed=False")
                             else:
                                 # Warp not yet complete - skip sending coordinates this iteration
-                                logger.warning(f"[WARP] Cursor not at target yet: target=({warp_target.x},{warp_target.y}), actual=({actual_pos.x},{actual_pos.y}) - retrying")
+                                logger.warning(f"[WARP] FAILED - target=({warp_target.x},{warp_target.y}), actual=({actual_pos.x},{actual_pos.y}) - retrying next iteration")
                                 continue
+                        else:
+                            logger.error(f"[WARP] boundary_crossed=True but target_warp_position is None!")
 
                     # Safety check: position must be valid at this point
                     if position is None:
