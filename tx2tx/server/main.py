@@ -373,22 +373,11 @@ def server_run(args: argparse.Namespace) -> None:
 
             # Track pointer when we have clients
             if network.clients_count() > 0:
-                # CRITICAL: Don't poll position if boundary just crossed
-                # We need to warp cursor first before getting valid position
-                if not server_state.boundary_crossed:
-                    # Poll pointer position
-                    position = pointer_tracker.position_query()
-                    velocity = pointer_tracker.velocity_calculate()
-                else:
-                    # Boundary crossed - position is invalid, skip polling
-                    # REMOTE mode will handle warp and re-poll
-                    position = None
-                    velocity = 0.0
+                # Poll pointer position
+                position = pointer_tracker.position_query()
+                velocity = pointer_tracker.velocity_calculate()
 
                 if server_state.context == ScreenContext.CENTER:
-                    # Skip CENTER logic if position is invalid (shouldn't happen but safety check)
-                    if position is None:
-                        continue
 
                     # Add hysteresis: skip boundary detection after switching to CENTER
                     # This prevents immediate re-detection of boundary after cursor release
@@ -434,29 +423,32 @@ def server_run(args: argparse.Namespace) -> None:
                                 else:  # BOTTOM
                                     warp_pos = Position(x=transition.position.x, y=2)
 
-                                # Set boundary crossed flag - this tells REMOTE mode to warp cursor
-                                # before sending any coordinates
-                                server_state.boundaryCrossed_set(warp_pos)
-                                logger.info(f"[BOUNDARY] Set boundary_crossed=True, target_warp_position=({warp_pos.x}, {warp_pos.y})")
+                                # CRITICAL: Warp cursor BEFORE grabbing pointer!
+                                # Many X servers ignore warps on grabbed pointers
+                                logger.info(f"[WARP] Warping cursor from ({transition.position.x}, {transition.position.y}) to ({warp_pos.x}, {warp_pos.y})")
+                                display_manager.cursorPosition_set(warp_pos)
+
+                                # Small delay to ensure warp takes effect before grab
+                                time.sleep(0.01)  # 10ms
 
                                 # Now transition state
                                 server_state.context = new_context
                                 logger.debug(f"[CONTEXT] Changed to {new_context.value.upper()}")
 
-                                # Grab input (may fail - handle gracefully)
+                                # Grab input AFTER warp (may fail - handle gracefully)
                                 try:
                                     display_manager.pointer_grab()
                                     display_manager.keyboard_grab()
                                 except RuntimeError as e:
                                     logger.warning(f"Input grab failed: {e}, continuing anyway")
 
-                                # Hide cursor
+                                # Hide cursor (doesn't work but try anyway)
                                 display_manager.cursor_hide()
 
                                 # Reset velocity tracker
                                 pointer_tracker.reset()
 
-                                logger.info(f"[STATE] → {new_context.value.upper()} context (boundary_crossed=True)")
+                                logger.info(f"[STATE] → {new_context.value.upper()} context")
 
                                 # Continue to next iteration - REMOTE mode will handle the warp
                                 continue
@@ -477,38 +469,6 @@ def server_run(args: argparse.Namespace) -> None:
                 elif server_state.context != ScreenContext.CENTER:
                     # In REMOTE mode - Server Authoritative Return Logic
                     target_client_name = context_to_client.get(server_state.context)
-
-                    # CRITICAL: Check if we just crossed boundary and need to warp cursor
-                    if server_state.boundary_crossed:
-                        warp_target = server_state.target_warp_position
-                        if warp_target:
-                            logger.debug(f"[WARP] boundary_crossed=True, attempting warp to target ({warp_target.x}, {warp_target.y})")
-
-                            # Warp cursor to target position
-                            display_manager.cursorPosition_set(warp_target)
-                            logger.debug(f"[WARP] cursorPosition_set() called")
-
-                            # Re-query position to check if warp succeeded
-                            actual_pos = pointer_tracker.position_query()
-                            tolerance = 10  # pixels
-                            logger.debug(f"[WARP] After warp: actual_pos=({actual_pos.x}, {actual_pos.y}), target=({warp_target.x}, {warp_target.y})")
-
-                            if abs(actual_pos.x - warp_target.x) <= tolerance and abs(actual_pos.y - warp_target.y) <= tolerance:
-                                # Warp succeeded - clear flag and continue with normal operation
-                                server_state.boundaryCrossed_clear()
-                                position = actual_pos  # Use fresh position
-                                logger.info(f"[WARP] SUCCESS - Cursor at ({actual_pos.x}, {actual_pos.y}), boundary_crossed=False")
-                            else:
-                                # Warp not yet complete - skip sending coordinates this iteration
-                                logger.warning(f"[WARP] FAILED - target=({warp_target.x},{warp_target.y}), actual=({actual_pos.x},{actual_pos.y}) - retrying next iteration")
-                                continue
-                        else:
-                            logger.error(f"[WARP] boundary_crossed=True but target_warp_position is None!")
-
-                    # Safety check: position must be valid at this point
-                    if position is None:
-                        logger.error("[BUG] Position is None in REMOTE mode after boundary check - skipping")
-                        continue
 
                     # 1. Check for Return Condition
                     # Determine which edge triggers return based on current context
