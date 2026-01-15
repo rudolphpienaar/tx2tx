@@ -10,19 +10,35 @@ The primary objective is to perform the first real-world, two-device test of the
 - A critical `IndentationError` was found in `tx2tx/server/main.py` which prevented the server from starting.
 - This indentation bug has been **fixed, committed, and pushed** to the `main` branch.
 
-## 3. Current Blocker: Environment Incompatibility
-- The initial test attempt on a Chromebook (Crostini) using `cosmic-session` failed. The server's cursor would not trigger the screen-edge transition.
-- **Diagnosis:** This is because `tx2tx` is a native X11 application, but `cosmic-session` is a Wayland environment. The XWayland compatibility layer prevents `tx2tx` from correctly reading the global cursor position, which is fundamental to its design.
+## 3. Current Blocker: Cursor Transition & Hiding Failures
+Despite significant refactoring, the core user experience of moving the mouse between screens is broken in the current test environment (Debian Trixie/Crostini).
+
+### Symptoms
+1.  **Wrong Edge on Entry:** When the server mouse crosses the West edge (to enter the West client), the Client cursor appears on the **West** (far left) edge of the client screen instead of the expected **East** (right) edge.
+    *   *Implication:* The server is sending `x=0.0` (Left) coordinates to the client initially, implying the server's hidden cursor was not successfully warped to the Right edge before polling occurred.
+
+2.  **Stuck on Return:** When returning from the Client to the Server, the Server mouse cursor remains stuck on the **East** edge of the server screen.
+    *   *Implication:* The return logic (Ungrab -> Warp to Left) is failing or being overridden by the Window Manager, causing the cursor to revert to its exit position (Right edge).
+
+3.  **Cursor Hiding Failure:** The server mouse cursor remains visible on the server screen even when it is supposed to be hidden (in Client context).
+    *   *Details:* Both the "Blank Pixmap" hack (failed with `BadMatch`) and the `XFixes` extension (implemented but apparently ineffective) have failed to hide the cursor.
+
+### Attempted Fixes (Failed)
+1.  **Reordering Operations:** changed transition logic to `Warp -> Reset Velocity -> Grab -> Hide` to ensure the WM processes the move before input locking.
+2.  **Return Logic:** Changed return logic to `Ungrab -> Warp -> Reset Velocity -> Show` to ensure the desktop regains control before the cursor is moved.
+3.  **Velocity Spike Prevention:** Added `PointerTracker.reset()` to clear velocity history after warps, preventing "ping-pong" loops where the warp itself triggers a return transition.
+4.  **XFixes Integration:** Refactored `display.py` to use `XFixes.hide_cursor` as the primary method, falling back to blank cursor.
+
+### Hypotheses for Root Cause
+- **Window Manager Interference:** The specific Window Manager (or Compositor) in the test environment may be ignoring `XWarpPointer` commands when the pointer is grabbed, or immediately reverting them upon ungrab.
+- **XWayland/Crostini Limitations:** Even if running in a nested X server (Xephyr), the underlying interaction with the host (ChromeOS/Wayland) might be introducing lag or coordinate normalization issues.
+- **Race Conditions:** The X server is asynchronous. Even with `display.sync()`, the "Warp" event might be processed *after* the "Poll" event in the next loop iteration, causing one frame of bad data (`x=0`) to be sent to the client.
 
 ## 4. Next Action Plan
-1.  **Switch Environment:** The user will stop the current session and switch from the Wayland-based environment to a native X11 session for testing.
-2.  **Proposed Environment:** Use **Xephyr** to create a nested X-server window and run the **Enlightenment** window manager within it. This provides a pure X11 desktop, which is the correct environment for `tx2tx`.
-3.  **Resume Testing:** Once the new environment is active, the two-device test should be re-attempted.
-
-## 5. Test Procedure Reference
-- **Find Server IP:** On the server device, run `ip addr show wlan0 | grep "inet "`
-- **Server Command:** `tx2tx`
-- **Client Command:** `tx2tx --server <SERVER_IP>:24800`
+1.  **Isolate the Environment:** Verify if these issues persist in a pure, native X11 environment (outside of Crostini/Xephyr) if possible, to rule out virtualization artifacts.
+2.  **Debug Event Loop:** Add millisecond-level logging to the server loop to trace exactly *when* the coordinates change relative to the Warp command.
+3.  **Alternative Hiding:** If XFixes fails, investigate if the application is running on a specific window vs root window, and ensure the hide command targets the correct window.
+4.  **Review Coordinates:** Dump the raw `normalized_x` values sent to the client to confirm if it's sending `0.0` or `1.0`.
 
 ---
 ---
