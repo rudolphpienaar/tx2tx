@@ -210,8 +210,8 @@ class DisplayManager:
             # clear the pixmap (make it 0)
             pixmap.fill_rectangle(gc, 0, 0, 1, 1)
 
-            # color (0,0,0)
-            color = (0, 0, 0)
+            # Color must be a dictionary with RGB values for python-xlib
+            color = {'red': 0, 'green': 0, 'blue': 0}
 
             # Create cursor. mask=pixmap means the shape is defined by pixmap.
             # since pixmap is all 0s, the mask is empty -> fully transparent.
