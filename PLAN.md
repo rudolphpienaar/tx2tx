@@ -10,6 +10,7 @@ The primary objective is to perform the first real-world, two-device test of the
 - A critical `IndentationError` was found in `tx2tx/server/main.py` which prevented the server from starting.
 - This indentation bug has been **fixed, committed, and pushed** to the `main` branch.
 - **FIXED (2026-01-15):** Cursor transition race condition resolved - cursor now appears at correct edge during transitions.
+- **REFACTOR (2026-01-15):** Created ServerState singleton class to replace mutable list references for cleaner state management.
 
 ## 3. ✅ RESOLVED: Cursor Transition Simplified
 
@@ -60,6 +61,28 @@ The cursor transition logic was overly complex with verification loops, race con
 - **Self-healing**: If warp fails initially, it keeps retrying automatically until it succeeds
 - Grab failures are handled gracefully instead of aborting
 - Simple state machine: `boundary_crossed` flag controls when to warp vs when to send coordinates
+
+### ServerState Singleton (`tx2tx/server/state.py`)
+**Clean state management using singleton pattern:**
+
+```python
+class ServerState:
+    context: ScreenContext              # Current screen context (CENTER/WEST/EAST/etc)
+    last_center_switch_time: float      # Timestamp of last CENTER transition
+    boundary_crossed: bool              # Flag indicating pending warp
+    target_warp_position: Position      # Target position for pending warp
+
+    def set_boundary_crossed(position)  # Set flag and target position
+    def clear_boundary_crossed()        # Clear flag after successful warp
+    def reset()                         # Reset all state to initial values
+```
+
+**Benefits:**
+- Single source of truth for server state
+- Clean API with helper methods
+- No more mutable list references (`context_ref[0]`)
+- Easy to extend with additional state
+- Better type safety and IDE support
 
 ### Remaining Issue (Issue #3)
 **Cursor Hiding Failure:** The server mouse cursor may remain visible on the server screen even when it is supposed to be hidden (in Client context).
