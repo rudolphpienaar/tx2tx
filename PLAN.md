@@ -1,3 +1,32 @@
+# Resumption State & Next Steps (as of 2026-01-15)
+
+This document tracks the development plan. The section below outlines the current status to allow for asynchronous work.
+
+## 1. Current Goal
+The primary objective is to perform the first real-world, two-device test of the `tx2tx` application to validate its core functionality.
+
+## 2. Summary of Recent Progress
+- A detailed code and design gap analysis was completed. Key findings include potential mouse movement distortion between screens with different aspect ratios, incorrect key mappings if keyboard layouts differ, and a lack of encryption.
+- A critical `IndentationError` was found in `tx2tx/server/main.py` which prevented the server from starting.
+- This indentation bug has been **fixed, committed, and pushed** to the `main` branch.
+
+## 3. Current Blocker: Environment Incompatibility
+- The initial test attempt on a Chromebook (Crostini) using `cosmic-session` failed. The server's cursor would not trigger the screen-edge transition.
+- **Diagnosis:** This is because `tx2tx` is a native X11 application, but `cosmic-session` is a Wayland environment. The XWayland compatibility layer prevents `tx2tx` from correctly reading the global cursor position, which is fundamental to its design.
+
+## 4. Next Action Plan
+1.  **Switch Environment:** The user will stop the current session and switch from the Wayland-based environment to a native X11 session for testing.
+2.  **Proposed Environment:** Use **Xephyr** to create a nested X-server window and run the **Enlightenment** window manager within it. This provides a pure X11 desktop, which is the correct environment for `tx2tx`.
+3.  **Resume Testing:** Once the new environment is active, the two-device test should be re-attempted.
+
+## 5. Test Procedure Reference
+- **Find Server IP:** On the server device, run `ip addr show wlan0 | grep "inet "`
+- **Server Command:** `tx2tx`
+- **Client Command:** `tx2tx --server <SERVER_IP>:24800`
+
+---
+---
+
 # tx2tx Implementation Plan
 
 ## INVARIANT: Architectural Overview
