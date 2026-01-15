@@ -6,6 +6,7 @@ import time
 from typing import Optional
 from Xlib import display as xdisplay, X
 from Xlib.display import Display
+from Xlib.ext import xtest
 
 from tx2tx.common.types import Position, ScreenGeometry
 
@@ -200,6 +201,31 @@ class DisplayManager:
         actual_x = pointer_data.root_x
         actual_y = pointer_data.root_y
         logger.debug(f"[X11] After warp: actual position = ({actual_x}, {actual_y})")
+
+    def cursorPosition_setViaXTest(self, position: Position) -> None:
+        """
+        Move cursor using XTest fake_input instead of warp_pointer.
+        This may work better with compositors that block warp_pointer.
+
+        Args:
+            position: Target position
+
+        Raises:
+            RuntimeError: If not connected to display
+        """
+        display = self.display_get()
+
+        logger.debug(f"[X11] XTest fake_input MotionNotify to ({position.x}, {position.y})")
+        xtest.fake_input(display, X.MotionNotify, detail=0, x=position.x, y=position.y)
+        display.sync()
+
+        # Verify position
+        screen = display.screen()
+        root = screen.root
+        pointer_data = root.query_pointer()
+        actual_x = pointer_data.root_x
+        actual_y = pointer_data.root_y
+        logger.debug(f"[X11] After XTest move: actual position = ({actual_x}, {actual_y})")
 
     def cursorPosition_setAndVerify(self, position: Position, timeout_ms: int = 100, tolerance: int = 5) -> bool:
         """

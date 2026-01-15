@@ -114,8 +114,8 @@ def state_revert_to_center(
         except Exception as e:
             logger.warning(f"Ungrab failed: {e}")
 
-        # Warp to entry position
-        display_manager.cursorPosition_set(entry_pos)
+        # Warp to entry position using XTest (compositors often block warp_pointer)
+        display_manager.cursorPosition_setViaXTest(entry_pos)
 
         # Show cursor
         display_manager.cursor_show()
@@ -424,9 +424,9 @@ def server_run(args: argparse.Namespace) -> None:
                                     warp_pos = Position(x=transition.position.x, y=2)
 
                                 # CRITICAL: Warp cursor BEFORE grabbing pointer!
-                                # Many X servers ignore warps on grabbed pointers
+                                # Use XTest fake_input instead of warp_pointer - compositors often block warp_pointer
                                 logger.info(f"[WARP] Warping cursor from ({transition.position.x}, {transition.position.y}) to ({warp_pos.x}, {warp_pos.y})")
-                                display_manager.cursorPosition_set(warp_pos)
+                                display_manager.cursorPosition_setViaXTest(warp_pos)
 
                                 # Small delay to ensure warp takes effect before grab
                                 time.sleep(0.01)  # 10ms
@@ -445,8 +445,9 @@ def server_run(args: argparse.Namespace) -> None:
                                 # Hide cursor (doesn't work but try anyway)
                                 display_manager.cursor_hide()
 
-                                # Reset velocity tracker
+                                # Reset velocity tracker and last sent position
                                 pointer_tracker.reset()
+                                server_state.last_sent_position = None  # Ensure first position in new context is sent
 
                                 logger.info(f"[STATE] → {new_context.value.upper()} context")
 
@@ -520,6 +521,7 @@ def server_run(args: argparse.Namespace) -> None:
                         if target_client_name:
                             # Not returning - Send events to active client ONLY if position changed
                             if server_state.positionChanged_check(position):
+                                logger.info(f"[MOUSE] Sending pos ({position.x}, {position.y}) to {target_client_name}")
                                 normalized_point = screen_geometry.normalize(position)
 
                                 mouse_event = MouseEvent(
