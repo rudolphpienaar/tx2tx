@@ -23,22 +23,28 @@ The cursor transition logic was overly complex with verification loops, race con
 - Pointer grab failures caused transitions to abort
 
 ### Solution Implemented ✅
-**Completely simplified the transition logic:**
+**Added boundary_crossed state flag to force cursor position verification:**
 
-**Entry Transition** (`tx2tx/server/main.py:413-475`):
-1. **Calculate** entry coordinate directly (opposite edge from crossing)
-   - Cross LEFT → Send `NormalizedPoint(x=1.0, y=norm_y)` to client (RIGHT edge)
-   - Cross RIGHT → Send `NormalizedPoint(x=0.0, y=norm_y)` to client (LEFT edge)
-   - Cross TOP → Send `NormalizedPoint(x=norm_x, y=1.0)` to client (BOTTOM edge)
-   - Cross BOTTOM → Send `NormalizedPoint(x=norm_x, y=0.0)` to client (TOP edge)
+**Entry Transition** (`tx2tx/server/main.py:418-459`):
+1. Calculate target warp position (opposite edge from crossing)
+2. **Set `boundary_crossed = True`** with target warp position
+3. Change context to REMOTE
+4. Grab input and hide cursor
+5. Continue to next iteration (REMOTE mode will handle warp)
 
-2. **Send** entry coordinate to client IMMEDIATELY (before any other operations)
-
-3. **Then** warp server cursor to opposite edge for tracking continued movement
-
-4. Grab input (with graceful failure handling - continues if grab fails)
-
-5. Hide cursor and reset tracker
+**REMOTE Mode with Warp Verification** (`tx2tx/server/main.py:478-498`):
+1. **Check `boundary_crossed` flag** at start of REMOTE mode
+2. If True:
+   - Warp cursor to target position
+   - **Re-poll actual position** to verify warp succeeded
+   - If position matches target (within 10px tolerance):
+     - Clear `boundary_crossed` flag
+     - Use fresh position
+     - Continue with normal coordinate sending
+   - If position doesn't match:
+     - **Skip this iteration** (retry warp next time)
+     - Log warning
+3. Only send coordinates once `boundary_crossed = False`
 
 **Return Transition** (`tx2tx/server/main.py:108-127`):
 1. Ungrab keyboard/pointer (with error handling)
@@ -47,15 +53,13 @@ The cursor transition logic was overly complex with verification loops, race con
 4. Reset tracker
 
 ### Why This Works
-- Entry coordinate is **calculated**, not polled - eliminates race conditions
-- Client receives correct edge coordinate immediately on first frame
-- Server cursor warp happens AFTER client is notified
-- **Critical**: `continue` after transition skips REMOTE mode code in same iteration
-  - Without this, stale position (polled before transition) would be sent immediately after entry coordinate
-  - Position polled at x=0 → Transition → Send entry (x=1.0) → Fall through to REMOTE mode → Send stale position (x=0.0) ✗
-  - Now: Position polled at x=0 → Transition → Send entry (x=1.0) → **continue** → Next iteration polls fresh position ✓
+- **State flag approach**: Instead of trying to warp and immediately use the position, we set a flag and defer the warp
+- **Verification loop**: Each iteration checks if cursor is actually at target position before sending coordinates
+- **Retry mechanism**: If warp hasn't taken effect yet, skip that iteration and try again next time (20ms later)
+- **No race conditions**: Never send coordinates until cursor position is verified
+- **Self-healing**: If warp fails initially, it keeps retrying automatically until it succeeds
 - Grab failures are handled gracefully instead of aborting
-- Much simpler code path - easier to debug and maintain
+- Simple state machine: `boundary_crossed` flag controls when to warp vs when to send coordinates
 
 ### Remaining Issue (Issue #3)
 **Cursor Hiding Failure:** The server mouse cursor may remain visible on the server screen even when it is supposed to be hidden (in Client context).
