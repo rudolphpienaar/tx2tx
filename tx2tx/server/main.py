@@ -72,7 +72,8 @@ def state_revert_to_center(
     display_manager: DisplayManager,
     screen_geometry: Screen,
     last_center_switch_time: list[float],
-    position: Position
+    position: Position,
+    pointer_tracker: PointerTracker
 ) -> None:
     """
     Emergency revert to CENTER context (restore input and cursor)
@@ -83,6 +84,7 @@ def state_revert_to_center(
         screen_geometry: Screen geometry
         last_center_switch_time: Switch time reference
         position: Current (hidden) cursor position to calculate entry point
+        pointer_tracker: Pointer tracker to reset velocity history
     """
     if context_ref[0] == ScreenContext.CENTER:
         return
@@ -108,9 +110,14 @@ def state_revert_to_center(
         display_manager.keyboard_ungrab()
         display_manager.pointer_ungrab()
 
-        # Then show and move cursor
-        display_manager.cursor_show()
+        # Warp to entry position
         display_manager.cursorPosition_set(entry_pos)
+        
+        # RESET TRACKER to prevent velocity spike from triggering immediate re-entry
+        pointer_tracker.reset()
+
+        # Finally show cursor
+        display_manager.cursor_show()
         
         logger.info(f"[STATE] → CENTER (revert) - Cursor moved to ({entry_pos.x}, {entry_pos.y})")
     except Exception as e:
@@ -415,18 +422,18 @@ def server_run(args: argparse.Namespace) -> None:
                                 else:  # BOTTOM
                                     edge_position = Position(x=position.x, y=settings.EDGE_ENTRY_OFFSET)
 
-                                # 1. Hide Cursor
-                                display_manager.cursor_hide()
+                                # 1. Reposition Cursor (Warp FIRST to ensure WM processes move)
+                                display_manager.cursorPosition_set(edge_position)
+                                
+                                # 2. Reset velocity tracker to prevent immediate return
+                                pointer_tracker.reset()
 
-                                # 2. Grab Input
+                                # 3. Grab Input
                                 display_manager.pointer_grab()
                                 display_manager.keyboard_grab()
 
-                                # 3. Reposition Cursor
-                                display_manager.cursorPosition_set(edge_position)
-                                
-                                # 4. Reset velocity tracker to prevent immediate return
-                                pointer_tracker.reset()
+                                # 4. Hide Cursor
+                                display_manager.cursor_hide()
                                 
                                 logger.info(f"[CURSOR] Repositioned to ({edge_position.x}, {edge_position.y})")
 
@@ -483,7 +490,7 @@ def server_run(args: argparse.Namespace) -> None:
                                 network.messageToClient_send(target_client_name, hide_msg)
                         
                             # 2. Revert State (Restore desktop)
-                            state_revert_to_center(context_ref, display_manager, screen_geometry, last_center_switch_time, position)
+                            state_revert_to_center(context_ref, display_manager, screen_geometry, last_center_switch_time, position, pointer_tracker)
                         
                         except Exception as e:
                             logger.error(f"Return transition failed: {e}", exc_info=True)
@@ -510,7 +517,7 @@ def server_run(args: argparse.Namespace) -> None:
                             if not network.messageToClient_send(target_client_name, move_msg):
                                 connected_names = [c.name for c in network.clients]
                                 logger.error(f"Failed to send movement to '{target_client_name}'. Connected clients: {connected_names}. Reverting.")
-                                state_revert_to_center(context_ref, display_manager, screen_geometry, last_center_switch_time, position)
+                                state_revert_to_center(context_ref, display_manager, screen_geometry, last_center_switch_time, position, pointer_tracker)
                                 continue
 
                             # Send Input Events (Buttons & Keys)
@@ -538,13 +545,13 @@ def server_run(args: argparse.Namespace) -> None:
                                         logger.error(f"Failed to send {event.event_type.value} to {target_client_name}")
                                         # We don't break/continue here, the next loop iteration will handle it if move fails
                                         # but actually we should probably revert now.
-                                        state_revert_to_center(context_ref, display_manager, screen_geometry, last_center_switch_time, position)
+                                        state_revert_to_center(context_ref, display_manager, screen_geometry, last_center_switch_time, position, pointer_tracker)
                                         break
                         else:
                             # Drain events if no client connected but in remote mode
                             read_input_events(display_manager)
                             logger.error(f"Active context {context_ref[0].value} has no connected client, reverting")
-                            state_revert_to_center(context_ref, display_manager, screen_geometry, last_center_switch_time, position)
+                            state_revert_to_center(context_ref, display_manager, screen_geometry, last_center_switch_time, position, pointer_tracker)
 
             # Small sleep to prevent busy waiting
             time.sleep(config.server.poll_interval_ms / settings.POLL_INTERVAL_DIVISOR)
