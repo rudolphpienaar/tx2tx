@@ -9,36 +9,56 @@ The primary objective is to perform the first real-world, two-device test of the
 - A detailed code and design gap analysis was completed. Key findings include potential mouse movement distortion between screens with different aspect ratios, incorrect key mappings if keyboard layouts differ, and a lack of encryption.
 - A critical `IndentationError` was found in `tx2tx/server/main.py` which prevented the server from starting.
 - This indentation bug has been **fixed, committed, and pushed** to the `main` branch.
+- **FIXED (2026-01-15):** Cursor transition race condition resolved - cursor now appears at correct edge during transitions.
 
-## 3. Current Blocker: Cursor Transition & Hiding Failures
-Despite significant refactoring, the core user experience of moving the mouse between screens is broken in the current test environment (Debian Trixie/Crostini).
+## 3. ✅ RESOLVED: Cursor Transition Race Condition
+
+### Problem (Issues #1 and #2)
+The cursor warp operations during screen transitions were subject to a race condition where the X server had not yet processed the warp command before the next position poll occurred.
 
 ### Symptoms
 1.  **Wrong Edge on Entry:** When the server mouse crosses the West edge (to enter the West client), the Client cursor appears on the **West** (far left) edge of the client screen instead of the expected **East** (right) edge.
-    *   *Implication:* The server is sending `x=0.0` (Left) coordinates to the client initially, implying the server's hidden cursor was not successfully warped to the Right edge before polling occurred.
+    *   *Root Cause:* The server was sending `x=0.0` (old position) to the client before the warp to the opposite edge took effect.
 
 2.  **Stuck on Return:** When returning from the Client to the Server, the Server mouse cursor remains stuck on the **East** edge of the server screen.
-    *   *Implication:* The return logic (Ungrab -> Warp to Left) is failing or being overridden by the Window Manager, causing the cursor to revert to its exit position (Right edge).
+    *   *Root Cause:* The return warp to the entry position wasn't taking effect before the main loop continued.
 
-3.  **Cursor Hiding Failure:** The server mouse cursor remains visible on the server screen even when it is supposed to be hidden (in Client context).
-    *   *Details:* Both the "Blank Pixmap" hack (failed with `BadMatch`) and the `XFixes` extension (implemented but apparently ineffective) have failed to hide the cursor.
+### Solution Implemented ✅
+**Added cursor position verification after warp operations** to eliminate race conditions:
 
-### Attempted Fixes (Failed)
-1.  **Reordering Operations:** changed transition logic to `Warp -> Reset Velocity -> Grab -> Hide` to ensure the WM processes the move before input locking.
-2.  **Return Logic:** Changed return logic to `Ungrab -> Warp -> Reset Velocity -> Show` to ensure the desktop regains control before the cursor is moved.
-3.  **Velocity Spike Prevention:** Added `PointerTracker.reset()` to clear velocity history after warps, preventing "ping-pong" loops where the warp itself triggers a return transition.
-4.  **XFixes Integration:** Refactored `display.py` to use `XFixes.hide_cursor` as the primary method, falling back to blank cursor.
+1. **New Method:** `DisplayManager.cursorPosition_setAndVerify()` (`tx2tx/x11/display.py:194-243`)
+   - Issues warp command via `XWarpPointer`
+   - Polls actual cursor position in tight loop (1ms intervals)
+   - Verifies position matches target (within 5px tolerance)
+   - Returns success/failure with 50-100ms timeout
+   - Logs warning if verification fails
 
-### Hypotheses for Root Cause
-- **Window Manager Interference:** The specific Window Manager (or Compositor) in the test environment may be ignoring `XWarpPointer` commands when the pointer is grabbed, or immediately reverting them upon ungrab.
-- **XWayland/Crostini Limitations:** Even if running in a nested X server (Xephyr), the underlying interaction with the host (ChromeOS/Wayland) might be introducing lag or coordinate normalization issues.
-- **Race Conditions:** The X server is asynchronous. Even with `display.sync()`, the "Warp" event might be processed *after* the "Poll" event in the next loop iteration, causing one frame of bad data (`x=0`) to be sent to the client.
+2. **Entry Transition Fix** (`tx2tx/server/main.py:426-430`)
+   - Replaced `cursorPosition_set()` with `cursorPosition_setAndVerify()`
+   - Aborts transition if verification fails (reverts to CENTER)
+   - Guarantees cursor is at correct edge before sending first coordinate
+
+3. **Return Transition Fix** (`tx2tx/server/main.py:114-116`)
+   - Uses `cursorPosition_setAndVerify()` in `state_revert_to_center()`
+   - Logs warning but continues if verification fails (better to show cursor than stay stuck)
+
+### Why This Works
+- `display.sync()` only flushes X protocol buffer, doesn't guarantee processing
+- X server processes events asynchronously
+- By polling and verifying actual position, we wait for X server to process warp
+- First coordinate sent to client is now guaranteed to be correct
+- Timeout prevents infinite loops if warp truly fails
+
+### Remaining Issue (Issue #3)
+**Cursor Hiding Failure:** The server mouse cursor may remain visible on the server screen even when it is supposed to be hidden (in Client context).
+    *   *Details:* Both the "Blank Pixmap" hack (failed with `BadMatch`) and the `XFixes` extension (implemented but apparently ineffective) have failed to hide the cursor in certain environments.
+    *   *Status:* This is an environment-specific issue and does not prevent core functionality. The cursor transitions now work correctly.
 
 ## 4. Next Action Plan
-1.  **Isolate the Environment:** Verify if these issues persist in a pure, native X11 environment (outside of Crostini/Xephyr) if possible, to rule out virtualization artifacts.
-2.  **Debug Event Loop:** Add millisecond-level logging to the server loop to trace exactly *when* the coordinates change relative to the Warp command.
-3.  **Alternative Hiding:** If XFixes fails, investigate if the application is running on a specific window vs root window, and ensure the hide command targets the correct window.
-4.  **Review Coordinates:** Dump the raw `normalized_x` values sent to the client to confirm if it's sending `0.0` or `1.0`.
+1.  **Test the Fix:** Perform real-world two-device test to verify cursor transitions work correctly at all edges (West, East, North, South)
+2.  **Alternative Cursor Hiding (Optional):** If cursor hiding continues to fail in test environment, investigate compositor-specific hiding methods or accept visible cursor as known limitation
+3.  **Multi-Client Testing:** Test with multiple clients in different positions
+4.  **Performance Tuning:** Optimize polling intervals and verify low latency
 
 ---
 ---

@@ -110,15 +110,17 @@ def state_revert_to_center(
         display_manager.keyboard_ungrab()
         display_manager.pointer_ungrab()
 
-        # Warp to entry position
-        display_manager.cursorPosition_set(entry_pos)
-        
+        # Warp to entry position and verify
+        if not display_manager.cursorPosition_setAndVerify(entry_pos, timeout_ms=50):
+            logger.warning(f"Failed to verify cursor warp to ({entry_pos.x}, {entry_pos.y}) during revert, continuing anyway")
+            # Still proceed with revert even if verification fails - better to show cursor than stay stuck
+
         # RESET TRACKER to prevent velocity spike from triggering immediate re-entry
         pointer_tracker.reset()
 
         # Finally show cursor
         display_manager.cursor_show()
-        
+
         logger.info(f"[STATE] → CENTER (revert) - Cursor moved to ({entry_pos.x}, {entry_pos.y})")
     except Exception as e:
         logger.error(f"Emergency revert failed: {e}")
@@ -422,9 +424,13 @@ def server_run(args: argparse.Namespace) -> None:
                                 else:  # BOTTOM
                                     edge_position = Position(x=position.x, y=settings.EDGE_ENTRY_OFFSET)
 
-                                # 1. Reposition Cursor (Warp FIRST to ensure WM processes move)
-                                display_manager.cursorPosition_set(edge_position)
-                                
+                                # 1. Reposition Cursor (Warp FIRST and VERIFY before continuing)
+                                if not display_manager.cursorPosition_setAndVerify(edge_position, timeout_ms=50):
+                                    logger.error(f"Failed to verify cursor warp to ({edge_position.x}, {edge_position.y}), aborting transition")
+                                    context_ref[0] = ScreenContext.CENTER
+                                    last_center_switch_time[0] = time.time()
+                                    continue
+
                                 # 2. Reset velocity tracker to prevent immediate return
                                 pointer_tracker.reset()
 
@@ -434,8 +440,8 @@ def server_run(args: argparse.Namespace) -> None:
 
                                 # 4. Hide Cursor
                                 display_manager.cursor_hide()
-                                
-                                logger.info(f"[CURSOR] Repositioned to ({edge_position.x}, {edge_position.y})")
+
+                                logger.info(f"[CURSOR] Repositioned and verified at ({edge_position.x}, {edge_position.y})")
 
                                 logger.info(f"[STATE] → {new_context.value.upper()} context")
 

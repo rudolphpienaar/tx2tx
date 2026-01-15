@@ -2,6 +2,7 @@
 
 import logging
 import os
+import time
 from typing import Optional
 from Xlib import display as xdisplay, X
 from Xlib.display import Display
@@ -190,6 +191,55 @@ class DisplayManager:
         root = screen.root
         root.warp_pointer(position.x, position.y)
         display.sync()
+
+    def cursorPosition_setAndVerify(self, position: Position, timeout_ms: int = 100, tolerance: int = 5) -> bool:
+        """
+        Move cursor to absolute position and verify it actually moved there.
+        This prevents race conditions where we query position before warp takes effect.
+
+        Args:
+            position: Target position
+            timeout_ms: Maximum time to wait for verification (milliseconds)
+            tolerance: Maximum pixel difference to consider position correct
+
+        Returns:
+            True if cursor successfully moved to position, False on timeout
+
+        Raises:
+            RuntimeError: If not connected to display
+        """
+        display = self.display_get()
+        screen = display.screen()
+        root = screen.root
+
+        # Issue warp command
+        root.warp_pointer(position.x, position.y)
+        display.sync()
+
+        # Poll position until it matches or timeout
+        start_time = time.time()
+        timeout_sec = timeout_ms / 1000.0
+
+        while (time.time() - start_time) < timeout_sec:
+            # Query actual position
+            pointer_data = root.query_pointer()
+            actual_x = pointer_data.root_x
+            actual_y = pointer_data.root_y
+
+            # Check if position matches within tolerance
+            if abs(actual_x - position.x) <= tolerance and abs(actual_y - position.y) <= tolerance:
+                return True
+
+            # Small delay before next poll (1ms)
+            time.sleep(0.001)
+            display.sync()
+
+        # Timeout - position never matched
+        logger.warning(
+            f"Cursor warp verification failed: target=({position.x},{position.y}), "
+            f"actual=({actual_x},{actual_y}), timeout={timeout_ms}ms"
+        )
+        return False
 
     def _ensure_blank_cursor(self) -> int:
         """Create a blank cursor if one doesn't exist"""
