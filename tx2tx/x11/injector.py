@@ -39,7 +39,7 @@ class EventInjector:
         """
         display = self._display_manager.display_get()
         xtest.fake_input(display, X.MotionNotify, detail=0, x=position.x, y=position.y)
-        display.sync()
+        # Removed sync() for performance - Xlib buffer will be flushed periodically
 
     def mouseButton_press(self, button: int) -> None:
         """
@@ -50,7 +50,6 @@ class EventInjector:
         """
         display = self._display_manager.display_get()
         xtest.fake_input(display, X.ButtonPress, detail=button)
-        display.sync()
 
     def mouseButton_release(self, button: int) -> None:
         """
@@ -61,7 +60,6 @@ class EventInjector:
         """
         display = self._display_manager.display_get()
         xtest.fake_input(display, X.ButtonRelease, detail=button)
-        display.sync()
 
     def mouseEvent_inject(self, event: MouseEvent) -> None:
         """
@@ -71,6 +69,8 @@ class EventInjector:
             event: Mouse event to inject
         """
         from tx2tx.common.types import EventType
+
+        display = self._display_manager.display_get()
 
         # Always move if position is provided
         if event.position:
@@ -83,6 +83,8 @@ class EventInjector:
             self.mouseButton_press(event.button)
         elif event.event_type == EventType.MOUSE_BUTTON_RELEASE and event.button:
             self.mouseButton_release(event.button)
+        
+        display.sync()
 
     def key_press(self, keycode: int) -> None:
         """
@@ -93,7 +95,6 @@ class EventInjector:
         """
         display = self._display_manager.display_get()
         xtest.fake_input(display, X.KeyPress, detail=keycode)
-        display.sync()
 
     def key_release(self, keycode: int) -> None:
         """
@@ -104,7 +105,6 @@ class EventInjector:
         """
         display = self._display_manager.display_get()
         xtest.fake_input(display, X.KeyRelease, detail=keycode)
-        display.sync()
 
     def keyEvent_inject(self, event: KeyEvent) -> None:
         """
@@ -115,7 +115,11 @@ class EventInjector:
         """
         from tx2tx.common.types import EventType
 
+        display = self._display_manager.display_get()
+
         if event.event_type == EventType.KEY_PRESS:
             self.key_press(event.keycode)
         elif event.event_type == EventType.KEY_RELEASE:
             self.key_release(event.keycode)
+        
+        display.sync()

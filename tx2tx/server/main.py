@@ -67,6 +67,52 @@ def read_input_events(display_manager: DisplayManager) -> list[Union[MouseEvent,
     return events
 
 
+def state_revert_to_center(
+    context_ref: list[ScreenContext],
+    display_manager: DisplayManager,
+    screen_geometry: Screen,
+    last_center_switch_time: list[float],
+    position: Position
+) -> None:
+    """
+    Emergency revert to CENTER context (restore input and cursor)
+
+    Args:
+        context_ref: Current context reference
+        display_manager: Display manager
+        screen_geometry: Screen geometry
+        last_center_switch_time: Switch time reference
+        position: Current (hidden) cursor position to calculate entry point
+    """
+    if context_ref[0] == ScreenContext.CENTER:
+        return
+
+    logger.warning(f"[SAFETY] Reverting from {context_ref[0].value.upper()} to CENTER")
+
+    prev_context = context_ref[0]
+    context_ref[0] = ScreenContext.CENTER
+    last_center_switch_time[0] = time.time()
+
+    # Calculate Entry Position (Inverse of Exit)
+    if prev_context == ScreenContext.WEST:
+        entry_pos = Position(x=1, y=position.y)
+    elif prev_context == ScreenContext.EAST:
+        entry_pos = Position(x=screen_geometry.width - 2, y=position.y)
+    elif prev_context == ScreenContext.NORTH:
+        entry_pos = Position(x=position.x, y=1)
+    else: # SOUTH
+        entry_pos = Position(x=position.x, y=screen_geometry.height - 2)
+
+    try:
+        display_manager.cursorPosition_set(entry_pos)
+        display_manager.cursor_show()
+        display_manager.keyboard_ungrab()
+        display_manager.pointer_ungrab()
+        logger.info(f"[STATE] → CENTER (emergency revert)")
+    except Exception as e:
+        logger.error(f"Emergency revert failed: {e}")
+
+
 def arguments_parse() -> argparse.Namespace:
     """
     Parse command line arguments
@@ -181,7 +227,8 @@ def clientMessage_handle(
             client.screen_height = payload["screen_height"]
         
         if "client_name" in payload:
-            client.name = payload["client_name"]
+            # Normalize name to lowercase for consistent matching
+            client.name = payload["client_name"].lower()
             
         logger.info(
             f"Client handshake: version={payload.get('version')}, "
@@ -286,7 +333,8 @@ def server_run(args: argparse.Namespace) -> None:
         for client_cfg in config.clients:
             try:
                 ctx = ScreenContext(client_cfg.position.lower())
-                context_to_client[ctx] = client_cfg.name
+                # Normalize name to lowercase
+                context_to_client[ctx] = client_cfg.name.lower()
             except ValueError:
                 logger.warning(f"Invalid position '{client_cfg.position}' for client {client_cfg.name}")
 
@@ -414,54 +462,30 @@ def server_run(args: argparse.Namespace) -> None:
                     if should_return and velocity >= (config.server.velocity_threshold * 0.5):
                         logger.info(f"[BOUNDARY] Returning from {context_ref[0].value.upper()} at ({position.x}, {position.y})")
 
-                        try:
-                            # 1. Send Hide Signal to Client
-                            if target_client_name:
-                                hide_event = MouseEvent(
-                                    event_type=EventType.MOUSE_MOVE,
-                                    normalized_point=NormalizedPoint(x=-1.0, y=-1.0)
-                                )
-                                hide_msg = MessageBuilder.mouseEventMessage_create(hide_event)
-                                network.messageToClient_send(target_client_name, hide_msg)
-
-                            # 2. Switch Context
-                            prev_context = context_ref[0]
-                            context_ref[0] = ScreenContext.CENTER
-                            last_center_switch_time[0] = time.time()
-
-                            # 3. Calculate Entry Position (Inverse of Exit)
-                            if prev_context == ScreenContext.WEST:
-                                # Returning from West -> Enter at Left Edge
-                                entry_pos = Position(x=1, y=position.y)
-                            elif prev_context == ScreenContext.EAST:
-                                # Returning from East -> Enter at Right Edge
-                                entry_pos = Position(x=screen_geometry.width - 2, y=position.y)
-                            elif prev_context == ScreenContext.NORTH:
-                                # Returning from North -> Enter at Top Edge
-                                entry_pos = Position(x=position.x, y=1)
-                            else: # SOUTH
-                                # Returning from South -> Enter at Bottom Edge
-                                entry_pos = Position(x=position.x, y=screen_geometry.height - 2)
-
-                            # 4. Restore Desktop State
-                            display_manager.cursorPosition_set(entry_pos)
-                            display_manager.cursor_show()
-                            display_manager.keyboard_ungrab()
-                            display_manager.pointer_ungrab()
-
-                            logger.info(f"[STATE] → CENTER, cursor shown at ({entry_pos.x}, {entry_pos.y})")
-
-                        except Exception as e:
-                            logger.error(f"Return transition failed: {e}", exc_info=True)
-                            # Try to ensure we are at least in a usable state
-                            try:
-                                display_manager.cursor_show()
-                                display_manager.keyboard_ungrab()
-                                display_manager.pointer_ungrab()
-                            except:
-                                pass
-                            context_ref[0] = ScreenContext.CENTER
-
+                                                try:
+                                                    # 1. Send Hide Signal to Client
+                                                    if target_client_name:
+                                                        hide_event = MouseEvent(
+                                                            event_type=EventType.MOUSE_MOVE,
+                                                            normalized_point=NormalizedPoint(x=-1.0, y=-1.0)
+                                                        )
+                                                        hide_msg = MessageBuilder.mouseEventMessage_create(hide_event)
+                                                        # We try to send it, but if it fails we still need to revert local state
+                                                        network.messageToClient_send(target_client_name, hide_msg)
+                        
+                                                    # 2. Revert State (Restore desktop)
+                                                    state_revert_to_center(context_ref, display_manager, screen_geometry, last_center_switch_time, position)
+                        
+                                                except Exception as e:
+                                                    logger.error(f"Return transition failed: {e}", exc_info=True)
+                                                    # Emergency cleanup
+                                                    context_ref[0] = ScreenContext.CENTER
+                                                    try:
+                                                        display_manager.cursor_show()
+                                                        display_manager.keyboard_ungrab()
+                                                        display_manager.pointer_ungrab()
+                                                    except:
+                                                        pass
                     else:
                         if target_client_name:
                             # Not returning - Send events to active client
@@ -472,7 +496,12 @@ def server_run(args: argparse.Namespace) -> None:
                                 normalized_point=normalized_point
                             )
                             move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
-                            network.messageToClient_send(target_client_name, move_msg)
+                            
+                            # If sending fails, revert to CENTER
+                            if not network.messageToClient_send(target_client_name, move_msg):
+                                logger.error(f"Failed to send movement to {target_client_name}, reverting")
+                                state_revert_to_center(context_ref, display_manager, screen_geometry, last_center_switch_time, position)
+                                continue
 
                             # Send Input Events (Buttons & Keys)
                             input_events = read_input_events(display_manager)
@@ -495,10 +524,17 @@ def server_run(args: argparse.Namespace) -> None:
                                     logger.debug(f"[KEY] {event.event_type.value} keycode={event.keycode}")
 
                                 if msg:
-                                    network.messageToClient_send(target_client_name, msg)
+                                    if not network.messageToClient_send(target_client_name, msg):
+                                        logger.error(f"Failed to send {event.event_type.value} to {target_client_name}")
+                                        # We don't break/continue here, the next loop iteration will handle it if move fails
+                                        # but actually we should probably revert now.
+                                        state_revert_to_center(context_ref, display_manager, screen_geometry, last_center_switch_time, position)
+                                        break
                         else:
                             # Drain events if no client connected but in remote mode
                             read_input_events(display_manager)
+                            logger.error(f"Active context {context_ref[0].value} has no connected client, reverting")
+                            state_revert_to_center(context_ref, display_manager, screen_geometry, last_center_switch_time, position)
 
             # Small sleep to prevent busy waiting
             time.sleep(config.server.poll_interval_ms / settings.POLL_INTERVAL_DIVISOR)
