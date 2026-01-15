@@ -88,8 +88,9 @@ def state_revert_to_center(
 
     logger.warning(f"[SAFETY] Reverting from {server_state.context.value.upper()} to CENTER")
 
-    # Clear boundary crossing state
-    server_state.clear_boundary_crossed()
+    # Clear boundary crossing state and last sent position
+    server_state.boundaryCrossed_clear()
+    server_state.last_sent_position = None  # Reset so next context sends first position
 
     prev_context = server_state.context
     server_state.context = ScreenContext.CENTER
@@ -428,7 +429,7 @@ def server_run(args: argparse.Namespace) -> None:
 
                                 # Set boundary crossed flag - this tells REMOTE mode to warp cursor
                                 # before sending any coordinates
-                                server_state.set_boundary_crossed(warp_pos)
+                                server_state.boundaryCrossed_set(warp_pos)
 
                                 # Now transition state
                                 server_state.context = new_context
@@ -481,7 +482,7 @@ def server_run(args: argparse.Namespace) -> None:
 
                             if abs(actual_pos.x - warp_target.x) <= tolerance and abs(actual_pos.y - warp_target.y) <= tolerance:
                                 # Warp succeeded - clear flag and continue with normal operation
-                                server_state.clear_boundary_crossed()
+                                server_state.boundaryCrossed_clear()
                                 position = actual_pos  # Use fresh position
                                 logger.info(f"[WARP] Cursor warped to ({actual_pos.x}, {actual_pos.y}) - boundary crossing complete")
                             else:
@@ -542,21 +543,25 @@ def server_run(args: argparse.Namespace) -> None:
                                 pass
                     else:
                         if target_client_name:
-                            # Not returning - Send events to active client
-                            normalized_point = screen_geometry.normalize(position)
+                            # Not returning - Send events to active client ONLY if position changed
+                            if server_state.positionChanged_check(position):
+                                normalized_point = screen_geometry.normalize(position)
 
-                            mouse_event = MouseEvent(
-                                event_type=EventType.MOUSE_MOVE,
-                                normalized_point=normalized_point
-                            )
-                            move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
-                            
-                            # If sending fails, revert to CENTER
-                            if not network.messageToClient_send(target_client_name, move_msg):
-                                connected_names = [c.name for c in network.clients]
-                                logger.error(f"Failed to send movement to '{target_client_name}'. Connected clients: {connected_names}. Reverting.")
-                                state_revert_to_center(display_manager, screen_geometry, position, pointer_tracker)
-                                continue
+                                mouse_event = MouseEvent(
+                                    event_type=EventType.MOUSE_MOVE,
+                                    normalized_point=normalized_point
+                                )
+                                move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
+
+                                # If sending fails, revert to CENTER
+                                if not network.messageToClient_send(target_client_name, move_msg):
+                                    connected_names = [c.name for c in network.clients]
+                                    logger.error(f"Failed to send movement to '{target_client_name}'. Connected clients: {connected_names}. Reverting.")
+                                    state_revert_to_center(display_manager, screen_geometry, position, pointer_tracker)
+                                    continue
+
+                                # Update last sent position
+                                server_state.lastSentPosition_update(position)
 
                             # Send Input Events (Buttons & Keys)
                             input_events = read_input_events(display_manager)

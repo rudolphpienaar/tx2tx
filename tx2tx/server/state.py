@@ -37,6 +37,9 @@ class ServerState:
         self.boundary_crossed: bool = False
         self.target_warp_position: Optional[Position] = None
 
+        # Last sent position to client (to avoid sending duplicates)
+        self.last_sent_position: Optional[Position] = None
+
         self._initialized = True
 
     def reset(self) -> None:
@@ -45,8 +48,9 @@ class ServerState:
         self.last_center_switch_time = 0.0
         self.boundary_crossed = False
         self.target_warp_position = None
+        self.last_sent_position = None
 
-    def set_boundary_crossed(self, target_position: Position) -> None:
+    def boundaryCrossed_set(self, target_position: Position) -> None:
         """
         Mark that a boundary has been crossed and cursor needs warping
 
@@ -56,13 +60,39 @@ class ServerState:
         self.boundary_crossed = True
         self.target_warp_position = target_position
 
-    def clear_boundary_crossed(self) -> None:
+    def boundaryCrossed_clear(self) -> None:
         """Clear boundary crossing state after successful warp"""
         self.boundary_crossed = False
         self.target_warp_position = None
 
+    def positionChanged_check(self, current_position: Position) -> bool:
+        """
+        Check if position has changed since last sent
+
+        Args:
+            current_position: Current cursor position
+
+        Returns:
+            True if position changed, False if same as last sent
+        """
+        if self.last_sent_position is None:
+            return True  # First position, always send
+
+        # Consider position changed if moved by at least 1 pixel
+        return (self.last_sent_position.x != current_position.x or
+                self.last_sent_position.y != current_position.y)
+
+    def lastSentPosition_update(self, position: Position) -> None:
+        """
+        Update last sent position after sending coordinates
+
+        Args:
+            position: Position that was just sent to client
+        """
+        self.last_sent_position = position
+
     @classmethod
-    def get_instance(cls) -> 'ServerState':
+    def instance_get(cls) -> 'ServerState':
         """Get the singleton instance"""
         if cls._instance is None:
             cls._instance = cls()
@@ -70,4 +100,4 @@ class ServerState:
 
 
 # Global singleton instance
-server_state = ServerState.get_instance()
+server_state = ServerState.instance_get()
