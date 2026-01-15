@@ -1,0 +1,73 @@
+"""Server state management - singleton pattern"""
+
+from typing import Optional
+from tx2tx.common.types import Position, ScreenContext
+
+
+class ServerState:
+    """
+    Singleton class to manage server state across the event loop.
+
+    This provides a clean way to track state that needs to be accessed
+    and modified across different parts of the server logic without
+    passing mutable references around.
+    """
+
+    _instance: Optional['ServerState'] = None
+
+    def __new__(cls) -> 'ServerState':
+        """Ensure only one instance exists (singleton pattern)"""
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+
+    def __init__(self) -> None:
+        """Initialize state variables (only once)"""
+        if self._initialized:
+            return
+
+        # Current screen context (CENTER, WEST, EAST, NORTH, SOUTH)
+        self.context: ScreenContext = ScreenContext.CENTER
+
+        # Timestamp of last transition to CENTER context
+        self.last_center_switch_time: float = 0.0
+
+        # Boundary crossing state
+        self.boundary_crossed: bool = False
+        self.target_warp_position: Optional[Position] = None
+
+        self._initialized = True
+
+    def reset(self) -> None:
+        """Reset state to initial values"""
+        self.context = ScreenContext.CENTER
+        self.last_center_switch_time = 0.0
+        self.boundary_crossed = False
+        self.target_warp_position = None
+
+    def set_boundary_crossed(self, target_position: Position) -> None:
+        """
+        Mark that a boundary has been crossed and cursor needs warping
+
+        Args:
+            target_position: Position cursor should be warped to
+        """
+        self.boundary_crossed = True
+        self.target_warp_position = target_position
+
+    def clear_boundary_crossed(self) -> None:
+        """Clear boundary crossing state after successful warp"""
+        self.boundary_crossed = False
+        self.target_warp_position = None
+
+    @classmethod
+    def get_instance(cls) -> 'ServerState':
+        """Get the singleton instance"""
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+
+# Global singleton instance
+server_state = ServerState.get_instance()
