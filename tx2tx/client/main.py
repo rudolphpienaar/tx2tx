@@ -94,7 +94,7 @@ def serverAddress_parse(server: str) -> tuple[str, int]:
 
 def logging_setup(level: str, log_format: str, log_file: Optional[str]) -> None:
     """
-    Setup logging configuration
+    Setup logging configuration with version injection
 
     Args:
         level: Log level string
@@ -106,9 +106,16 @@ def logging_setup(level: str, log_format: str, log_file: Optional[str]) -> None:
     if log_file:
         handlers.append(logging.FileHandler(log_file))
 
+    # Inject version and commit hash into log format after timestamp
+    # Format: "%(asctime)s [v2.0.3.c0f8] - %(name)s - %(levelname)s - %(message)s"
+    enhanced_format = log_format.replace(
+        "%(asctime)s",
+        f"%(asctime)s [v{__version__}]"
+    )
+
     logging.basicConfig(
         level=getattr(logging, level.upper()),
-        format=log_format,
+        format=enhanced_format,
         handlers=handlers
     )
 
