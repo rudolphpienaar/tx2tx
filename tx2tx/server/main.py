@@ -475,6 +475,9 @@ def server_run(args: argparse.Namespace) -> None:
 
                                 logger.info(f"[STATE] → {new_context.value.upper()} context")
 
+                                # Skip rest of iteration - start fresh next loop with new position
+                                continue
+
                             except Exception as e:
                                 # Cleanup on error
                                 logger.error(f"Transition failed: {e}", exc_info=True)
