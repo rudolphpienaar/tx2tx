@@ -365,11 +365,23 @@ def server_run(args: argparse.Namespace) -> None:
 
             # Track pointer when we have clients
             if network.clients_count() > 0:
-                # Poll pointer position
-                position = pointer_tracker.position_query()
-                velocity = pointer_tracker.velocity_calculate()
+                # CRITICAL: Don't poll position if boundary just crossed
+                # We need to warp cursor first before getting valid position
+                if not server_state.boundary_crossed:
+                    # Poll pointer position
+                    position = pointer_tracker.position_query()
+                    velocity = pointer_tracker.velocity_calculate()
+                else:
+                    # Boundary crossed - position is invalid, skip polling
+                    # REMOTE mode will handle warp and re-poll
+                    position = None
+                    velocity = 0.0
 
                 if server_state.context == ScreenContext.CENTER:
+                    # Skip CENTER logic if position is invalid (shouldn't happen but safety check)
+                    if position is None:
+                        continue
+
                     # Add hysteresis: skip boundary detection after switching to CENTER
                     # This prevents immediate re-detection of boundary after cursor release
                     time_since_center_switch = time.time() - server_state.last_center_switch_time
@@ -476,6 +488,11 @@ def server_run(args: argparse.Namespace) -> None:
                                 # Warp not yet complete - skip sending coordinates this iteration
                                 logger.warning(f"[WARP] Cursor not at target yet: target=({warp_target.x},{warp_target.y}), actual=({actual_pos.x},{actual_pos.y}) - retrying")
                                 continue
+
+                    # Safety check: position must be valid at this point
+                    if position is None:
+                        logger.error("[BUG] Position is None in REMOTE mode after boundary check - skipping")
+                        continue
 
                     # 1. Check for Return Condition
                     # Determine which edge triggers return based on current context
