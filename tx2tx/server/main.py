@@ -434,6 +434,7 @@ def server_run(args: argparse.Namespace) -> None:
                                 except:
                                     pass
                                 context_ref[0] = ScreenContext.CENTER
+                                last_center_switch_time[0] = time.time()  # Prevent rapid re-entry
                                 logger.warning("Reverted to CENTER after failed transition")
 
                 elif context_ref[0] != ScreenContext.CENTER:
@@ -499,7 +500,8 @@ def server_run(args: argparse.Namespace) -> None:
                             
                             # If sending fails, revert to CENTER
                             if not network.messageToClient_send(target_client_name, move_msg):
-                                logger.error(f"Failed to send movement to {target_client_name}, reverting")
+                                connected_names = [c.name for c in network.clients]
+                                logger.error(f"Failed to send movement to '{target_client_name}'. Connected clients: {connected_names}. Reverting.")
                                 state_revert_to_center(context_ref, display_manager, screen_geometry, last_center_switch_time, position)
                                 continue
 
