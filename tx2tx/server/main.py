@@ -73,7 +73,9 @@ def state_revert_to_center(
     screen_geometry: Screen,
     last_center_switch_time: list[float],
     position: Position,
-    pointer_tracker: PointerTracker
+    pointer_tracker: PointerTracker,
+    boundary_crossed: list[bool] = None,
+    target_warp_position: list[Position] = None
 ) -> None:
     """
     Emergency revert to CENTER context (restore input and cursor)
@@ -85,11 +87,19 @@ def state_revert_to_center(
         last_center_switch_time: Switch time reference
         position: Current (hidden) cursor position to calculate entry point
         pointer_tracker: Pointer tracker to reset velocity history
+        boundary_crossed: Boundary crossed flag to clear
+        target_warp_position: Target warp position to clear
     """
     if context_ref[0] == ScreenContext.CENTER:
         return
 
     logger.warning(f"[SAFETY] Reverting from {context_ref[0].value.upper()} to CENTER")
+
+    # Clear boundary crossing state
+    if boundary_crossed is not None:
+        boundary_crossed[0] = False
+    if target_warp_position is not None:
+        target_warp_position[0] = None
 
     prev_context = context_ref[0]
     context_ref[0] = ScreenContext.CENTER
@@ -356,6 +366,11 @@ def server_run(args: argparse.Namespace) -> None:
     context_ref = [ScreenContext.CENTER]
     last_center_switch_time = [0.0]  # Timestamp of last non-CENTER→CENTER switch
 
+    # Boundary crossing state: when True, cursor needs to be warped to target_warp_position
+    # before sending any coordinates to client
+    boundary_crossed = [False]
+    target_warp_position = [None]  # Position to warp to after boundary cross
+
     try:
         network.server_start()
 
@@ -417,37 +432,7 @@ def server_run(args: argparse.Namespace) -> None:
                                     logger.error(f"No client configured for {new_context.value}")
                                     continue
 
-                                # Calculate entry coordinate (opposite edge from where we crossed)
-                                if transition.direction == Direction.LEFT:
-                                    # Crossed LEFT → Enter client from RIGHT
-                                    entry_coord = NormalizedPoint(x=1.0, y=transition.position.y / screen_geometry.height)
-                                elif transition.direction == Direction.RIGHT:
-                                    # Crossed RIGHT → Enter client from LEFT
-                                    entry_coord = NormalizedPoint(x=0.0, y=transition.position.y / screen_geometry.height)
-                                elif transition.direction == Direction.TOP:
-                                    # Crossed TOP → Enter client from BOTTOM
-                                    entry_coord = NormalizedPoint(x=transition.position.x / screen_geometry.width, y=1.0)
-                                else:  # BOTTOM
-                                    # Crossed BOTTOM → Enter client from TOP
-                                    entry_coord = NormalizedPoint(x=transition.position.x / screen_geometry.width, y=0.0)
-
-                                # Send entry coordinate to client IMMEDIATELY
-                                entry_event = MouseEvent(
-                                    event_type=EventType.MOUSE_MOVE,
-                                    normalized_point=entry_coord
-                                )
-                                entry_msg = MessageBuilder.mouseEventMessage_create(entry_event)
-                                if not network.messageToClient_send(target_client_name, entry_msg):
-                                    logger.error(f"Failed to send entry coordinate to {target_client_name}")
-                                    continue
-
-                                logger.info(f"[ENTRY] Sent entry coord ({entry_coord.x:.2f}, {entry_coord.y:.2f}) to {target_client_name}")
-
-                                # Now transition state
-                                context_ref[0] = new_context
-
-                                # Warp server cursor to opposite edge to track continued movement
-                                # This gives us coordinate space to track as user continues moving
+                                # Calculate where cursor should be warped to (opposite edge)
                                 if transition.direction == Direction.LEFT:
                                     warp_pos = Position(x=screen_geometry.width - 3, y=transition.position.y)
                                 elif transition.direction == Direction.RIGHT:
@@ -457,8 +442,13 @@ def server_run(args: argparse.Namespace) -> None:
                                 else:  # BOTTOM
                                     warp_pos = Position(x=transition.position.x, y=2)
 
-                                display_manager.cursorPosition_set(warp_pos)
-                                logger.debug(f"[WARP] Server cursor to ({warp_pos.x}, {warp_pos.y}) for tracking")
+                                # Set boundary crossed flag - this tells REMOTE mode to warp cursor
+                                # before sending any coordinates
+                                boundary_crossed[0] = True
+                                target_warp_position[0] = warp_pos
+
+                                # Now transition state
+                                context_ref[0] = new_context
 
                                 # Grab input (may fail - handle gracefully)
                                 try:
@@ -473,9 +463,9 @@ def server_run(args: argparse.Namespace) -> None:
                                 # Reset velocity tracker
                                 pointer_tracker.reset()
 
-                                logger.info(f"[STATE] → {new_context.value.upper()} context")
+                                logger.info(f"[STATE] → {new_context.value.upper()} context (boundary_crossed=True)")
 
-                                # Skip rest of iteration - start fresh next loop with new position
+                                # Continue to next iteration - REMOTE mode will handle the warp
                                 continue
 
                             except Exception as e:
@@ -494,6 +484,28 @@ def server_run(args: argparse.Namespace) -> None:
                 elif context_ref[0] != ScreenContext.CENTER:
                     # In REMOTE mode - Server Authoritative Return Logic
                     target_client_name = context_to_client.get(context_ref[0])
+
+                    # CRITICAL: Check if we just crossed boundary and need to warp cursor
+                    if boundary_crossed[0]:
+                        warp_target = target_warp_position[0]
+                        if warp_target:
+                            # Warp cursor to target position
+                            display_manager.cursorPosition_set(warp_target)
+
+                            # Re-query position to check if warp succeeded
+                            actual_pos = pointer_tracker.position_query()
+                            tolerance = 10  # pixels
+
+                            if abs(actual_pos.x - warp_target.x) <= tolerance and abs(actual_pos.y - warp_target.y) <= tolerance:
+                                # Warp succeeded - clear flag and continue with normal operation
+                                boundary_crossed[0] = False
+                                target_warp_position[0] = None
+                                position = actual_pos  # Use fresh position
+                                logger.info(f"[WARP] Cursor warped to ({actual_pos.x}, {actual_pos.y}) - boundary crossing complete")
+                            else:
+                                # Warp not yet complete - skip sending coordinates this iteration
+                                logger.warning(f"[WARP] Cursor not at target yet: target=({warp_target.x},{warp_target.y}), actual=({actual_pos.x},{actual_pos.y}) - retrying")
+                                continue
 
                     # 1. Check for Return Condition
                     # Determine which edge triggers return based on current context
@@ -529,7 +541,7 @@ def server_run(args: argparse.Namespace) -> None:
                                 network.messageToClient_send(target_client_name, hide_msg)
                         
                             # 2. Revert State (Restore desktop)
-                            state_revert_to_center(context_ref, display_manager, screen_geometry, last_center_switch_time, position, pointer_tracker)
+                            state_revert_to_center(context_ref, display_manager, screen_geometry, last_center_switch_time, position, pointer_tracker, boundary_crossed, target_warp_position)
                         
                         except Exception as e:
                             logger.error(f"Return transition failed: {e}", exc_info=True)
@@ -556,7 +568,7 @@ def server_run(args: argparse.Namespace) -> None:
                             if not network.messageToClient_send(target_client_name, move_msg):
                                 connected_names = [c.name for c in network.clients]
                                 logger.error(f"Failed to send movement to '{target_client_name}'. Connected clients: {connected_names}. Reverting.")
-                                state_revert_to_center(context_ref, display_manager, screen_geometry, last_center_switch_time, position, pointer_tracker)
+                                state_revert_to_center(context_ref, display_manager, screen_geometry, last_center_switch_time, position, pointer_tracker, boundary_crossed, target_warp_position)
                                 continue
 
                             # Send Input Events (Buttons & Keys)
@@ -584,13 +596,13 @@ def server_run(args: argparse.Namespace) -> None:
                                         logger.error(f"Failed to send {event.event_type.value} to {target_client_name}")
                                         # We don't break/continue here, the next loop iteration will handle it if move fails
                                         # but actually we should probably revert now.
-                                        state_revert_to_center(context_ref, display_manager, screen_geometry, last_center_switch_time, position, pointer_tracker)
+                                        state_revert_to_center(context_ref, display_manager, screen_geometry, last_center_switch_time, position, pointer_tracker, boundary_crossed, target_warp_position)
                                         break
                         else:
                             # Drain events if no client connected but in remote mode
                             read_input_events(display_manager)
                             logger.error(f"Active context {context_ref[0].value} has no connected client, reverting")
-                            state_revert_to_center(context_ref, display_manager, screen_geometry, last_center_switch_time, position, pointer_tracker)
+                            state_revert_to_center(context_ref, display_manager, screen_geometry, last_center_switch_time, position, pointer_tracker, boundary_crossed, target_warp_position)
 
             # Small sleep to prevent busy waiting
             time.sleep(config.server.poll_interval_ms / settings.POLL_INTERVAL_DIVISOR)
