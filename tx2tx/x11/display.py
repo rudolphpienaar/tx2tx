@@ -205,7 +205,7 @@ class DisplayManager:
             pixmap = root.create_pixmap(1, 1, 1)
 
             # Create a GC to draw into the pixmap
-            gc = root.create_gc(foreground=0, background=0)
+            gc = pixmap.create_gc(foreground=0, background=0)
 
             # clear the pixmap (make it 0)
             pixmap.fill_rectangle(gc, 0, 0, 1, 1)

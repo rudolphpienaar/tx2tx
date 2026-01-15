@@ -104,11 +104,15 @@ def state_revert_to_center(
         entry_pos = Position(x=position.x, y=screen_geometry.height - 2)
 
     try:
-        display_manager.cursorPosition_set(entry_pos)
-        display_manager.cursor_show()
+        # Ungrab first to restore desktop control
         display_manager.keyboard_ungrab()
         display_manager.pointer_ungrab()
-        logger.info(f"[STATE] → CENTER (emergency revert)")
+
+        # Then show and move cursor
+        display_manager.cursor_show()
+        display_manager.cursorPosition_set(entry_pos)
+        
+        logger.info(f"[STATE] → CENTER (revert) - Cursor moved to ({entry_pos.x}, {entry_pos.y})")
     except Exception as e:
         logger.error(f"Emergency revert failed: {e}")
 
