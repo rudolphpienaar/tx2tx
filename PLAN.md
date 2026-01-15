@@ -11,43 +11,47 @@ The primary objective is to perform the first real-world, two-device test of the
 - This indentation bug has been **fixed, committed, and pushed** to the `main` branch.
 - **FIXED (2026-01-15):** Cursor transition race condition resolved - cursor now appears at correct edge during transitions.
 
-## 3. ✅ RESOLVED: Cursor Transition Race Condition
+## 3. ✅ RESOLVED: Cursor Transition Simplified
 
-### Problem (Issues #1 and #2)
-The cursor warp operations during screen transitions were subject to a race condition where the X server had not yet processed the warp command before the next position poll occurred.
+### Problem
+The cursor transition logic was overly complex with verification loops, race conditions, and bloated code that was hard to debug. Cursor appeared at wrong edge during transitions.
 
-### Symptoms
-1.  **Wrong Edge on Entry:** When the server mouse crosses the West edge (to enter the West client), the Client cursor appears on the **West** (far left) edge of the client screen instead of the expected **East** (right) edge.
-    *   *Root Cause:* The server was sending `x=0.0` (old position) to the client before the warp to the opposite edge took effect.
-
-2.  **Stuck on Return:** When returning from the Client to the Server, the Server mouse cursor remains stuck on the **East** edge of the server screen.
-    *   *Root Cause:* The return warp to the entry position wasn't taking effect before the main loop continued.
+### Root Cause
+- Trying to warp cursor THEN poll it to get first coordinate
+- Race conditions between warp and poll
+- Verification loops added complexity without solving the core issue
+- Pointer grab failures caused transitions to abort
 
 ### Solution Implemented ✅
-**Added cursor position verification after warp operations** to eliminate race conditions:
+**Completely simplified the transition logic:**
 
-1. **New Method:** `DisplayManager.cursorPosition_setAndVerify()` (`tx2tx/x11/display.py:194-243`)
-   - Issues warp command via `XWarpPointer`
-   - Polls actual cursor position in tight loop (1ms intervals)
-   - Verifies position matches target (within 5px tolerance)
-   - Returns success/failure with 50-100ms timeout
-   - Logs warning if verification fails
+**Entry Transition** (`tx2tx/server/main.py:413-475`):
+1. **Calculate** entry coordinate directly (opposite edge from crossing)
+   - Cross LEFT → Send `NormalizedPoint(x=1.0, y=norm_y)` to client (RIGHT edge)
+   - Cross RIGHT → Send `NormalizedPoint(x=0.0, y=norm_y)` to client (LEFT edge)
+   - Cross TOP → Send `NormalizedPoint(x=norm_x, y=1.0)` to client (BOTTOM edge)
+   - Cross BOTTOM → Send `NormalizedPoint(x=norm_x, y=0.0)` to client (TOP edge)
 
-2. **Entry Transition Fix** (`tx2tx/server/main.py:426-430`)
-   - Replaced `cursorPosition_set()` with `cursorPosition_setAndVerify()`
-   - Aborts transition if verification fails (reverts to CENTER)
-   - Guarantees cursor is at correct edge before sending first coordinate
+2. **Send** entry coordinate to client IMMEDIATELY (before any other operations)
 
-3. **Return Transition Fix** (`tx2tx/server/main.py:114-116`)
-   - Uses `cursorPosition_setAndVerify()` in `state_revert_to_center()`
-   - Logs warning but continues if verification fails (better to show cursor than stay stuck)
+3. **Then** warp server cursor to opposite edge for tracking continued movement
+
+4. Grab input (with graceful failure handling - continues if grab fails)
+
+5. Hide cursor and reset tracker
+
+**Return Transition** (`tx2tx/server/main.py:108-127`):
+1. Ungrab keyboard/pointer (with error handling)
+2. Warp to entry position (simple, no verification loop)
+3. Show cursor
+4. Reset tracker
 
 ### Why This Works
-- `display.sync()` only flushes X protocol buffer, doesn't guarantee processing
-- X server processes events asynchronously
-- By polling and verifying actual position, we wait for X server to process warp
-- First coordinate sent to client is now guaranteed to be correct
-- Timeout prevents infinite loops if warp truly fails
+- Entry coordinate is **calculated**, not polled - eliminates race conditions
+- Client receives correct edge coordinate immediately on first frame
+- Server cursor warp happens AFTER client is notified
+- Grab failures are handled gracefully instead of aborting
+- Much simpler code path - easier to debug and maintain
 
 ### Remaining Issue (Issue #3)
 **Cursor Hiding Failure:** The server mouse cursor may remain visible on the server screen even when it is supposed to be hidden (in Client context).

@@ -107,21 +107,22 @@ def state_revert_to_center(
 
     try:
         # Ungrab first to restore desktop control
-        display_manager.keyboard_ungrab()
-        display_manager.pointer_ungrab()
+        try:
+            display_manager.keyboard_ungrab()
+            display_manager.pointer_ungrab()
+        except Exception as e:
+            logger.warning(f"Ungrab failed: {e}")
 
-        # Warp to entry position and verify
-        if not display_manager.cursorPosition_setAndVerify(entry_pos, timeout_ms=50):
-            logger.warning(f"Failed to verify cursor warp to ({entry_pos.x}, {entry_pos.y}) during revert, continuing anyway")
-            # Still proceed with revert even if verification fails - better to show cursor than stay stuck
+        # Warp to entry position
+        display_manager.cursorPosition_set(entry_pos)
 
-        # RESET TRACKER to prevent velocity spike from triggering immediate re-entry
-        pointer_tracker.reset()
-
-        # Finally show cursor
+        # Show cursor
         display_manager.cursor_show()
 
-        logger.info(f"[STATE] → CENTER (revert) - Cursor moved to ({entry_pos.x}, {entry_pos.y})")
+        # Reset tracker to prevent velocity spike from triggering immediate re-entry
+        pointer_tracker.reset()
+
+        logger.info(f"[STATE] → CENTER (revert) - Cursor at ({entry_pos.x}, {entry_pos.y})")
     except Exception as e:
         logger.error(f"Emergency revert failed: {e}")
 
@@ -410,38 +411,67 @@ def server_run(args: argparse.Namespace) -> None:
                             )
 
                             try:
-                                context_ref[0] = new_context
-
-                                # Calculate position on OPPOSITE edge (where we enter the new context)
-                                # e.g., Crossing LEFT edge means we start at RIGHT edge of new context
-                                if transition.direction == Direction.LEFT:
-                                    # Start at Right Edge of Server Screen (simulating Remote Screen)
-                                    edge_position = Position(x=screen_geometry.width - settings.EDGE_ENTRY_OFFSET - 1, y=position.y)
-                                elif transition.direction == Direction.RIGHT:
-                                    edge_position = Position(x=settings.EDGE_ENTRY_OFFSET, y=position.y)
-                                elif transition.direction == Direction.TOP:
-                                    edge_position = Position(x=position.x, y=screen_geometry.height - settings.EDGE_ENTRY_OFFSET - 1)
-                                else:  # BOTTOM
-                                    edge_position = Position(x=position.x, y=settings.EDGE_ENTRY_OFFSET)
-
-                                # 1. Reposition Cursor (Warp FIRST and VERIFY before continuing)
-                                if not display_manager.cursorPosition_setAndVerify(edge_position, timeout_ms=50):
-                                    logger.error(f"Failed to verify cursor warp to ({edge_position.x}, {edge_position.y}), aborting transition")
-                                    context_ref[0] = ScreenContext.CENTER
-                                    last_center_switch_time[0] = time.time()
+                                # Get target client name
+                                target_client_name = context_to_client.get(new_context)
+                                if not target_client_name:
+                                    logger.error(f"No client configured for {new_context.value}")
                                     continue
 
-                                # 2. Reset velocity tracker to prevent immediate return
-                                pointer_tracker.reset()
+                                # Calculate entry coordinate (opposite edge from where we crossed)
+                                if transition.direction == Direction.LEFT:
+                                    # Crossed LEFT → Enter client from RIGHT
+                                    entry_coord = NormalizedPoint(x=1.0, y=transition.position.y / screen_geometry.height)
+                                elif transition.direction == Direction.RIGHT:
+                                    # Crossed RIGHT → Enter client from LEFT
+                                    entry_coord = NormalizedPoint(x=0.0, y=transition.position.y / screen_geometry.height)
+                                elif transition.direction == Direction.TOP:
+                                    # Crossed TOP → Enter client from BOTTOM
+                                    entry_coord = NormalizedPoint(x=transition.position.x / screen_geometry.width, y=1.0)
+                                else:  # BOTTOM
+                                    # Crossed BOTTOM → Enter client from TOP
+                                    entry_coord = NormalizedPoint(x=transition.position.x / screen_geometry.width, y=0.0)
 
-                                # 3. Grab Input
-                                display_manager.pointer_grab()
-                                display_manager.keyboard_grab()
+                                # Send entry coordinate to client IMMEDIATELY
+                                entry_event = MouseEvent(
+                                    event_type=EventType.MOUSE_MOVE,
+                                    normalized_point=entry_coord
+                                )
+                                entry_msg = MessageBuilder.mouseEventMessage_create(entry_event)
+                                if not network.messageToClient_send(target_client_name, entry_msg):
+                                    logger.error(f"Failed to send entry coordinate to {target_client_name}")
+                                    continue
 
-                                # 4. Hide Cursor
+                                logger.info(f"[ENTRY] Sent entry coord ({entry_coord.x:.2f}, {entry_coord.y:.2f}) to {target_client_name}")
+
+                                # Now transition state
+                                context_ref[0] = new_context
+
+                                # Warp server cursor to opposite edge to track continued movement
+                                # This gives us coordinate space to track as user continues moving
+                                if transition.direction == Direction.LEFT:
+                                    warp_pos = Position(x=screen_geometry.width - 3, y=transition.position.y)
+                                elif transition.direction == Direction.RIGHT:
+                                    warp_pos = Position(x=2, y=transition.position.y)
+                                elif transition.direction == Direction.TOP:
+                                    warp_pos = Position(x=transition.position.x, y=screen_geometry.height - 3)
+                                else:  # BOTTOM
+                                    warp_pos = Position(x=transition.position.x, y=2)
+
+                                display_manager.cursorPosition_set(warp_pos)
+                                logger.debug(f"[WARP] Server cursor to ({warp_pos.x}, {warp_pos.y}) for tracking")
+
+                                # Grab input (may fail - handle gracefully)
+                                try:
+                                    display_manager.pointer_grab()
+                                    display_manager.keyboard_grab()
+                                except RuntimeError as e:
+                                    logger.warning(f"Input grab failed: {e}, continuing anyway")
+
+                                # Hide cursor
                                 display_manager.cursor_hide()
 
-                                logger.info(f"[CURSOR] Repositioned and verified at ({edge_position.x}, {edge_position.y})")
+                                # Reset velocity tracker
+                                pointer_tracker.reset()
 
                                 logger.info(f"[STATE] → {new_context.value.upper()} context")
 
