@@ -189,8 +189,17 @@ class DisplayManager:
         display = self.display_get()
         screen = display.screen()
         root = screen.root
+
+        logger.debug(f"[X11] Calling root.warp_pointer({position.x}, {position.y})")
         root.warp_pointer(position.x, position.y)
         display.sync()
+        logger.debug(f"[X11] display.sync() completed")
+
+        # Verify position immediately after warp
+        pointer_data = root.query_pointer()
+        actual_x = pointer_data.root_x
+        actual_y = pointer_data.root_y
+        logger.debug(f"[X11] After warp: actual position = ({actual_x}, {actual_y})")
 
     def cursorPosition_setAndVerify(self, position: Position, timeout_ms: int = 100, tolerance: int = 5) -> bool:
         """
