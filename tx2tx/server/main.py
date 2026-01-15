@@ -462,30 +462,30 @@ def server_run(args: argparse.Namespace) -> None:
                     if should_return and velocity >= (config.server.velocity_threshold * 0.5):
                         logger.info(f"[BOUNDARY] Returning from {context_ref[0].value.upper()} at ({position.x}, {position.y})")
 
-                                                try:
-                                                    # 1. Send Hide Signal to Client
-                                                    if target_client_name:
-                                                        hide_event = MouseEvent(
-                                                            event_type=EventType.MOUSE_MOVE,
-                                                            normalized_point=NormalizedPoint(x=-1.0, y=-1.0)
-                                                        )
-                                                        hide_msg = MessageBuilder.mouseEventMessage_create(hide_event)
-                                                        # We try to send it, but if it fails we still need to revert local state
-                                                        network.messageToClient_send(target_client_name, hide_msg)
+                        try:
+                            # 1. Send Hide Signal to Client
+                            if target_client_name:
+                                hide_event = MouseEvent(
+                                    event_type=EventType.MOUSE_MOVE,
+                                    normalized_point=NormalizedPoint(x=-1.0, y=-1.0)
+                                )
+                                hide_msg = MessageBuilder.mouseEventMessage_create(hide_event)
+                                # We try to send it, but if it fails we still need to revert local state
+                                network.messageToClient_send(target_client_name, hide_msg)
                         
-                                                    # 2. Revert State (Restore desktop)
-                                                    state_revert_to_center(context_ref, display_manager, screen_geometry, last_center_switch_time, position)
+                            # 2. Revert State (Restore desktop)
+                            state_revert_to_center(context_ref, display_manager, screen_geometry, last_center_switch_time, position)
                         
-                                                except Exception as e:
-                                                    logger.error(f"Return transition failed: {e}", exc_info=True)
-                                                    # Emergency cleanup
-                                                    context_ref[0] = ScreenContext.CENTER
-                                                    try:
-                                                        display_manager.cursor_show()
-                                                        display_manager.keyboard_ungrab()
-                                                        display_manager.pointer_ungrab()
-                                                    except:
-                                                        pass
+                        except Exception as e:
+                            logger.error(f"Return transition failed: {e}", exc_info=True)
+                            # Emergency cleanup
+                            context_ref[0] = ScreenContext.CENTER
+                            try:
+                                display_manager.cursor_show()
+                                display_manager.keyboard_ungrab()
+                                display_manager.pointer_ungrab()
+                            except:
+                                pass
                     else:
                         if target_client_name:
                             # Not returning - Send events to active client
