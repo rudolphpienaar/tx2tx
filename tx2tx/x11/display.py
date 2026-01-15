@@ -191,9 +191,45 @@ class DisplayManager:
         root.warp_pointer(position.x, position.y)
         display.sync()
 
+    def _ensure_blank_cursor(self) -> int:
+        """Create a blank cursor if one doesn't exist"""
+        if self._blank_cursor is not None:
+            return self._blank_cursor
+
+        display = self.display_get()
+        screen = display.screen()
+        root = screen.root
+
+        try:
+            # Create a 1x1 bitmap (depth 1)
+            pixmap = root.create_pixmap(1, 1, 1)
+
+            # Create a GC to draw into the pixmap
+            gc = root.create_gc(foreground=0, background=0)
+
+            # clear the pixmap (make it 0)
+            pixmap.fill_rectangle(gc, 0, 0, 1, 1)
+
+            # color (0,0,0)
+            color = (0, 0, 0)
+
+            # Create cursor. mask=pixmap means the shape is defined by pixmap.
+            # since pixmap is all 0s, the mask is empty -> fully transparent.
+            cursor = display.create_pixmap_cursor(pixmap, pixmap, color, color, 0, 0)
+
+            # Cleanup
+            pixmap.free()
+            gc.free()
+
+            self._blank_cursor = cursor
+            return cursor
+        except Exception as e:
+            logger.error(f"Failed to create blank cursor: {e}")
+            return 0
+
     def cursor_hide(self) -> None:
         """
-        Hide cursor using XFixes extension with pixmap fallback
+        Hide cursor using blank cursor strategy (fallback for XFixes)
 
         Raises:
             RuntimeError: If not connected to display
@@ -201,12 +237,23 @@ class DisplayManager:
         if self._cursor_hidden:
             return
 
-        # DISABLE XFixes: It causes BadRRCrtcError that corrupts X11 connection
-        # in termux-x11 environment, making all subsequent X11 calls hang.
-        # Cursor will remain visible but system will work.
-        logger.warning("Cursor hiding disabled (XFixes unstable in termux-x11)")
-        logger.warning("Cursor will remain visible but system will function normally")
-        # self._cursor_hidden remains False
+        display = self.display_get()
+        screen = display.screen()
+        root = screen.root
+
+        # Try to use blank cursor
+        try:
+            cursor = self._ensure_blank_cursor()
+            if cursor:
+                root.change_attributes(cursor=cursor)
+                display.sync()
+                self._cursor_hidden = True
+                logger.debug("Cursor hidden (blank cursor)")
+                return
+        except Exception as e:
+            logger.warning(f"Failed to set blank cursor: {e}")
+
+        logger.warning("Cursor hiding failed")
 
     def cursor_show(self) -> None:
         """
@@ -222,30 +269,14 @@ class DisplayManager:
         screen = display.screen()
         root = screen.root
 
-        # Try XFixes first
-        xfixes_worked = False
         try:
-            if display.has_extension('XFIXES') or display.query_extension('XFIXES'):
-                root.xfixes_show_cursor()
-                display.sync()
-                self._cursor_hidden = False
-                xfixes_worked = True
-                logger.debug("Cursor shown using XFixes")
-                return
+            # Restore default cursor (None/0)
+            root.change_attributes(cursor=0)
+            display.sync()
+            self._cursor_hidden = False
+            logger.debug("Cursor shown")
         except Exception as e:
-            logger.debug(f"XFixes failed, using fallback: {e}")
-            xfixes_worked = False
-
-        # Fallback: Restore default cursor
-        if not xfixes_worked:
-            try:
-                root.change_attributes(cursor=0)  # 0 = use default cursor
-                display.sync()
-                self._cursor_hidden = False
-                logger.debug("Cursor shown using default cursor")
-            except Exception as e:
-                logger.error(f"Failed to show cursor: {e}")
-                raise
+            logger.error(f"Failed to show cursor: {e}")
 
     def pointer_grab(self) -> None:
         """
@@ -258,13 +289,16 @@ class DisplayManager:
         screen = display.screen()
         root = screen.root
 
+        # Use blank cursor if hidden, otherwise 0 (None/default)
+        cursor = self._blank_cursor if (self._cursor_hidden and self._blank_cursor) else 0
+
         result = root.grab_pointer(
             True,  # owner_events - we receive events
             X.PointerMotionMask | X.ButtonPressMask | X.ButtonReleaseMask,
             X.GrabModeAsync,
             X.GrabModeAsync,
             0,       # Don't confine to window (0 = no confinement)
-            0,       # Don't change cursor
+            cursor,  # Use blank cursor if hidden
             X.CurrentTime
         )
 
