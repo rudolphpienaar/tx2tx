@@ -2,18 +2,111 @@
 
 This document tracks the development plan. The section below outlines the current status to allow for asynchronous work.
 
-## 1. Current Goal
-The primary objective is to perform the first real-world, two-device test of the `tx2tx` application to validate its core functionality.
+## 1. CURRENT BLOCKER: Cursor Warp Not Working ❌
 
-## 2. Summary of Recent Progress
-- A detailed code and design gap analysis was completed. Key findings include potential mouse movement distortion between screens with different aspect ratios, incorrect key mappings if keyboard layouts differ, and a lack of encryption.
-- A critical `IndentationError` was found in `tx2tx/server/main.py` which prevented the server from starting.
-- This indentation bug has been **fixed, committed, and pushed** to the `main` branch.
-- **FIXED (2026-01-15):** Cursor transition race condition resolved - cursor now appears at correct edge during transitions.
-- **REFACTOR (2026-01-15):** Created ServerState singleton class to replace mutable list references for cleaner state management.
-- **OPTIMIZE (2026-01-15):** Mouse coordinates now only transmitted when position changes, eliminating unnecessary network traffic when mouse is stationary.
+**Version:** 2.1.4 (pending commit)
 
-## 3. ✅ RESOLVED: Cursor Transition Simplified
+### Problem Description
+When boundary is crossed (e.g., cursor moves from x=0 LEFT edge), the cursor should visually jump to the opposite edge (x=1917 RIGHT edge). **The cursor NEVER warps.** It stays at x=0 and client receives wrong coordinates.
+
+**Cursor hiding does NOT work** - user always sees cursor on server screen, so warp should be visually observable.
+
+### What We've Tried (All Failed)
+1. ❌ Verification loops after warp - no effect
+2. ❌ Deferred warp with `boundary_crossed` flag - no effect
+3. ❌ Warp BEFORE grabbing pointer (thought grab prevented warp) - no effect
+4. ❌ Added 10ms delay after warp - no effect
+5. ❌ Multiple sync() calls - no effect
+
+### Current State of Code
+**Entry Transition** (`tx2tx/server/main.py:426-462`):
+```python
+# Detect boundary crossing at x=0 (LEFT edge)
+warp_pos = Position(x=screen_geometry.width - 3, y=transition.position.y)  # x=1917
+
+# Warp cursor BEFORE grab
+logger.info(f"[WARP] Warping cursor from ({transition.position.x}, {transition.position.y}) to ({warp_pos.x}, {warp_pos.y})")
+display_manager.cursorPosition_set(warp_pos)
+time.sleep(0.01)  # 10ms delay
+
+# Then grab pointer/keyboard
+display_manager.pointer_grab()
+display_manager.keyboard_grab()
+```
+
+**X11 Warp Implementation** (`tx2tx/x11/display.py:179-202`):
+```python
+def cursorPosition_set(self, position: Position) -> None:
+    display = self.display_get()
+    root = screen.root
+
+    logger.debug(f"[X11] Calling root.warp_pointer({position.x}, {position.y})")
+    root.warp_pointer(position.x, position.y)
+    display.sync()
+    logger.debug(f"[X11] display.sync() completed")
+
+    # Verify immediately
+    pointer_data = root.query_pointer()
+    actual_x = pointer_data.root_x
+    actual_y = pointer_data.root_y
+    logger.debug(f"[X11] After warp: actual position = ({actual_x}, {actual_y})")
+```
+
+### Debug Logging In Place
+**Run with DEBUG logging enabled**, logs will show:
+1. `[TRANSITION] Boundary crossed: pos=(0,y)` - boundary detection
+2. `[WARP] Warping cursor from (0, y) to (1917, y)` - warp attempt
+3. `[X11] Calling root.warp_pointer(1917, y)` - X11 call
+4. `[X11] display.sync() completed` - sync completion
+5. `[X11] After warp: actual position = (?, ?)` - **CRITICAL: Check this value**
+
+### Next Steps for Debugging
+1. **Run test and examine logs** - specifically the `[X11] After warp: actual position = (?, ?)` line
+2. **If actual position != target**: X server is ignoring `warp_pointer()` call
+   - May be compositor/window manager blocking warps
+   - May be security policy in Crostini/Xephyr
+   - May need to use different X11 API or XTest extension
+3. **If actual position == target but cursor doesn't MOVE visually**: Display refresh issue
+4. **If logs don't appear**: `cursorPosition_set()` is not being called at all
+
+### Hypotheses
+- **Most likely**: X server/compositor is blocking `XWarpPointer` calls for security/UX reasons
+- Window manager may have "no mouse warping" policy
+- Xephyr/Crostini may sandbox/filter warp commands
+- May need alternative approach: XTest extension, or change architecture to not rely on warping
+
+## 2. Summary of Recent Progress (Last Session)
+- **REFACTOR (2026-01-15):** Created ServerState singleton class (`tx2tx/server/state.py`) with RPN naming convention (`boundaryCrossed_set()`, `boundaryCrossed_clear()`)
+- **OPTIMIZE (2026-01-15):** Mouse coordinates only transmitted when position changes (saves bandwidth when stationary)
+- **FEATURE (2026-01-15):** Added version + commit hash to all log output (e.g., `[v2.1.3.1eea]`)
+- **DEBUG (2026-01-15):** Added extensive logging to trace cursor warp operations
+- **FIX ATTEMPT (2026-01-15):** Moved warp before pointer grab - did not resolve issue
+
+## 3. Architecture Context
+
+**How Cursor Transition SHOULD Work:**
+1. User moves mouse to LEFT edge (x=0) on server display
+2. Server detects boundary crossing
+3. **Server warps cursor to RIGHT edge (x=1917)** ← THIS IS FAILING
+4. Server grabs pointer/keyboard (desktop stops receiving input)
+5. Server polls cursor position (should be x=1917)
+6. Server normalizes (1917/1920 = 0.998) and sends to client
+7. Client cursor appears at RIGHT edge (98% across screen) ✓
+
+**Current broken behavior:**
+1. User moves to x=0
+2. Server tries to warp to x=1917
+3. **Warp doesn't happen** - cursor stays at x=0
+4. Server polls position → x=0
+5. Server normalizes (0/1920 = 0.0) and sends to client
+6. Client cursor appears at LEFT edge (wrong!) ✗
+
+**Critical files:**
+- `tx2tx/server/main.py:426-462` - Entry transition logic
+- `tx2tx/x11/display.py:179-202` - X11 warp implementation
+- `tx2tx/server/state.py` - ServerState singleton
+
+## 4. Previous Implementation History (For Context)
 
 ### Problem
 The cursor transition logic was overly complex with verification loops, race conditions, and bloated code that was hard to debug. Cursor appeared at wrong edge during transitions.
