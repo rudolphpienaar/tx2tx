@@ -11,6 +11,7 @@ The primary objective is to perform the first real-world, two-device test of the
 - This indentation bug has been **fixed, committed, and pushed** to the `main` branch.
 - **FIXED (2026-01-15):** Cursor transition race condition resolved - cursor now appears at correct edge during transitions.
 - **REFACTOR (2026-01-15):** Created ServerState singleton class to replace mutable list references for cleaner state management.
+- **OPTIMIZE (2026-01-15):** Mouse coordinates now only transmitted when position changes, eliminating unnecessary network traffic when mouse is stationary.
 
 ## 3. ✅ RESOLVED: Cursor Transition Simplified
 
@@ -63,7 +64,7 @@ The cursor transition logic was overly complex with verification loops, race con
 - Simple state machine: `boundary_crossed` flag controls when to warp vs when to send coordinates
 
 ### ServerState Singleton (`tx2tx/server/state.py`)
-**Clean state management using singleton pattern:**
+**Clean state management using singleton pattern with RPN naming:**
 
 ```python
 class ServerState:
@@ -71,18 +72,35 @@ class ServerState:
     last_center_switch_time: float      # Timestamp of last CENTER transition
     boundary_crossed: bool              # Flag indicating pending warp
     target_warp_position: Position      # Target position for pending warp
+    last_sent_position: Position        # Last position sent to client (for change detection)
 
-    def set_boundary_crossed(position)  # Set flag and target position
-    def clear_boundary_crossed()        # Clear flag after successful warp
+    def boundaryCrossed_set(position)   # Set flag and target position
+    def boundaryCrossed_clear()         # Clear flag after successful warp
+    def positionChanged_check(pos)      # Check if position changed since last sent
+    def lastSentPosition_update(pos)    # Update last sent position
     def reset()                         # Reset all state to initial values
 ```
 
 **Benefits:**
 - Single source of truth for server state
-- Clean API with helper methods
+- Clean API with RPN naming convention (`objectName_verb()`)
 - No more mutable list references (`context_ref[0]`)
 - Easy to extend with additional state
 - Better type safety and IDE support
+
+### Mouse Coordinate Optimization
+**Only send coordinates when position changes:**
+
+**Before:**
+- Server sent mouse coordinates every 20ms regardless of movement
+- 50 messages/second even when mouse stationary
+- Unnecessary network and CPU usage
+
+**After:**
+- `positionChanged_check()` compares current position to last sent
+- Only transmit when position changes by at least 1 pixel
+- Dramatically reduces network traffic when mouse is stationary
+- Button/key events still sent immediately regardless of position
 
 ### Remaining Issue (Issue #3)
 **Cursor Hiding Failure:** The server mouse cursor may remain visible on the server screen even when it is supposed to be hidden (in Client context).
