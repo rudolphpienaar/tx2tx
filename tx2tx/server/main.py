@@ -444,6 +444,7 @@ def server_run(args: argparse.Namespace) -> None:
             port=args.port,
             edge_threshold=args.edge_threshold,
             display=args.display,
+            overlay_enabled=getattr(args, "overlay_enabled", None),
         )
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)

@@ -25,7 +25,7 @@ class DisplayManager:
     """Manages X11 display connection and screen information"""
 
     def __init__(
-        self, display_name: Optional[str] = None, overlay_enabled: bool = True
+        self, display_name: Optional[str] = None, overlay_enabled: bool = False
     ) -> None:
         """
         Initialize display manager

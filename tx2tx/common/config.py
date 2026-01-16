@@ -179,7 +179,7 @@ class ConfigLoader:
                 "client_position", "west"
             ),  # DEPRECATED: Default to west
             panic_key=panic_key,
-            overlay_enabled=server_data.get("overlay_enabled", True),
+            overlay_enabled=server_data.get("overlay_enabled", False),
         )
 
         # Parse named clients list

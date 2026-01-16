@@ -65,10 +65,9 @@ def arguments_parse() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--no-overlay",
+        "--overlay",
         action="store_true",
-        default=None,
-        help="[Server] Disable fullscreen overlay window (cursor will remain visible)",
+        help="[Server] Enable fullscreen overlay window to hide cursor (may cause cursor reset issues)",
     )
 
     parser.add_argument(
@@ -96,10 +95,9 @@ def main() -> NoReturn:
             # No --server or --client: run as server
             from tx2tx.server.main import server_run
 
-            # Handle negative flag
-            if args.no_overlay:
-                # If flag is set, overlay_enabled is False
-                setattr(args, "overlay_enabled", False)
+            # Handle flag
+            if args.overlay:
+                setattr(args, "overlay_enabled", True)
             else:
                 setattr(args, "overlay_enabled", None)  # Let config decide
 
