@@ -4,7 +4,7 @@ This document tracks the development plan. The section below outlines the curren
 
 ## 1. CURRENT ISSUES UNDER INVESTIGATION
 
-**Version:** 2.1.5 (commit `a0abe93`)
+**Version:** 2.2.0 (commit `f7c9dc9`)
 
 ### Issue A: Cursor Warp - Visual vs Internal Position Mismatch 🔄
 
