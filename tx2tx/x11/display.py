@@ -364,9 +364,13 @@ class DisplayManager:
         Hide cursor or change to remote-mode indicator.
 
         Tries in order:
-        1. XFixes hide_cursor (true invisibility)
-        2. Blank pixmap cursor (transparent)
-        3. Gray X cursor (visible but distinct indicator for remote mode)
+        1. Gray X cursor (visible indicator for remote mode - most reliable)
+        2. XFixes hide_cursor (true invisibility - fails silently in Crostini)
+        3. Blank pixmap cursor (transparent - fails silently in Crostini)
+
+        Note: XFixes and blank cursor methods fail SILENTLY in Wayland/Crostini
+        environments (no exception, but cursor doesn't change). Gray X is tried
+        first because it's the most reliable and provides clear UX feedback.
 
         Raises:
             RuntimeError: If not connected to display
@@ -378,32 +382,9 @@ class DisplayManager:
         screen = display.screen()
         root = screen.root
 
-        # Method 1: XFixes (Preferred - true invisibility)
-        try:
-            if display.has_extension('XFIXES'):
-                display.xfixes.hide_cursor(root)
-                display.sync()
-                self._cursor_hidden = True
-                logger.debug("Cursor hidden (XFixes)")
-                return
-        except Exception as e:
-            logger.warning(f"XFixes hide_cursor failed: {e}")
-
-        # Method 2: Blank Cursor (transparent)
-        try:
-            cursor = self._ensure_blank_cursor()
-            if cursor:
-                root.change_attributes(cursor=cursor)
-                display.sync()
-                self._cursor_hidden = True
-                logger.debug("Cursor hidden (blank cursor)")
-                return
-        except Exception as e:
-            logger.warning(f"Failed to set blank cursor: {e}")
-
-        # Method 3: Gray X Cursor (visible but indicates remote mode)
-        # This is the most reliable fallback for environments like Crostini
-        # where cursor hiding is blocked but cursor appearance can be changed
+        # Method 1: Gray X Cursor (visible indicator for remote mode)
+        # This is the most reliable method and provides clear UX feedback
+        # Works in Crostini/Wayland where XFixes and blank cursor fail silently
         try:
             cursor = self._remoteCursor_create()
             if cursor:
@@ -414,6 +395,31 @@ class DisplayManager:
                 return
         except Exception as e:
             logger.warning(f"Failed to set gray X cursor: {e}")
+
+        # Method 2: XFixes (true invisibility)
+        # Note: Fails silently in Crostini - reports success but cursor unchanged
+        try:
+            if display.has_extension('XFIXES'):
+                display.xfixes.hide_cursor(root)
+                display.sync()
+                self._cursor_hidden = True
+                logger.debug("Cursor hidden (XFixes)")
+                return
+        except Exception as e:
+            logger.warning(f"XFixes hide_cursor failed: {e}")
+
+        # Method 3: Blank Cursor (transparent)
+        # Note: Fails silently in Crostini - reports success but cursor unchanged
+        try:
+            cursor = self._ensure_blank_cursor()
+            if cursor:
+                root.change_attributes(cursor=cursor)
+                display.sync()
+                self._cursor_hidden = True
+                logger.debug("Cursor hidden (blank cursor)")
+                return
+        except Exception as e:
+            logger.warning(f"Failed to set blank cursor: {e}")
 
         logger.warning("All cursor hiding methods failed")
 
