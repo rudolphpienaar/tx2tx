@@ -479,7 +479,9 @@ def server_run(args: argparse.Namespace) -> None:
     panic_keysyms, panic_modifiers = panicKeyConfig_parse(config)
 
     # Initialize X11 display and pointer tracking
-    display_manager = DisplayManager(display_name=config.server.display)
+    display_manager = DisplayManager(
+        display_name=config.server.display, overlay_enabled=config.server.overlay_enabled
+    )
 
     try:
         display_manager.connection_establish()

@@ -37,6 +37,7 @@ class ServerConfig:
     max_clients: int
     client_position: str  # DEPRECATED: Position of client relative to server
     panic_key: PanicKeyConfig  # Panic key to force return to CENTER
+    overlay_enabled: bool  # Whether to use overlay window for cursor hiding
 
 
 @dataclass
@@ -178,6 +179,7 @@ class ConfigLoader:
                 "client_position", "west"
             ),  # DEPRECATED: Default to west
             panic_key=panic_key,
+            overlay_enabled=server_data.get("overlay_enabled", True),
         )
 
         # Parse named clients list
@@ -282,6 +284,8 @@ class ConfigLoader:
             config.server.display = overrides["display"]
         if "edge_threshold" in overrides and overrides["edge_threshold"] is not None:
             config.server.edge_threshold = overrides["edge_threshold"]
+        if "overlay_enabled" in overrides and overrides["overlay_enabled"] is not None:
+            config.server.overlay_enabled = overrides["overlay_enabled"]
 
         # Apply overrides to client config
         if "server_address" in overrides and overrides["server_address"] is not None:

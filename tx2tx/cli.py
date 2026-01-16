@@ -65,6 +65,13 @@ def arguments_parse() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--no-overlay",
+        action="store_true",
+        default=None,
+        help="[Server] Disable fullscreen overlay window (cursor will remain visible)",
+    )
+
+    parser.add_argument(
         "--client", type=str, default=None, help="[Client] Client name from config (e.g., 'phomux')"
     )
 
@@ -88,6 +95,13 @@ def main() -> NoReturn:
         else:
             # No --server or --client: run as server
             from tx2tx.server.main import server_run
+
+            # Handle negative flag
+            if args.no_overlay:
+                # If flag is set, overlay_enabled is False
+                setattr(args, "overlay_enabled", False)
+            else:
+                setattr(args, "overlay_enabled", None)  # Let config decide
 
             server_run(args)
         # Both client_run and server_run are NoReturn, so this is unreachable

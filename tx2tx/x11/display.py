@@ -24,15 +24,19 @@ XC_PIRATE = 88  # Skull and crossbones
 class DisplayManager:
     """Manages X11 display connection and screen information"""
 
-    def __init__(self, display_name: Optional[str] = None) -> None:
+    def __init__(
+        self, display_name: Optional[str] = None, overlay_enabled: bool = True
+    ) -> None:
         """
         Initialize display manager
 
         Args:
             display_name: X11 display name (e.g., ':0'), None for default
+            overlay_enabled: Whether to use fullscreen overlay window
         """
         self._display: Optional[Display] = None
         self._display_name: Optional[str] = display_name
+        self._overlay_enabled: bool = overlay_enabled
         self._cursor_confined: bool = False
         self._original_position: Optional[Position] = None
         self._cursor_hidden: bool = False
@@ -473,9 +477,12 @@ class DisplayManager:
 
         # Method 1: Fullscreen overlay window with cursor
         # This WORKS in Crostini because compositor respects window cursors
-        if self._cursorOverlay_show():
-            self._cursor_hidden = True
-            return
+        if self._overlay_enabled:
+            if self._cursorOverlay_show():
+                self._cursor_hidden = True
+                return
+        else:
+            logger.debug("Overlay disabled by config, skipping overlay creation")
 
         # Method 2: Gray X Cursor on root window
         # Falls back for non-Crostini environments
