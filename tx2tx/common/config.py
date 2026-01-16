@@ -16,6 +16,13 @@ class NamedClientConfig:
 
 
 @dataclass
+class PanicKeyConfig:
+    """Panic key configuration for emergency return to CENTER"""
+    key: str  # Key name (e.g., "Scroll_Lock", "F12", "Escape")
+    modifiers: list[str]  # Modifier keys (e.g., ["Ctrl", "Shift"])
+
+
+@dataclass
 class ServerConfig:
     """Server configuration settings"""
     name: str
@@ -27,6 +34,7 @@ class ServerConfig:
     poll_interval_ms: int
     max_clients: int
     client_position: str  # DEPRECATED: Position of client relative to server
+    panic_key: PanicKeyConfig  # Panic key to force return to CENTER
 
 
 @dataclass
@@ -133,6 +141,23 @@ class ConfigLoader:
         """
         # Parse server config
         server_data = data["server"]
+
+        # Parse panic key config (default: Scroll_Lock with no modifiers)
+        panic_key_data = server_data.get("panic_key", {})
+        if isinstance(panic_key_data, str):
+            # Simple format: just a key name like "Scroll_Lock" or "Ctrl+Shift+Escape"
+            if "+" in panic_key_data:
+                parts = panic_key_data.split("+")
+                panic_key = PanicKeyConfig(key=parts[-1], modifiers=parts[:-1])
+            else:
+                panic_key = PanicKeyConfig(key=panic_key_data, modifiers=[])
+        else:
+            # Dict format: {key: "Escape", modifiers: ["Ctrl", "Shift"]}
+            panic_key = PanicKeyConfig(
+                key=panic_key_data.get("key", "Scroll_Lock"),
+                modifiers=panic_key_data.get("modifiers", [])
+            )
+
         server = ServerConfig(
             name=server_data.get("name", "TX2TX"),  # Default to TX2TX
             host=server_data["host"],
@@ -143,6 +168,7 @@ class ConfigLoader:
             poll_interval_ms=server_data["poll_interval_ms"],
             max_clients=server_data["max_clients"],
             client_position=server_data.get("client_position", "west"),  # DEPRECATED: Default to west
+            panic_key=panic_key,
         )
 
         # Parse named clients list

@@ -23,37 +23,121 @@ from tx2tx.x11.pointer import PointerTracker
 
 logger = logging.getLogger(__name__)
 
-# Panic key keysyms - pressing any of these forces return to CENTER
-# Scroll_Lock is the traditional Synergy/Barrier panic key
-PANIC_KEY_KEYSYMS = {
-    0xff14,  # Scroll_Lock
-    0xff13,  # Pause/Break
+# Keysym lookup table for common key names
+# See /usr/include/X11/keysymdef.h for full list
+KEY_NAME_TO_KEYSYM = {
+    # Function keys
+    "F1": 0xffbe, "F2": 0xffbf, "F3": 0xffc0, "F4": 0xffc1,
+    "F5": 0xffc2, "F6": 0xffc3, "F7": 0xffc4, "F8": 0xffc5,
+    "F9": 0xffc6, "F10": 0xffc7, "F11": 0xffc8, "F12": 0xffc9,
+    # Special keys
+    "Scroll_Lock": 0xff14,
+    "Pause": 0xff13, "Break": 0xff13,
+    "Escape": 0xff1b, "Esc": 0xff1b,
+    "Print": 0xff61, "Print_Screen": 0xff61,
+    "Insert": 0xff63, "Delete": 0xffff,
+    "Home": 0xff50, "End": 0xff57,
+    "Page_Up": 0xff55, "Page_Down": 0xff56,
+    "BackSpace": 0xff08, "Tab": 0xff09,
+    "Return": 0xff0d, "Enter": 0xff0d,
+    "space": 0x0020, "Space": 0x0020,
+    # Arrow keys
+    "Left": 0xff51, "Up": 0xff52, "Right": 0xff53, "Down": 0xff54,
+    # Modifier keys (for reference, not typically used as panic key)
+    "Shift_L": 0xffe1, "Shift_R": 0xffe2,
+    "Control_L": 0xffe3, "Control_R": 0xffe4,
+    "Alt_L": 0xffe9, "Alt_R": 0xffea,
+    "Super_L": 0xffeb, "Super_R": 0xffec,
 }
 
+# Modifier key masks (from X11)
+MODIFIER_MASKS = {
+    "Shift": 0x1,
+    "Lock": 0x2,      # Caps Lock
+    "Ctrl": 0x4, "Control": 0x4,
+    "Alt": 0x8, "Mod1": 0x8,
+    "Mod2": 0x10,     # Num Lock typically
+    "Mod3": 0x20,
+    "Mod4": 0x40,     # Super/Windows key typically
+    "Mod5": 0x80,
+}
 
-def panicKey_check(events: list[Union[MouseEvent, KeyEvent]]) -> bool:
+# Default panic keysyms (used if config parsing fails)
+DEFAULT_PANIC_KEYSYMS = {0xff14, 0xff13}  # Scroll_Lock, Pause
+
+
+def panicKeyConfig_parse(config) -> tuple[set[int], int]:
+    """
+    Parse panic key configuration into keysym set and modifier mask.
+
+    Args:
+        config: The loaded Config object
+
+    Returns:
+        Tuple of (keysym_set, required_modifier_mask)
+    """
+    try:
+        panic_cfg = config.server.panic_key
+        key_name = panic_cfg.key
+        modifiers = panic_cfg.modifiers
+
+        # Look up keysym
+        if key_name in KEY_NAME_TO_KEYSYM:
+            keysym = KEY_NAME_TO_KEYSYM[key_name]
+        else:
+            # Try to parse as hex (e.g., "0xff14")
+            try:
+                keysym = int(key_name, 0)
+            except ValueError:
+                logger.warning(f"Unknown panic key '{key_name}', using defaults")
+                return DEFAULT_PANIC_KEYSYMS, 0
+
+        # Calculate modifier mask
+        mod_mask = 0
+        for mod in modifiers:
+            if mod in MODIFIER_MASKS:
+                mod_mask |= MODIFIER_MASKS[mod]
+            else:
+                logger.warning(f"Unknown modifier '{mod}' in panic key config")
+
+        logger.info(f"Panic key configured: {'+'.join(modifiers + [key_name])} (keysym=0x{keysym:x}, mask=0x{mod_mask:x})")
+        return {keysym}, mod_mask
+
+    except Exception as e:
+        logger.warning(f"Failed to parse panic key config: {e}, using defaults")
+        return DEFAULT_PANIC_KEYSYMS, 0
+
+
+def panicKey_check(events: list[Union[MouseEvent, KeyEvent]], panic_keysyms: set[int], required_modifiers: int, current_modifiers: int) -> bool:
     """
     Check if any event in the list is a panic key press.
 
-    The panic key (Scroll Lock or Pause/Break) forces immediate return
-    to CENTER context, providing an escape hatch if the client dies
-    or the user gets stuck in remote mode.
+    The panic key forces immediate return to CENTER context, providing
+    an escape hatch if the client dies or the user gets stuck.
 
     Args:
         events: List of input events to check
+        panic_keysyms: Set of keysyms that trigger panic
+        required_modifiers: Modifier mask that must be active
+        current_modifiers: Currently active modifier mask
 
     Returns:
         True if a panic key press was detected
     """
+    # Check if required modifiers are held
+    if required_modifiers != 0:
+        if (current_modifiers & required_modifiers) != required_modifiers:
+            return False
+
     for event in events:
         if isinstance(event, KeyEvent):
             if event.event_type == EventType.KEY_PRESS:
-                if event.keysym in PANIC_KEY_KEYSYMS:
+                if event.keysym in panic_keysyms:
                     return True
     return False
 
 
-def read_input_events(display_manager: DisplayManager) -> list[Union[MouseEvent, KeyEvent]]:
+def read_input_events(display_manager: DisplayManager) -> tuple[list[Union[MouseEvent, KeyEvent]], int]:
     """
     Read pending X11 input events (buttons and keys)
 
@@ -61,10 +145,13 @@ def read_input_events(display_manager: DisplayManager) -> list[Union[MouseEvent,
         display_manager: Display manager instance
 
     Returns:
-        List of MouseEvent and KeyEvent objects
+        Tuple of (event_list, modifier_state)
+        - event_list: List of MouseEvent and KeyEvent objects
+        - modifier_state: Current modifier key state (bitmask)
     """
     display = display_manager.display_get()
     events = []
+    modifier_state = 0
 
     while display.pending_events() > 0:
         event = display.next_event()
@@ -75,26 +162,30 @@ def read_input_events(display_manager: DisplayManager) -> list[Union[MouseEvent,
                 position=Position(x=event.root_x, y=event.root_y),
                 button=event.detail
             ))
+            modifier_state = event.state
         elif event.type == X.ButtonRelease:
             events.append(MouseEvent(
                 event_type=EventType.MOUSE_BUTTON_RELEASE,
                 position=Position(x=event.root_x, y=event.root_y),
                 button=event.detail
             ))
+            modifier_state = event.state
         elif event.type == X.KeyPress:
             events.append(KeyEvent(
                 event_type=EventType.KEY_PRESS,
                 keycode=event.detail,
                 keysym=display.keycode_to_keysym(event.detail, 0)
             ))
+            modifier_state = event.state
         elif event.type == X.KeyRelease:
             events.append(KeyEvent(
                 event_type=EventType.KEY_RELEASE,
                 keycode=event.detail,
                 keysym=display.keycode_to_keysym(event.detail, 0)
             ))
+            modifier_state = event.state
 
-    return events
+    return events, modifier_state
 
 
 def state_revert_to_center(
@@ -334,6 +425,9 @@ def server_run(args: argparse.Namespace) -> None:
     else:
         logger.warning("No clients configured in config.yml")
 
+    # Parse panic key configuration
+    panic_keysyms, panic_modifiers = panicKeyConfig_parse(config)
+
     # Initialize X11 display and pointer tracking
     display_manager = DisplayManager(display_name=config.server.display)
 
@@ -570,12 +664,11 @@ def server_run(args: argparse.Namespace) -> None:
                                 server_state.lastSentPosition_update(position)
 
                             # Send Input Events (Buttons & Keys)
-                            input_events = read_input_events(display_manager)
+                            input_events, modifier_state = read_input_events(display_manager)
 
-                            # Check for panic key (Scroll Lock or Pause/Break)
-                            # This provides an escape hatch if client dies or user gets stuck
-                            if panicKey_check(input_events):
-                                logger.warning("[PANIC] Scroll Lock/Pause pressed - forcing return to CENTER")
+                            # Check for panic key - configurable escape hatch
+                            if panicKey_check(input_events, panic_keysyms, panic_modifiers, modifier_state):
+                                logger.warning("[PANIC] Panic key pressed - forcing return to CENTER")
                                 state_revert_to_center(display_manager, screen_geometry, position, pointer_tracker)
                                 continue
 
@@ -606,7 +699,7 @@ def server_run(args: argparse.Namespace) -> None:
                                         break
                         else:
                             # Drain events if no client connected but in remote mode
-                            read_input_events(display_manager)
+                            _, _ = read_input_events(display_manager)
                             logger.error(f"Active context {server_state.context.value} has no connected client, reverting")
                             state_revert_to_center(display_manager, screen_geometry, position, pointer_tracker)
 

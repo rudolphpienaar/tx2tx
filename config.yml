@@ -27,6 +27,21 @@ server:
   # Maximum number of concurrent clients
   max_clients: 1
 
+  # Panic key - forces immediate return to CENTER context
+  # Provides escape hatch if client dies or user gets stuck in remote mode
+  # Format: "Key" or "Modifier+Modifier+Key"
+  # Examples:
+  #   "Scroll_Lock"           - Just Scroll Lock (default, Synergy convention)
+  #   "Pause"                 - Pause/Break key
+  #   "F12"                   - F12 key
+  #   "Ctrl+Shift+Escape"     - Ctrl+Shift+Escape combo
+  #   "Ctrl+Alt+BackSpace"    - Ctrl+Alt+Backspace combo
+  # Available keys: F1-F12, Escape, Pause, Print, Insert, Delete, Home, End,
+  #                 Page_Up, Page_Down, BackSpace, Tab, Return, Space, arrows
+  # Available modifiers: Ctrl, Shift, Alt, Mod4 (Super/Windows key)
+  # For Chromebooks without Scroll Lock, try: "Ctrl+Shift+Escape" or "F12"
+  panic_key: "Scroll_Lock"
+
   # DEPRECATED: client_position (use clients list below instead)
   # Position of client screen relative to server
   # Options: north, northeast, east, southeast, south, southwest, west, northwest

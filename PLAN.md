@@ -4,7 +4,7 @@ This document tracks the development plan. The section below outlines the curren
 
 ## 1. CURRENT ISSUES UNDER INVESTIGATION
 
-**Version:** 2.2.1
+**Version:** 2.2.2
 
 ### Issue A: Cursor Warp - Visual vs Internal Position Mismatch 🔄
 
@@ -77,7 +77,7 @@ The gray X cursor uses the standard X11 cursor font (`cursor`) which is universa
 - **FIX:** Reset `last_sent_position` when entering REMOTE context
 - **DEBUG:** Added INFO-level `[MOUSE]` logging for mouse event sending
 - **FEAT:** Gray X cursor fallback when cursor hiding fails (Crostini compatibility)
-- **FEAT:** Panic key (Scroll Lock / Pause) to force return to CENTER - escape hatch if client dies
+- **FEAT:** Configurable panic key via config.yml (default: Scroll Lock, supports combos like Ctrl+Shift+Escape)
 
 ### Session 2026-01-15
 - **REFACTOR:** Created ServerState singleton class with RPN naming convention
