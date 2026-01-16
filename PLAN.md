@@ -1,88 +1,86 @@
-# Resumption State & Next Steps (as of 2026-01-15)
+# Resumption State & Next Steps (as of 2026-01-16)
 
 This document tracks the development plan. The section below outlines the current status to allow for asynchronous work.
 
-## 1. CURRENT BLOCKER: Cursor Warp Not Working ❌
+## 1. CURRENT ISSUES UNDER INVESTIGATION
 
-**Version:** 2.1.4 (pending commit)
+**Version:** 2.1.5 (commit `a0abe93`)
 
-### Problem Description
-When boundary is crossed (e.g., cursor moves from x=0 LEFT edge), the cursor should visually jump to the opposite edge (x=1917 RIGHT edge). **The cursor NEVER warps.** It stays at x=0 and client receives wrong coordinates.
+### Issue A: Cursor Warp - Visual vs Internal Position Mismatch 🔄
 
-**Cursor hiding does NOT work** - user always sees cursor on server screen, so warp should be visually observable.
+**Problem Description:**
+When boundary is crossed, `warp_pointer()` updates X server's **internal** position (verified via `query_pointer()`), but the **visual** cursor does not move. This is a compositor/X server disconnect.
 
-### What We've Tried (All Failed)
-1. ❌ Verification loops after warp - no effect
-2. ❌ Deferred warp with `boundary_crossed` flag - no effect
-3. ❌ Warp BEFORE grabbing pointer (thought grab prevented warp) - no effect
-4. ❌ Added 10ms delay after warp - no effect
-5. ❌ Multiple sync() calls - no effect
+**Evidence from logs:**
+```
+[WARP] Warping cursor from (0, 258) to (1917, 258)
+[X11] Calling root.warp_pointer(1917, 258)
+[X11] After warp: actual position = (1917, 258)  ← X server says it worked!
+```
+But user reports cursor visually stays at left edge.
 
-### Current State of Code
-**Entry Transition** (`tx2tx/server/main.py:426-462`):
+**Current Fix Attempt (commit a0abe93):**
+- Switched from `warp_pointer()` to **XTest `fake_input(MotionNotify)`**
+- XTest synthesizes actual mouse movement events that go through the input pipeline
+- Compositors typically respect XTest events because they look like real user input
+- New method: `cursorPosition_setViaXTest()` in `tx2tx/x11/display.py`
+
+**Status:** 🔄 TESTING - Need to verify if XTest approach works visually
+
+### Issue B: Mouse Events Not Reaching Client (REGRESSION) 🔄
+
+**Problem Description:**
+After transitioning to REMOTE context, mouse cursor movement wasn't happening on the client. This was a regression introduced in commit `c0f8fbd` (mouse transmission optimization).
+
+**Root Cause:**
+The optimization added `positionChanged_check()` which compares current position to `last_sent_position`. However, `last_sent_position` wasn't being reset when entering REMOTE context, potentially causing the first position to be skipped.
+
+**Fix Applied (commit a0abe93):**
 ```python
-# Detect boundary crossing at x=0 (LEFT edge)
-warp_pos = Position(x=screen_geometry.width - 3, y=transition.position.y)  # x=1917
-
-# Warp cursor BEFORE grab
-logger.info(f"[WARP] Warping cursor from ({transition.position.x}, {transition.position.y}) to ({warp_pos.x}, {warp_pos.y})")
-display_manager.cursorPosition_set(warp_pos)
-time.sleep(0.01)  # 10ms delay
-
-# Then grab pointer/keyboard
-display_manager.pointer_grab()
-display_manager.keyboard_grab()
+# In transition code (tx2tx/server/main.py:450)
+server_state.last_sent_position = None  # Ensure first position in new context is sent
 ```
 
-**X11 Warp Implementation** (`tx2tx/x11/display.py:179-202`):
-```python
-def cursorPosition_set(self, position: Position) -> None:
-    display = self.display_get()
-    root = screen.root
+**Status:** 🔄 TESTING - Added INFO-level `[MOUSE]` logging to verify events are being sent
 
-    logger.debug(f"[X11] Calling root.warp_pointer({position.x}, {position.y})")
-    root.warp_pointer(position.x, position.y)
-    display.sync()
-    logger.debug(f"[X11] display.sync() completed")
+### Issue C: Cursor Hiding Failure ⚠️
 
-    # Verify immediately
-    pointer_data = root.query_pointer()
-    actual_x = pointer_data.root_x
-    actual_y = pointer_data.root_y
-    logger.debug(f"[X11] After warp: actual position = ({actual_x}, {actual_y})")
+**Problem Description:**
+Both XFixes and blank cursor methods fail:
+```
+XFixes hide_cursor failed: xfixes
+Failed to create blank cursor: create_pixmap_cursor
 ```
 
-### Debug Logging In Place
-**Run with DEBUG logging enabled**, logs will show:
-1. `[TRANSITION] Boundary crossed: pos=(0,y)` - boundary detection
-2. `[WARP] Warping cursor from (0, y) to (1917, y)` - warp attempt
-3. `[X11] Calling root.warp_pointer(1917, y)` - X11 call
-4. `[X11] display.sync() completed` - sync completion
-5. `[X11] After warp: actual position = (?, ?)` - **CRITICAL: Check this value**
+**Status:** ⚠️ KNOWN LIMITATION - Does not block core functionality
 
-### Next Steps for Debugging
-1. **Run test and examine logs** - specifically the `[X11] After warp: actual position = (?, ?)` line
-2. **If actual position != target**: X server is ignoring `warp_pointer()` call
-   - May be compositor/window manager blocking warps
-   - May be security policy in Crostini/Xephyr
-   - May need to use different X11 API or XTest extension
-3. **If actual position == target but cursor doesn't MOVE visually**: Display refresh issue
-4. **If logs don't appear**: `cursorPosition_set()` is not being called at all
+## 2. Debug Logging Available
 
-### Hypotheses
-- **Most likely**: X server/compositor is blocking `XWarpPointer` calls for security/UX reasons
-- Window manager may have "no mouse warping" policy
-- Xephyr/Crostini may sandbox/filter warp commands
-- May need alternative approach: XTest extension, or change architecture to not rely on warping
+**Run with INFO level** to see:
+- `[TRANSITION] Boundary crossed: ...` - boundary detection
+- `[WARP] Warping cursor from ... to ...` - warp attempt
+- `[MOUSE] Sending pos (x, y) to client_name` - **NEW** mouse event sending
+- `[BOUNDARY] Returning from CONTEXT at (x, y)` - return detection
 
-## 2. Summary of Recent Progress (Last Session)
-- **REFACTOR (2026-01-15):** Created ServerState singleton class (`tx2tx/server/state.py`) with RPN naming convention (`boundaryCrossed_set()`, `boundaryCrossed_clear()`)
-- **OPTIMIZE (2026-01-15):** Mouse coordinates only transmitted when position changes (saves bandwidth when stationary)
-- **FEATURE (2026-01-15):** Added version + commit hash to all log output (e.g., `[v2.1.3.1eea]`)
-- **DEBUG (2026-01-15):** Added extensive logging to trace cursor warp operations
-- **FIX ATTEMPT (2026-01-15):** Moved warp before pointer grab - did not resolve issue
+**Run with DEBUG level** for additional:
+- `[X11] XTest fake_input MotionNotify to (x, y)` - XTest warp call
+- `[X11] After XTest move: actual position = (x, y)` - position verification
 
-## 3. Architecture Context
+## 3. Summary of Recent Progress
+
+### Session 2026-01-16
+- **FIX:** Use XTest `fake_input(MotionNotify)` instead of `warp_pointer()` for cursor warps
+- **FIX:** Reset `last_sent_position` when entering REMOTE context
+- **DEBUG:** Added INFO-level `[MOUSE]` logging for mouse event sending
+
+### Session 2026-01-15
+- **REFACTOR:** Created ServerState singleton class with RPN naming convention
+- **OPTIMIZE:** Mouse coordinates only transmitted when position changes
+- **FEATURE:** Added version + commit hash to all log output
+- **DEBUG:** Added extensive logging to trace cursor warp operations
+- **FIX ATTEMPT:** Moved warp before pointer grab - did not resolve visual issue
+
+## 4. Architecture Context
 
 **How Cursor Transition SHOULD Work:**
 1. User moves mouse to LEFT edge (x=0) on server display
@@ -106,7 +104,7 @@ def cursorPosition_set(self, position: Position) -> None:
 - `tx2tx/x11/display.py:179-202` - X11 warp implementation
 - `tx2tx/server/state.py` - ServerState singleton
 
-## 4. Previous Implementation History (For Context)
+## 5. Previous Implementation History (For Context)
 
 ### Problem
 The cursor transition logic was overly complex with verification loops, race conditions, and bloated code that was hard to debug. Cursor appeared at wrong edge during transitions.
@@ -200,7 +198,7 @@ class ServerState:
     *   *Details:* Both the "Blank Pixmap" hack (failed with `BadMatch`) and the `XFixes` extension (implemented but apparently ineffective) have failed to hide the cursor in certain environments.
     *   *Status:* This is an environment-specific issue and does not prevent core functionality. The cursor transitions now work correctly.
 
-## 4. Next Action Plan
+## 6. Next Action Plan
 1.  **Test the Fix:** Perform real-world two-device test to verify cursor transitions work correctly at all edges (West, East, North, South)
 2.  **Alternative Cursor Hiding (Optional):** If cursor hiding continues to fail in test environment, investigate compositor-specific hiding methods or accept visible cursor as known limitation
 3.  **Multi-Client Testing:** Test with multiple clients in different positions
