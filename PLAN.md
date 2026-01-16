@@ -6,28 +6,30 @@ This document tracks the development plan. The section below outlines the curren
 
 **Version:** 2.2.2
 
-### Issue A: Cursor Warp - Visual vs Internal Position Mismatch 🔄
+### Issue A: Cursor Warp - Visual vs Internal Position Mismatch ⛔ UNFIXABLE
 
 **Problem Description:**
 When boundary is crossed, `warp_pointer()` updates X server's **internal** position (verified via `query_pointer()`), but the **visual** cursor does not move. This is a compositor/X server disconnect.
 
-**Evidence from logs:**
+**Root Cause (CONFIRMED 2026-01-16):**
+Crostini runs X11 apps through this stack:
 ```
-[WARP] Warping cursor from (0, 258) to (1917, 258)
-[X11] Calling root.warp_pointer(1917, 258)
-[X11] After warp: actual position = (1917, 258)  ← X server says it worked!
+X11 App → XWayland → Sommelier → Exo → ChromeOS Compositor
 ```
-But user reports cursor visually stays at left edge.
+The **ChromeOS compositor** controls the visual cursor position, not X11. Both `warp_pointer()` and `XTest fake_input(MotionNotify)` update X11's internal state but the compositor ignores these commands entirely.
 
-**Current Fix Attempt (commit a0abe93):**
-- Switched from `warp_pointer()` to **XTest `fake_input(MotionNotify)`**
-- XTest synthesizes actual mouse movement events that go through the input pipeline
-- Compositors typically respect XTest events because they look like real user input
-- New method: `cursorPosition_setViaXTest()` in `tx2tx/x11/display.py`
+**Verified via `tests/manual/test_cursor_move.py`:**
+- `warp_pointer()` - Internal position updated: ✅ | Visual move: ❌
+- `XTest fake_input()` - Internal position updated: ✅ | Visual move: ❌
 
-**Status:** 🔄 TESTING - Need to verify if XTest approach works visually
+**This is by design in Wayland-based environments** - applications cannot hijack cursor position for security reasons.
 
-### Issue B: Mouse Events Not Reaching Client (REGRESSION) 🔄
+**Status:** ⛔ PERMANENT LIMITATION - Cannot be fixed from within X11
+
+**UX Impact:**
+When transitioning to remote, cursor appears at wrong edge initially. User must physically move mouse to correct position. This is acceptable given the architectural constraint.
+
+### Issue B: Mouse Events Not Reaching Client (REGRESSION) ✅ FIXED
 
 **Problem Description:**
 After transitioning to REMOTE context, mouse cursor movement wasn't happening on the client. This was a regression introduced in commit `c0f8fbd` (mouse transmission optimization).
@@ -41,7 +43,7 @@ The optimization added `positionChanged_check()` which compares current position
 server_state.last_sent_position = None  # Ensure first position in new context is sent
 ```
 
-**Status:** 🔄 TESTING - Added INFO-level `[MOUSE]` logging to verify events are being sent
+**Status:** ✅ FIXED - User confirmed mouse and keyboard events working in remote
 
 ### Issue C: Cursor Hiding → Gray X Cursor Fallback ✅
 
