@@ -4,7 +4,7 @@ This document tracks the development plan. The section below outlines the curren
 
 ## 1. CURRENT ISSUES UNDER INVESTIGATION
 
-**Version:** 2.2.2
+**Version:** 2.2.4
 
 ### Issue A: Cursor Warp - Visual vs Internal Position Mismatch ⛔ UNFIXABLE
 
@@ -45,36 +45,107 @@ server_state.last_sent_position = None  # Ensure first position in new context i
 
 **Status:** ✅ FIXED - User confirmed mouse and keyboard events working in remote
 
-### Issue C: Cursor Hiding → Gray X Cursor Fallback ✅
+### Issue C: Cursor Appearance in Remote Mode 🔄 TESTING
 
 **Problem Description:**
-True cursor hiding fails in Crostini because the visual cursor is rendered by ChromeOS compositor, not X11. Both XFixes and blank pixmap methods fail.
+True cursor hiding fails in Crostini because the visual cursor is rendered by ChromeOS compositor, not X11. Both XFixes and blank pixmap methods fail **silently** (no exception, but cursor unchanged).
 
-**Solution Implemented (commit 009e8ac):**
-Added a 3-tier fallback in `cursor_hide()`:
-1. XFixes `hide_cursor` (true invisibility) - fails in Crostini
-2. Blank pixmap cursor (transparent) - fails in Crostini
-3. **Gray X cursor from cursor font** - WORKS as visible indicator
+**Key Discovery (2026-01-16):**
+Via `tests/manual/test_cursor_change.py`, we discovered:
+- ❌ Root window cursor changes are **ignored** by Crostini compositor
+- ✅ Window-specific cursors **DO work** - cursor changes when hovering over X11 windows
 
-The gray X cursor uses the standard X11 cursor font (`cursor`) which is universally supported. When in remote mode, instead of an invisible cursor, the user sees a distinct gray X shape.
+This means the compositor respects cursor settings on actual X11 windows, just not on the root window.
 
-**Status:** ✅ IMPLEMENTED - Acceptable UX compromise
+**Solution Implemented (commit 75e55b5): Fullscreen Overlay Window**
+
+Instead of trying to change the root window cursor, we create a fullscreen overlay window with the gray X cursor:
+
+```
+┌─────────────────────────────────────────┐
+│           Crostini Desktop              │
+│  ┌───────────────────────────────────┐  │
+│  │    Fullscreen Overlay Window      │  │
+│  │    (override_redirect=True)       │  │
+│  │    (cursor=gray_X)                │  │
+│  │    (event_mask=0)                 │  │
+│  │                                   │  │
+│  │    Cursor appears as gray X       │  │
+│  │    anywhere on screen             │  │
+│  └───────────────────────────────────┘  │
+└─────────────────────────────────────────┘
+```
+
+**Implementation in `tx2tx/x11/display.py`:**
+
+```python
+def _cursorOverlay_create(self) -> bool:
+    """Create fullscreen overlay window with gray X cursor."""
+    self._cursor_overlay_window = root.create_window(
+        0, 0,                          # position (top-left)
+        screen.width_in_pixels,        # full width
+        screen.height_in_pixels,       # full height
+        0,                             # border width
+        screen.root_depth,
+        X.InputOutput,
+        X.CopyFromParent,
+        background_pixel=0,
+        override_redirect=True,        # bypass window manager
+        cursor=gray_x_cursor,          # the indicator cursor
+        event_mask=0                   # don't capture events
+    )
+
+def _cursorOverlay_show(self) -> bool:
+    """Map overlay and raise to top."""
+    self._cursor_overlay_window.map()
+    self._cursor_overlay_window.configure(stack_mode=X.Above)
+
+def _cursorOverlay_hide(self) -> None:
+    """Unmap overlay to restore normal cursor."""
+    self._cursor_overlay_window.unmap()
+```
+
+**Updated `cursor_hide()` fallback order:**
+1. **Fullscreen overlay window** with gray X cursor (WORKS in Crostini!)
+2. Gray X cursor on root window (fails silently in Crostini)
+3. XFixes hide_cursor (fails silently in Crostini)
+4. Blank pixmap cursor (fails silently in Crostini)
+
+**Why Overlay Window Works:**
+- Crostini's compositor tracks cursor for each X11 window
+- When cursor is over an X11 window, that window's cursor setting is used
+- A fullscreen overlay window "owns" the entire screen area
+- `override_redirect=True` prevents window manager from adding decorations
+- `event_mask=0` means window doesn't capture input (we have pointer grabbed anyway)
+
+**Status:** 🔄 TESTING - Awaiting user verification
 
 ## 2. Debug Logging Available
 
 **Run with INFO level** to see:
 - `[TRANSITION] Boundary crossed: ...` - boundary detection
 - `[WARP] Warping cursor from ... to ...` - warp attempt
-- `[MOUSE] Sending pos (x, y) to client_name` - **NEW** mouse event sending
+- `[MOUSE] Sending pos (x, y) to client_name` - mouse event sending
 - `[BOUNDARY] Returning from CONTEXT at (x, y)` - return detection
+- `Cursor overlay shown (gray X cursor active)` - overlay window activated
+- `[PANIC] Panic key pressed - forcing return to CENTER` - panic key triggered
 
 **Run with DEBUG level** for additional:
 - `[X11] XTest fake_input MotionNotify to (x, y)` - XTest warp call
 - `[X11] After XTest move: actual position = (x, y)` - position verification
+- `Created cursor overlay window` - overlay creation
+- `Cursor overlay hidden` - overlay deactivation
 
 ## 3. Summary of Recent Progress
 
-### Session 2026-01-16
+### Session 2026-01-16 (Continued)
+- **DISCOVERY:** Root window cursor changes ignored by Crostini, but window-specific cursors WORK
+- **FIX:** Fullscreen overlay window approach for cursor indicator (commit 75e55b5)
+- **TEST:** Created `tests/manual/test_cursor_change.py` to verify cursor behavior
+- **TEST:** Created `tests/manual/test_cursor_move.py` to verify warp behavior
+- **CONFIRMED:** Cursor warp is permanently unfixable in Crostini (compositor limitation)
+
+### Session 2026-01-16 (Earlier)
 - **FIX:** Use XTest `fake_input(MotionNotify)` instead of `warp_pointer()` for cursor warps
 - **FIX:** Reset `last_sent_position` when entering REMOTE context
 - **DEBUG:** Added INFO-level `[MOUSE]` logging for mouse event sending
