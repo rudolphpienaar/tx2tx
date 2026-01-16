@@ -38,6 +38,7 @@ class DisplayManager:
         self._cursor_hidden: bool = False
         self._blank_cursor: Optional[int] = None
         self._remote_cursor: Optional[int] = None  # Gray X cursor for remote mode
+        self._cursor_overlay_window = None  # Fullscreen overlay for cursor display
 
     def connection_establish(self) -> None:
         """Establish connection to X11 display"""
@@ -359,18 +360,109 @@ class DisplayManager:
             logger.error(f"Failed to create gray X cursor: {e}")
             return 0
 
+    def _cursorOverlay_create(self) -> bool:
+        """
+        Create a fullscreen overlay window with the remote-mode cursor.
+
+        In Crostini/Wayland, changing the root window cursor doesn't work
+        because the compositor ignores root window cursor settings. However,
+        it DOES respect cursor settings on actual X11 windows.
+
+        This creates a fullscreen, input-transparent overlay window with
+        the gray X cursor. When mapped, the cursor appears over the entire
+        screen.
+
+        Returns:
+            True if overlay created successfully, False otherwise
+        """
+        if self._cursor_overlay_window is not None:
+            return True  # Already exists
+
+        display = self.display_get()
+        screen = display.screen()
+        root = screen.root
+
+        try:
+            # Create the cursor first
+            cursor = self._remoteCursor_create()
+            if not cursor:
+                logger.error("Failed to create cursor for overlay")
+                return False
+
+            # Create fullscreen overlay window
+            # override_redirect=True: window manager won't decorate or manage it
+            # We use a 1x1 window that we'll resize to fullscreen
+            # Input events pass through because we have pointer grabbed anyway
+            self._cursor_overlay_window = root.create_window(
+                0, 0,                          # position (top-left)
+                screen.width_in_pixels,        # full width
+                screen.height_in_pixels,       # full height
+                0,                             # border width
+                screen.root_depth,             # depth
+                X.InputOutput,                 # window class
+                X.CopyFromParent,              # visual
+                background_pixel=0,            # transparent (won't matter)
+                override_redirect=True,        # bypass window manager
+                cursor=cursor,                 # the gray X cursor
+                event_mask=0                   # don't capture any events
+            )
+
+            # Make window transparent using the
+            # We set colormap to make the background not drawn
+            # The window exists only to provide cursor, not visuals
+
+            logger.debug("Created cursor overlay window")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to create cursor overlay: {e}")
+            self._cursor_overlay_window = None
+            return False
+
+    def _cursorOverlay_show(self) -> bool:
+        """Map (show) the cursor overlay window."""
+        if self._cursor_overlay_window is None:
+            if not self._cursorOverlay_create():
+                return False
+
+        try:
+            display = self.display_get()
+            self._cursor_overlay_window.map()
+            # Raise to top to ensure cursor is visible
+            self._cursor_overlay_window.configure(stack_mode=X.Above)
+            display.sync()
+            logger.info("Cursor overlay shown (gray X cursor active)")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to show cursor overlay: {e}")
+            return False
+
+    def _cursorOverlay_hide(self) -> None:
+        """Unmap (hide) the cursor overlay window."""
+        if self._cursor_overlay_window is None:
+            return
+
+        try:
+            display = self.display_get()
+            self._cursor_overlay_window.unmap()
+            display.sync()
+            logger.debug("Cursor overlay hidden")
+        except Exception as e:
+            logger.warning(f"Failed to hide cursor overlay: {e}")
+
     def cursor_hide(self) -> None:
         """
         Hide cursor or change to remote-mode indicator.
 
         Tries in order:
-        1. Gray X cursor (visible indicator for remote mode - most reliable)
-        2. XFixes hide_cursor (true invisibility - fails silently in Crostini)
-        3. Blank pixmap cursor (transparent - fails silently in Crostini)
+        1. Fullscreen overlay window with gray X cursor (works in Crostini!)
+        2. Gray X cursor on root window (fails silently in Crostini)
+        3. XFixes hide_cursor (fails silently in Crostini)
+        4. Blank pixmap cursor (fails silently in Crostini)
 
-        Note: XFixes and blank cursor methods fail SILENTLY in Wayland/Crostini
-        environments (no exception, but cursor doesn't change). Gray X is tried
-        first because it's the most reliable and provides clear UX feedback.
+        The overlay window approach works because Crostini's compositor
+        respects cursor settings on X11 windows, but ignores root window
+        cursor changes.
 
         Raises:
             RuntimeError: If not connected to display
@@ -382,9 +474,14 @@ class DisplayManager:
         screen = display.screen()
         root = screen.root
 
-        # Method 1: Gray X Cursor (visible indicator for remote mode)
-        # This is the most reliable method and provides clear UX feedback
-        # Works in Crostini/Wayland where XFixes and blank cursor fail silently
+        # Method 1: Fullscreen overlay window with cursor
+        # This WORKS in Crostini because compositor respects window cursors
+        if self._cursorOverlay_show():
+            self._cursor_hidden = True
+            return
+
+        # Method 2: Gray X Cursor on root window
+        # Falls back for non-Crostini environments
         try:
             cursor = self._remoteCursor_create()
             if cursor:
@@ -396,8 +493,7 @@ class DisplayManager:
         except Exception as e:
             logger.warning(f"Failed to set gray X cursor: {e}")
 
-        # Method 2: XFixes (true invisibility)
-        # Note: Fails silently in Crostini - reports success but cursor unchanged
+        # Method 3: XFixes (true invisibility)
         try:
             if display.has_extension('XFIXES'):
                 display.xfixes.hide_cursor(root)
@@ -408,8 +504,7 @@ class DisplayManager:
         except Exception as e:
             logger.warning(f"XFixes hide_cursor failed: {e}")
 
-        # Method 3: Blank Cursor (transparent)
-        # Note: Fails silently in Crostini - reports success but cursor unchanged
+        # Method 4: Blank Cursor (transparent)
         try:
             cursor = self._ensure_blank_cursor()
             if cursor:
@@ -425,7 +520,7 @@ class DisplayManager:
 
     def cursor_show(self) -> None:
         """
-        Show cursor
+        Show cursor (restore normal cursor appearance)
 
         Raises:
             RuntimeError: If not connected to display
@@ -437,7 +532,10 @@ class DisplayManager:
         screen = display.screen()
         root = screen.root
 
-        # method 1: XFixes (Preferred)
+        # First: Hide overlay window if it exists
+        self._cursorOverlay_hide()
+
+        # Method 1: XFixes show_cursor
         try:
             if display.has_extension('XFIXES'):
                 display.xfixes.show_cursor(root)
@@ -448,9 +546,8 @@ class DisplayManager:
         except Exception as e:
             logger.warning(f"XFixes show_cursor failed: {e}")
 
-        # method 2: Restore Default (Fallback)
+        # Method 2: Restore default cursor on root
         try:
-            # Restore default cursor (None/0)
             root.change_attributes(cursor=0)
             display.sync()
             self._cursor_hidden = False
