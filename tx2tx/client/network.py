@@ -4,7 +4,7 @@ import logging
 import select
 import socket
 import time
-from typing import Callable, List, Optional
+from typing import List, Optional
 
 from tx2tx.protocol.message import Message, MessageBuilder
 
@@ -23,7 +23,7 @@ class ClientNetwork:
         port: int,
         reconnect_enabled: bool = True,
         reconnect_max_attempts: int = 5,
-        reconnect_delay: float = 2.0
+        reconnect_delay: float = 2.0,
     ) -> None:
         """
         Initialize client network
@@ -46,7 +46,12 @@ class ClientNetwork:
         self.is_connected: bool = False
         self.reconnect_attempts: int = 0
 
-    def connection_establish(self, screen_width: int | None = None, screen_height: int | None = None, client_name: str | None = None) -> None:
+    def connection_establish(
+        self,
+        screen_width: int | None = None,
+        screen_height: int | None = None,
+        client_name: str | None = None,
+    ) -> None:
         """
         Connect to server
 
@@ -70,9 +75,7 @@ class ClientNetwork:
 
                 # Send hello message with optional screen geometry
                 hello_msg = MessageBuilder.helloMessage_create(
-                    screen_width=screen_width,
-                    screen_height=screen_height,
-                    client_name=client_name
+                    screen_width=screen_width, screen_height=screen_height, client_name=client_name
                 )
                 self.message_send(hello_msg)
 

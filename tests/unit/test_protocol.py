@@ -18,10 +18,7 @@ class TestMessageSerialization:
 
     def test_serialize_deserialize_round_trip(self):
         """Test message can be serialized and deserialized"""
-        msg = Message(
-            msg_type=MessageType.HELLO,
-            payload={"version": "2.0.0", "test": "data"}
-        )
+        msg = Message(msg_type=MessageType.HELLO, payload={"version": "2.0.0", "test": "data"})
 
         json_str = msg.json_serialize()
         restored = Message.json_deserialize(json_str)
@@ -43,9 +40,7 @@ class TestMessageBuilder:
     def test_hello_message(self):
         """Test HELLO message creation"""
         msg = MessageBuilder.helloMessage_create(
-            version="2.0.0",
-            screen_width=1920,
-            screen_height=1080
+            version="2.0.0", screen_width=1920, screen_height=1080
         )
 
         assert msg.msg_type == MessageType.HELLO
@@ -56,10 +51,7 @@ class TestMessageBuilder:
     def test_hello_message_with_client_name(self):
         """Test HELLO message creation with client name"""
         msg = MessageBuilder.helloMessage_create(
-            version="2.0.0",
-            screen_width=1920,
-            screen_height=1080,
-            client_name="phomux"
+            version="2.0.0", screen_width=1920, screen_height=1080, client_name="phomux"
         )
 
         assert msg.msg_type == MessageType.HELLO
@@ -83,10 +75,7 @@ class TestMessageBuilder:
 
     def test_screen_enter_message(self):
         """Test SCREEN_ENTER message creation"""
-        transition = ScreenTransition(
-            direction=Direction.LEFT,
-            position=Position(x=0, y=500)
-        )
+        transition = ScreenTransition(direction=Direction.LEFT, position=Position(x=0, y=500))
         msg = MessageBuilder.screenEnterMessage_create(transition)
 
         assert msg.msg_type == MessageType.SCREEN_ENTER
@@ -97,8 +86,7 @@ class TestMessageBuilder:
     def test_mouse_event_with_normalized_point(self):
         """Test MOUSE_EVENT with normalized coordinates"""
         event = MouseEvent(
-            event_type=EventType.MOUSE_MOVE,
-            normalized_point=NormalizedPoint(x=0.5, y=0.75)
+            event_type=EventType.MOUSE_MOVE, normalized_point=NormalizedPoint(x=0.5, y=0.75)
         )
         msg = MessageBuilder.mouseEventMessage_create(event)
 
@@ -111,9 +99,7 @@ class TestMessageBuilder:
     def test_mouse_event_with_pixel_position(self):
         """Test MOUSE_EVENT with pixel coordinates (fallback)"""
         event = MouseEvent(
-            event_type=EventType.MOUSE_BUTTON_PRESS,
-            position=Position(x=100, y=200),
-            button=1
+            event_type=EventType.MOUSE_BUTTON_PRESS, position=Position(x=100, y=200), button=1
         )
         msg = MessageBuilder.mouseEventMessage_create(event)
 
@@ -126,8 +112,7 @@ class TestMessageBuilder:
     def test_mouse_event_hide_signal(self):
         """Test MOUSE_EVENT hide signal (negative coordinates)"""
         event = MouseEvent(
-            event_type=EventType.MOUSE_MOVE,
-            normalized_point=NormalizedPoint(x=-1.0, y=-1.0)
+            event_type=EventType.MOUSE_MOVE, normalized_point=NormalizedPoint(x=-1.0, y=-1.0)
         )
         msg = MessageBuilder.mouseEventMessage_create(event)
 
@@ -136,11 +121,7 @@ class TestMessageBuilder:
 
     def test_key_event_message(self):
         """Test KEY_EVENT message creation"""
-        event = KeyEvent(
-            event_type=EventType.KEY_PRESS,
-            keycode=65,
-            keysym=0x0041  # 'A'
-        )
+        event = KeyEvent(event_type=EventType.KEY_PRESS, keycode=65, keysym=0x0041)  # 'A'
         msg = MessageBuilder.keyEventMessage_create(event)
 
         assert msg.msg_type == MessageType.KEY_EVENT
@@ -170,11 +151,7 @@ class TestMessageParser:
         """Test parsing MOUSE_EVENT with normalized coordinates"""
         msg = Message(
             msg_type=MessageType.MOUSE_EVENT,
-            payload={
-                "event_type": "mouse_move",
-                "norm_x": 0.5,
-                "norm_y": 0.75
-            }
+            payload={"event_type": "mouse_move", "norm_x": 0.5, "norm_y": 0.75},
         )
 
         event = MessageParser.mouseEvent_parse(msg)
@@ -189,12 +166,7 @@ class TestMessageParser:
         """Test parsing MOUSE_EVENT with pixel coordinates"""
         msg = Message(
             msg_type=MessageType.MOUSE_EVENT,
-            payload={
-                "event_type": "mouse_button_press",
-                "x": 100,
-                "y": 200,
-                "button": 1
-            }
+            payload={"event_type": "mouse_button_press", "x": 100, "y": 200, "button": 1},
         )
 
         event = MessageParser.mouseEvent_parse(msg)
@@ -208,10 +180,7 @@ class TestMessageParser:
 
     def test_parse_mouse_event_missing_coords(self):
         """Test parsing MOUSE_EVENT without coordinates raises error"""
-        msg = Message(
-            msg_type=MessageType.MOUSE_EVENT,
-            payload={"event_type": "mouse_move"}
-        )
+        msg = Message(msg_type=MessageType.MOUSE_EVENT, payload={"event_type": "mouse_move"})
 
         with pytest.raises(ValueError, match="must contain either"):
             MessageParser.mouseEvent_parse(msg)
@@ -220,11 +189,7 @@ class TestMessageParser:
         """Test parsing KEY_EVENT"""
         msg = Message(
             msg_type=MessageType.KEY_EVENT,
-            payload={
-                "event_type": "key_press",
-                "keycode": 65,
-                "keysym": 0x0041
-            }
+            payload={"event_type": "key_press", "keycode": 65, "keysym": 0x0041},
         )
 
         event = MessageParser.keyEvent_parse(msg)
@@ -236,11 +201,7 @@ class TestMessageParser:
     def test_parse_key_event_without_keysym(self):
         """Test parsing KEY_EVENT without keysym"""
         msg = Message(
-            msg_type=MessageType.KEY_EVENT,
-            payload={
-                "event_type": "key_release",
-                "keycode": 65
-            }
+            msg_type=MessageType.KEY_EVENT, payload={"event_type": "key_release", "keycode": 65}
         )
 
         event = MessageParser.keyEvent_parse(msg)
@@ -252,12 +213,7 @@ class TestMessageParser:
     def test_parse_screen_transition(self):
         """Test parsing SCREEN_ENTER/LEAVE"""
         msg = Message(
-            msg_type=MessageType.SCREEN_ENTER,
-            payload={
-                "direction": "left",
-                "x": 0,
-                "y": 540
-            }
+            msg_type=MessageType.SCREEN_ENTER, payload={"direction": "left", "x": 0, "y": 540}
         )
 
         transition = MessageParser.screenTransition_parse(msg)
@@ -274,8 +230,7 @@ class TestProtocolRoundTrip:
         """Test MOUSE_MOVE with normalized coordinates survives round-trip"""
         # Build
         original_event = MouseEvent(
-            event_type=EventType.MOUSE_MOVE,
-            normalized_point=NormalizedPoint(x=0.3, y=0.7)
+            event_type=EventType.MOUSE_MOVE, normalized_point=NormalizedPoint(x=0.3, y=0.7)
         )
         msg = MessageBuilder.mouseEventMessage_create(original_event)
 
@@ -294,10 +249,7 @@ class TestProtocolRoundTrip:
 
     def test_screen_transition_round_trip(self):
         """Test SCREEN_ENTER survives round-trip"""
-        original = ScreenTransition(
-            direction=Direction.RIGHT,
-            position=Position(x=1919, y=500)
-        )
+        original = ScreenTransition(direction=Direction.RIGHT, position=Position(x=1919, y=500))
         msg = MessageBuilder.screenEnterMessage_create(original)
 
         json_str = msg.json_serialize()

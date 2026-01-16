@@ -1,6 +1,5 @@
 """Configuration file loading and management"""
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -11,6 +10,7 @@ import yaml
 @dataclass
 class NamedClientConfig:
     """Named client configuration (for server's clients list)"""
+
     name: str
     position: str  # "west", "east", "north", "south"
 
@@ -18,6 +18,7 @@ class NamedClientConfig:
 @dataclass
 class PanicKeyConfig:
     """Panic key configuration for emergency return to CENTER"""
+
     key: str  # Key name (e.g., "Scroll_Lock", "F12", "Escape")
     modifiers: list[str]  # Modifier keys (e.g., ["Ctrl", "Shift"])
 
@@ -25,6 +26,7 @@ class PanicKeyConfig:
 @dataclass
 class ServerConfig:
     """Server configuration settings"""
+
     name: str
     host: str
     port: int
@@ -40,6 +42,7 @@ class ServerConfig:
 @dataclass
 class ClientReconnectConfig:
     """Client reconnection settings"""
+
     enabled: bool
     max_attempts: int
     delay_seconds: float
@@ -48,6 +51,7 @@ class ClientReconnectConfig:
 @dataclass
 class ClientConnectionConfig:
     """Client connection configuration settings"""
+
     server_address: str
     display: Optional[str]
     reconnect: ClientReconnectConfig
@@ -56,6 +60,7 @@ class ClientConnectionConfig:
 @dataclass
 class ProtocolConfig:
     """Protocol configuration settings"""
+
     version: str
     buffer_size: int
     keepalive_interval: int
@@ -64,6 +69,7 @@ class ProtocolConfig:
 @dataclass
 class LoggingConfig:
     """Logging configuration settings"""
+
     level: str
     file: Optional[str]
     format: str
@@ -72,6 +78,7 @@ class LoggingConfig:
 @dataclass
 class Config:
     """Complete application configuration"""
+
     server: ServerConfig
     clients: list[NamedClientConfig]
     client: ClientConnectionConfig
@@ -155,7 +162,7 @@ class ConfigLoader:
             # Dict format: {key: "Escape", modifiers: ["Ctrl", "Shift"]}
             panic_key = PanicKeyConfig(
                 key=panic_key_data.get("key", "Scroll_Lock"),
-                modifiers=panic_key_data.get("modifiers", [])
+                modifiers=panic_key_data.get("modifiers", []),
             )
 
         server = ServerConfig(
@@ -167,17 +174,16 @@ class ConfigLoader:
             velocity_threshold=server_data.get("velocity_threshold", 100.0),  # Default 100 px/s
             poll_interval_ms=server_data["poll_interval_ms"],
             max_clients=server_data["max_clients"],
-            client_position=server_data.get("client_position", "west"),  # DEPRECATED: Default to west
+            client_position=server_data.get(
+                "client_position", "west"
+            ),  # DEPRECATED: Default to west
             panic_key=panic_key,
         )
 
         # Parse named clients list
         clients_data = data.get("clients", [])
         clients = [
-            NamedClientConfig(
-                name=client_entry["name"],
-                position=client_entry["position"]
-            )
+            NamedClientConfig(name=client_entry["name"], position=client_entry["position"])
             for client_entry in clients_data
         ]
 
@@ -246,10 +252,7 @@ class ConfigLoader:
         return ConfigLoader.config_parse(data)
 
     @staticmethod
-    def configWithOverrides_load(
-        file_path: Optional[Path] = None,
-        **overrides: Any
-    ) -> Config:
+    def configWithOverrides_load(file_path: Optional[Path] = None, **overrides: Any) -> Config:
         """
         Load configuration and apply command-line overrides
 

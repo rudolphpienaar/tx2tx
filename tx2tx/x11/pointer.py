@@ -16,7 +16,7 @@ class PointerTracker:
         self,
         display_manager: DisplayManager,
         edge_threshold: int = 0,
-        velocity_threshold: float | None = None
+        velocity_threshold: float | None = None,
     ) -> None:
         """
         Initialize pointer tracker
@@ -28,10 +28,16 @@ class PointerTracker:
         """
         self._display_manager: DisplayManager = display_manager
         self._edge_threshold: int = edge_threshold
-        self._velocity_threshold: float = velocity_threshold if velocity_threshold is not None else settings.DEFAULT_VELOCITY_THRESHOLD
+        self._velocity_threshold: float = (
+            velocity_threshold
+            if velocity_threshold is not None
+            else settings.DEFAULT_VELOCITY_THRESHOLD
+        )
         self._last_position: Optional[Position] = None
         # Track recent positions for velocity calculation (position, timestamp)
-        self._position_history: deque[tuple[Position, float]] = deque(maxlen=settings.POSITION_HISTORY_SIZE)
+        self._position_history: deque[tuple[Position, float]] = deque(
+            maxlen=settings.POSITION_HISTORY_SIZE
+        )
 
     def position_query(self) -> Position:
         """
@@ -77,9 +83,7 @@ class PointerTracker:
         return distance / time_delta
 
     def boundary_detect(
-        self,
-        position: Position,
-        geometry: ScreenGeometry
+        self, position: Position, geometry: ScreenGeometry
     ) -> Optional[ScreenTransition]:
         """
         Detect if position is at screen boundary with sufficient velocity
@@ -119,7 +123,10 @@ class PointerTracker:
         if at_boundary and direction is not None:
             velocity = self.velocity_calculate()
             import logging
-            logging.getLogger(__name__).info(f"At boundary {direction.value}: velocity={velocity:.1f}, threshold={self._velocity_threshold}")
+
+            logging.getLogger(__name__).info(
+                f"At boundary {direction.value}: velocity={velocity:.1f}, threshold={self._velocity_threshold}"
+            )
             if velocity >= self._velocity_threshold:
                 return ScreenTransition(direction=direction, position=position)
             # else: At boundary but not enough momentum - don't transition

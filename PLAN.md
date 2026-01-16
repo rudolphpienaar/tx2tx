@@ -4,284 +4,58 @@ This document tracks the development plan. The section below outlines the curren
 
 ## 1. CURRENT ISSUES UNDER INVESTIGATION
 
-**Version:** 2.2.4
+**Version:** 2.2.5 (Verified Fixes)
 
 ### Issue A: Cursor Warp - Visual vs Internal Position Mismatch ⛔ UNFIXABLE
-
-**Problem Description:**
-When boundary is crossed, `warp_pointer()` updates X server's **internal** position (verified via `query_pointer()`), but the **visual** cursor does not move. This is a compositor/X server disconnect.
-
-**Root Cause (CONFIRMED 2026-01-16):**
-Crostini runs X11 apps through this stack:
-```
-X11 App → XWayland → Sommelier → Exo → ChromeOS Compositor
-```
-The **ChromeOS compositor** controls the visual cursor position, not X11. Both `warp_pointer()` and `XTest fake_input(MotionNotify)` update X11's internal state but the compositor ignores these commands entirely.
-
-**Verified via `tests/manual/test_cursor_move.py`:**
-- `warp_pointer()` - Internal position updated: ✅ | Visual move: ❌
-- `XTest fake_input()` - Internal position updated: ✅ | Visual move: ❌
-
-**This is by design in Wayland-based environments** - applications cannot hijack cursor position for security reasons.
-
-**Status:** ⛔ PERMANENT LIMITATION - Cannot be fixed from within X11
-
-**UX Impact:**
-When transitioning to remote, cursor appears at wrong edge initially. User must physically move mouse to correct position. This is acceptable given the architectural constraint.
+**Status:** ⛔ PERMANENT LIMITATION - Cannot be fixed from within X11 on Crostini.
+**Workaround:** Accept that cursor visually jumps or use the Overlay Window workaround.
 
 ### Issue B: Mouse Events Not Reaching Client (REGRESSION) ✅ FIXED
+**Status:** ✅ FIXED - `last_sent_position` reset logic implemented.
 
-**Problem Description:**
-After transitioning to REMOTE context, mouse cursor movement wasn't happening on the client. This was a regression introduced in commit `c0f8fbd` (mouse transmission optimization).
+### Issue C: Cursor Appearance in Remote Mode
+**Status:** ✅ MITIGATED via Overlay Window
+- **Root Window Cursor:** Ignored by compositor.
+- **Stippled Overlay:** ⛔ FAILED/UNSAFE. Causes X11 session freeze (verified).
+- **Fullscreen Overlay:** ✅ IMPLEMENTED. Uses a transparent input-only window (or nearly transparent) to display the "Remote Mode" cursor. This is working.
 
-**Root Cause:**
-The optimization added `positionChanged_check()` which compares current position to `last_sent_position`. However, `last_sent_position` wasn't being reset when entering REMOTE context, potentially causing the first position to be skipped.
+## 2. Code Analysis Verification (2026-01-16)
+A deep scan of the codebase confirmed that the critical logic issues identified in previous analysis have been **FIXED** in the current codebase:
+- **Direction Mapping:** Logic correctly maps LEFT/RIGHT/TOP/BOTTOM to WEST/EAST/NORTH/SOUTH contexts.
+- **Warp Positioning:** Cursor warps to the correct opposite edge based on direction.
+- **Return Logic:** Return conditions check the correct edges based on context.
+- **Entry Positioning:** Entry position is calculated correctly based on previous context.
+- **Safety:** Error handling ensures `ungrab` happens if transitions fail.
 
-**Fix Applied (commit a0abe93):**
-```python
-# In transition code (tx2tx/server/main.py:450)
-server_state.last_sent_position = None  # Ensure first position in new context is sent
-```
+## 3. Architecture Context
 
-**Status:** ✅ FIXED - User confirmed mouse and keyboard events working in remote
+**How Cursor Transition Works:**
+1. **Detection:** Server detects boundary crossing (e.g., Left Edge).
+2. **Warp:** Server warps cursor to opposite edge (e.g., Right Edge) using `XTest` or `warp_pointer`.
+3. **State Change:** Context updates to `WEST`.
+4. **Grab:** Server grabs pointer/keyboard to isolate input.
+5. **Overlay:** Server shows cursor overlay window to indicate "Remote Mode".
+6. **Transmission:** Server sends normalized coordinates to client.
 
-### Issue C: Cursor Appearance in Remote Mode 🔄 TESTING
+**Return to Center:**
+1. **Detection:** Server detects cursor hitting the "internal" return edge (e.g., Right Edge while in WEST context).
+2. **Ungrab:** Server releases pointer/keyboard.
+3. **Hide Overlay:** Server hides cursor overlay.
+4. **State Change:** Context updates to `CENTER`.
+5. **Warp:** Server warps cursor to entry position (Left Edge).
 
-**Problem Description:**
-True cursor hiding fails in Crostini because the visual cursor is rendered by ChromeOS compositor, not X11. Both XFixes and blank pixmap methods fail **silently** (no exception, but cursor unchanged).
+## 4. Next Action Plan
 
-**Key Discovery (2026-01-16):**
-Via `tests/manual/test_cursor_change.py`, we discovered:
-- ❌ Root window cursor changes are **ignored** by Crostini compositor
-- ✅ Window-specific cursors **DO work** - cursor changes when hovering over X11 windows
+1.  **Integration Verification:**
+    - Run `tests/integration/test_simple.py` to verify basic loop functionality and ensure no regressions.
+    - Validate that the server starts and handles connections correctly.
 
-This means the compositor respects cursor settings on actual X11 windows, just not on the root window.
+2.  **Multi-Client Simulation:**
+    - Verify that `tests/integration/test_detailed.py` (or similar) can simulate multiple clients.
+    - Ensure routing logic sends events only to the active client.
 
-**Solution Implemented (commit 75e55b5): Fullscreen Overlay Window**
-
-Instead of trying to change the root window cursor, we create a fullscreen overlay window with the gray X cursor:
-
-```
-┌─────────────────────────────────────────┐
-│           Crostini Desktop              │
-│  ┌───────────────────────────────────┐  │
-│  │    Fullscreen Overlay Window      │  │
-│  │    (override_redirect=True)       │  │
-│  │    (cursor=gray_X)                │  │
-│  │    (event_mask=0)                 │  │
-│  │                                   │  │
-│  │    Cursor appears as gray X       │  │
-│  │    anywhere on screen             │  │
-│  └───────────────────────────────────┘  │
-└─────────────────────────────────────────┘
-```
-
-**Implementation in `tx2tx/x11/display.py`:**
-
-```python
-def _cursorOverlay_create(self) -> bool:
-    """Create fullscreen overlay window with gray X cursor."""
-    self._cursor_overlay_window = root.create_window(
-        0, 0,                          # position (top-left)
-        screen.width_in_pixels,        # full width
-        screen.height_in_pixels,       # full height
-        0,                             # border width
-        screen.root_depth,
-        X.InputOutput,
-        X.CopyFromParent,
-        background_pixel=0,
-        override_redirect=True,        # bypass window manager
-        cursor=gray_x_cursor,          # the indicator cursor
-        event_mask=0                   # don't capture events
-    )
-
-def _cursorOverlay_show(self) -> bool:
-    """Map overlay and raise to top."""
-    self._cursor_overlay_window.map()
-    self._cursor_overlay_window.configure(stack_mode=X.Above)
-
-def _cursorOverlay_hide(self) -> None:
-    """Unmap overlay to restore normal cursor."""
-    self._cursor_overlay_window.unmap()
-```
-
-**Updated `cursor_hide()` fallback order:**
-1. **Fullscreen overlay window** with gray X cursor (WORKS in Crostini!)
-2. Gray X cursor on root window (fails silently in Crostini)
-3. XFixes hide_cursor (fails silently in Crostini)
-4. Blank pixmap cursor (fails silently in Crostini)
-
-**Why Overlay Window Works:**
-- Crostini's compositor tracks cursor for each X11 window
-- When cursor is over an X11 window, that window's cursor setting is used
-- A fullscreen overlay window "owns" the entire screen area
-- `override_redirect=True` prevents window manager from adding decorations
-- `event_mask=0` means window doesn't capture input (we have pointer grabbed anyway)
-
-**Status:** 🔄 TESTING - Awaiting user verification
-
-## 2. Debug Logging Available
-
-**Run with INFO level** to see:
-- `[TRANSITION] Boundary crossed: ...` - boundary detection
-- `[WARP] Warping cursor from ... to ...` - warp attempt
-- `[MOUSE] Sending pos (x, y) to client_name` - mouse event sending
-- `[BOUNDARY] Returning from CONTEXT at (x, y)` - return detection
-- `Cursor overlay shown (gray X cursor active)` - overlay window activated
-- `[PANIC] Panic key pressed - forcing return to CENTER` - panic key triggered
-
-**Run with DEBUG level** for additional:
-- `[X11] XTest fake_input MotionNotify to (x, y)` - XTest warp call
-- `[X11] After XTest move: actual position = (x, y)` - position verification
-- `Created cursor overlay window` - overlay creation
-- `Cursor overlay hidden` - overlay deactivation
-
-## 3. Summary of Recent Progress
-
-### Session 2026-01-16 (Continued)
-- **DISCOVERY:** Root window cursor changes ignored by Crostini, but window-specific cursors WORK
-- **FIX:** Fullscreen overlay window approach for cursor indicator (commit 75e55b5)
-- **TEST:** Created `tests/manual/test_cursor_change.py` to verify cursor behavior
-- **TEST:** Created `tests/manual/test_cursor_move.py` to verify warp behavior
-- **CONFIRMED:** Cursor warp is permanently unfixable in Crostini (compositor limitation)
-
-### Session 2026-01-16 (Earlier)
-- **FIX:** Use XTest `fake_input(MotionNotify)` instead of `warp_pointer()` for cursor warps
-- **FIX:** Reset `last_sent_position` when entering REMOTE context
-- **DEBUG:** Added INFO-level `[MOUSE]` logging for mouse event sending
-- **FEAT:** Gray X cursor fallback when cursor hiding fails (Crostini compatibility)
-- **FEAT:** Configurable panic key via config.yml (default: Scroll Lock, supports combos like Ctrl+Shift+Escape)
-
-### Session 2026-01-15
-- **REFACTOR:** Created ServerState singleton class with RPN naming convention
-- **OPTIMIZE:** Mouse coordinates only transmitted when position changes
-- **FEATURE:** Added version + commit hash to all log output
-- **DEBUG:** Added extensive logging to trace cursor warp operations
-- **FIX ATTEMPT:** Moved warp before pointer grab - did not resolve visual issue
-
-## 4. Architecture Context
-
-**How Cursor Transition SHOULD Work:**
-1. User moves mouse to LEFT edge (x=0) on server display
-2. Server detects boundary crossing
-3. **Server warps cursor to RIGHT edge (x=1917)** ← THIS IS FAILING
-4. Server grabs pointer/keyboard (desktop stops receiving input)
-5. Server polls cursor position (should be x=1917)
-6. Server normalizes (1917/1920 = 0.998) and sends to client
-7. Client cursor appears at RIGHT edge (98% across screen) ✓
-
-**Current broken behavior:**
-1. User moves to x=0
-2. Server tries to warp to x=1917
-3. **Warp doesn't happen** - cursor stays at x=0
-4. Server polls position → x=0
-5. Server normalizes (0/1920 = 0.0) and sends to client
-6. Client cursor appears at LEFT edge (wrong!) ✗
-
-**Critical files:**
-- `tx2tx/server/main.py:426-462` - Entry transition logic
-- `tx2tx/x11/display.py:179-202` - X11 warp implementation
-- `tx2tx/server/state.py` - ServerState singleton
-
-## 5. Previous Implementation History (For Context)
-
-### Problem
-The cursor transition logic was overly complex with verification loops, race conditions, and bloated code that was hard to debug. Cursor appeared at wrong edge during transitions.
-
-### Root Cause
-- Trying to warp cursor THEN poll it to get first coordinate
-- Race conditions between warp and poll
-- Verification loops added complexity without solving the core issue
-- Pointer grab failures caused transitions to abort
-
-### Solution Implemented ✅
-**Added boundary_crossed state flag to force cursor position verification:**
-
-**Entry Transition** (`tx2tx/server/main.py:418-459`):
-1. Calculate target warp position (opposite edge from crossing)
-2. **Set `boundary_crossed = True`** with target warp position
-3. Change context to REMOTE
-4. Grab input and hide cursor
-5. Continue to next iteration (REMOTE mode will handle warp)
-
-**REMOTE Mode with Warp Verification** (`tx2tx/server/main.py:478-498`):
-1. **Check `boundary_crossed` flag** at start of REMOTE mode
-2. If True:
-   - Warp cursor to target position
-   - **Re-poll actual position** to verify warp succeeded
-   - If position matches target (within 10px tolerance):
-     - Clear `boundary_crossed` flag
-     - Use fresh position
-     - Continue with normal coordinate sending
-   - If position doesn't match:
-     - **Skip this iteration** (retry warp next time)
-     - Log warning
-3. Only send coordinates once `boundary_crossed = False`
-
-**Return Transition** (`tx2tx/server/main.py:108-127`):
-1. Ungrab keyboard/pointer (with error handling)
-2. Warp to entry position (simple, no verification loop)
-3. Show cursor
-4. Reset tracker
-
-### Why This Works
-- **State flag approach**: Instead of trying to warp and immediately use the position, we set a flag and defer the warp
-- **Verification loop**: Each iteration checks if cursor is actually at target position before sending coordinates
-- **Retry mechanism**: If warp hasn't taken effect yet, skip that iteration and try again next time (20ms later)
-- **No race conditions**: Never send coordinates until cursor position is verified
-- **Self-healing**: If warp fails initially, it keeps retrying automatically until it succeeds
-- Grab failures are handled gracefully instead of aborting
-- Simple state machine: `boundary_crossed` flag controls when to warp vs when to send coordinates
-
-### ServerState Singleton (`tx2tx/server/state.py`)
-**Clean state management using singleton pattern with RPN naming:**
-
-```python
-class ServerState:
-    context: ScreenContext              # Current screen context (CENTER/WEST/EAST/etc)
-    last_center_switch_time: float      # Timestamp of last CENTER transition
-    boundary_crossed: bool              # Flag indicating pending warp
-    target_warp_position: Position      # Target position for pending warp
-    last_sent_position: Position        # Last position sent to client (for change detection)
-
-    def boundaryCrossed_set(position)   # Set flag and target position
-    def boundaryCrossed_clear()         # Clear flag after successful warp
-    def positionChanged_check(pos)      # Check if position changed since last sent
-    def lastSentPosition_update(pos)    # Update last sent position
-    def reset()                         # Reset all state to initial values
-```
-
-**Benefits:**
-- Single source of truth for server state
-- Clean API with RPN naming convention (`objectName_verb()`)
-- No more mutable list references (`context_ref[0]`)
-- Easy to extend with additional state
-- Better type safety and IDE support
-
-### Mouse Coordinate Optimization
-**Only send coordinates when position changes:**
-
-**Before:**
-- Server sent mouse coordinates every 20ms regardless of movement
-- 50 messages/second even when mouse stationary
-- Unnecessary network and CPU usage
-
-**After:**
-- `positionChanged_check()` compares current position to last sent
-- Only transmit when position changes by at least 1 pixel
-- Dramatically reduces network traffic when mouse is stationary
-- Button/key events still sent immediately regardless of position
-
-### Remaining Issue (Issue #3)
-**Cursor Hiding Failure:** The server mouse cursor may remain visible on the server screen even when it is supposed to be hidden (in Client context).
-    *   *Details:* Both the "Blank Pixmap" hack (failed with `BadMatch`) and the `XFixes` extension (implemented but apparently ineffective) have failed to hide the cursor in certain environments.
-    *   *Status:* This is an environment-specific issue and does not prevent core functionality. The cursor transitions now work correctly.
-
-## 6. Next Action Plan
-1.  **Test the Fix:** Perform real-world two-device test to verify cursor transitions work correctly at all edges (West, East, North, South)
-2.  **Alternative Cursor Hiding (Optional):** If cursor hiding continues to fail in test environment, investigate compositor-specific hiding methods or accept visible cursor as known limitation
-3.  **Multi-Client Testing:** Test with multiple clients in different positions
-4.  **Performance Tuning:** Optimize polling intervals and verify low latency
+3.  **Performance Tuning:**
+    - Optimize `poll_interval_ms` and `velocity_threshold` based on testing feedback.
 
 ---
 ---

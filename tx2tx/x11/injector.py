@@ -27,7 +27,7 @@ class EventInjector:
             True if XTest is available, False otherwise
         """
         display = self._display_manager.display_get()
-        ext_info = display.query_extension('XTEST')
+        ext_info = display.query_extension("XTEST")
         return ext_info is not None
 
     def mousePointer_move(self, position: Position) -> None:
@@ -83,7 +83,7 @@ class EventInjector:
             self.mouseButton_press(event.button)
         elif event.event_type == EventType.MOUSE_BUTTON_RELEASE and event.button:
             self.mouseButton_release(event.button)
-        
+
         display.sync()
 
     def key_press(self, keycode: int) -> None:
@@ -121,5 +121,5 @@ class EventInjector:
             self.key_press(event.keycode)
         elif event.event_type == EventType.KEY_RELEASE:
             self.key_release(event.keycode)
-        
+
         display.sync()

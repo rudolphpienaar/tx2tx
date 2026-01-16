@@ -1,16 +1,12 @@
 """Unit tests for configuration loading and parsing"""
 
 import pytest
-import tempfile
 from pathlib import Path
 from tx2tx.common.config import (
     Config,
     ConfigLoader,
     ServerConfig,
-    ClientConnectionConfig,
     ClientReconnectConfig,
-    ProtocolConfig,
-    LoggingConfig,
     NamedClientConfig,
 )
 
@@ -21,11 +17,13 @@ class TestConfigLoaderYAMLLoading:
     def test_yaml_load_valid_file(self, tmp_path):
         """Test loading valid YAML file"""
         config_file = tmp_path / "test.yml"
-        config_file.write_text("""
+        config_file.write_text(
+            """
 server:
   host: "0.0.0.0"
   port: 25000
-""")
+"""
+        )
 
         data = ConfigLoader.yaml_load(config_file)
         assert isinstance(data, dict)
@@ -236,7 +234,8 @@ class TestConfigLoaderFullLoad:
     def test_config_load_explicit_path(self, tmp_path):
         """Test loading config from explicit path"""
         config_file = tmp_path / "myconfig.yml"
-        config_file.write_text("""
+        config_file.write_text(
+            """
 server:
   host: "0.0.0.0"
   port: 25000
@@ -259,7 +258,8 @@ protocol:
 logging:
   level: "INFO"
   format: "%(message)s"
-""")
+"""
+        )
 
         config = ConfigLoader.config_load(config_file)
         assert config.server.host == "0.0.0.0"
@@ -279,7 +279,8 @@ class TestConfigLoaderOverrides:
     def test_configWithOverrides_load_server_overrides(self, tmp_path):
         """Test applying server config overrides"""
         config_file = tmp_path / "config.yml"
-        config_file.write_text("""
+        config_file.write_text(
+            """
 server:
   name: "OriginalName"
   host: "0.0.0.0"
@@ -303,7 +304,8 @@ protocol:
 logging:
   level: "INFO"
   format: "%(message)s"
-""")
+"""
+        )
 
         config = ConfigLoader.configWithOverrides_load(
             config_file,
@@ -321,7 +323,8 @@ logging:
     def test_configWithOverrides_load_client_overrides(self, tmp_path):
         """Test applying client config overrides"""
         config_file = tmp_path / "config.yml"
-        config_file.write_text("""
+        config_file.write_text(
+            """
 server:
   host: "0.0.0.0"
   port: 25000
@@ -344,7 +347,8 @@ protocol:
 logging:
   level: "INFO"
   format: "%(message)s"
-""")
+"""
+        )
 
         config = ConfigLoader.configWithOverrides_load(
             config_file,
@@ -356,7 +360,8 @@ logging:
     def test_configWithOverrides_load_none_values_ignored(self, tmp_path):
         """Test that None override values don't override config"""
         config_file = tmp_path / "config.yml"
-        config_file.write_text("""
+        config_file.write_text(
+            """
 server:
   name: "OriginalName"
   host: "0.0.0.0"
@@ -380,7 +385,8 @@ protocol:
 logging:
   level: "INFO"
   format: "%(message)s"
-""")
+"""
+        )
 
         config = ConfigLoader.configWithOverrides_load(
             config_file,

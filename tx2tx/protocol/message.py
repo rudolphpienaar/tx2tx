@@ -1,9 +1,9 @@
 """Network protocol messages for tx2tx communication"""
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict
 
 from tx2tx.common.types import (
     Direction,
@@ -18,6 +18,7 @@ from tx2tx.common.types import (
 
 class MessageType(Enum):
     """Types of protocol messages"""
+
     HELLO = "hello"
     SCREEN_INFO = "screen_info"
     SCREEN_ENTER = "screen_enter"
@@ -31,6 +32,7 @@ class MessageType(Enum):
 @dataclass
 class Message:
     """Base protocol message"""
+
     msg_type: MessageType
     payload: Dict[str, Any]
 
@@ -41,10 +43,7 @@ class Message:
         Returns:
             JSON string representation
         """
-        data = {
-            "msg_type": self.msg_type.value,
-            "payload": self.payload
-        }
+        data = {"msg_type": self.msg_type.value, "payload": self.payload}
         return json.dumps(data)
 
     @staticmethod
@@ -68,7 +67,12 @@ class MessageBuilder:
     """Builds protocol messages from events and data"""
 
     @staticmethod
-    def helloMessage_create(version: str = "0.1.0", screen_width: int | None = None, screen_height: int | None = None, client_name: str | None = None) -> Message:
+    def helloMessage_create(
+        version: str = "0.1.0",
+        screen_width: int | None = None,
+        screen_height: int | None = None,
+        client_name: str | None = None,
+    ) -> Message:
         """
         Create hello/handshake message
 
@@ -85,18 +89,12 @@ class MessageBuilder:
         if client_name is not None:
             payload["client_name"] = client_name
 
-        return Message(
-            msg_type=MessageType.HELLO,
-            payload=payload
-        )
+        return Message(msg_type=MessageType.HELLO, payload=payload)
 
     @staticmethod
     def screenInfoMessage_create(width: int, height: int) -> Message:
         """Create screen info message"""
-        return Message(
-            msg_type=MessageType.SCREEN_INFO,
-            payload={"width": width, "height": height}
-        )
+        return Message(msg_type=MessageType.SCREEN_INFO, payload={"width": width, "height": height})
 
     @staticmethod
     def screenEnterMessage_create(transition: ScreenTransition) -> Message:
@@ -106,8 +104,8 @@ class MessageBuilder:
             payload={
                 "direction": transition.direction.value,
                 "x": transition.position.x,
-                "y": transition.position.y
-            }
+                "y": transition.position.y,
+            },
         )
 
     @staticmethod
@@ -118,8 +116,8 @@ class MessageBuilder:
             payload={
                 "direction": transition.direction.value,
                 "x": transition.position.x,
-                "y": transition.position.y
-            }
+                "y": transition.position.y,
+            },
         )
 
     @staticmethod
@@ -153,10 +151,7 @@ class MessageBuilder:
     @staticmethod
     def keyEventMessage_create(event: KeyEvent) -> Message:
         """Create keyboard event message"""
-        payload: Dict[str, Any] = {
-            "event_type": event.event_type.value,
-            "keycode": event.keycode
-        }
+        payload: Dict[str, Any] = {"event_type": event.event_type.value, "keycode": event.keycode}
         if event.keysym is not None:
             payload["keysym"] = event.keysym
 
@@ -198,14 +193,14 @@ class MessageParser:
             return MouseEvent(
                 event_type=event_type,
                 normalized_point=NormalizedPoint(x=payload["norm_x"], y=payload["norm_y"]),
-                button=payload.get("button")
+                button=payload.get("button"),
             )
         # Fallback to pixel coordinates (v1.0 protocol or button events)
         elif "x" in payload and "y" in payload:
             return MouseEvent(
                 event_type=event_type,
                 position=Position(x=payload["x"], y=payload["y"]),
-                button=payload.get("button")
+                button=payload.get("button"),
             )
         else:
             raise ValueError("MouseEvent message must contain either (norm_x, norm_y) or (x, y)")
@@ -225,7 +220,7 @@ class MessageParser:
         return KeyEvent(
             event_type=EventType(payload["event_type"]),
             keycode=payload["keycode"],
-            keysym=payload.get("keysym")
+            keysym=payload.get("keysym"),
         )
 
     @staticmethod
@@ -242,5 +237,5 @@ class MessageParser:
         payload = msg.payload
         return ScreenTransition(
             direction=Direction(payload["direction"]),
-            position=Position(x=payload["x"], y=payload["y"])
+            position=Position(x=payload["x"], y=payload["y"]),
         )

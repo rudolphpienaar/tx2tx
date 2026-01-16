@@ -14,11 +14,11 @@ logger = logging.getLogger(__name__)
 
 # X11 cursor font constants (from X11/cursorfont.h)
 # Each cursor shape has an even number; the mask is shape + 1
-XC_X_CURSOR = 0        # X shape
-XC_CROSSHAIR = 34      # Crosshair +
-XC_DOT = 38            # Small dot
-XC_TCROSS = 130        # Thin cross
-XC_PIRATE = 88         # Skull and crossbones
+XC_X_CURSOR = 0  # X shape
+XC_CROSSHAIR = 34  # Crosshair +
+XC_DOT = 38  # Small dot
+XC_TCROSS = 130  # Thin cross
+XC_PIRATE = 88  # Skull and crossbones
 
 
 class DisplayManager:
@@ -44,7 +44,7 @@ class DisplayManager:
         """Establish connection to X11 display"""
         # Termux workaround: Monkey-patch python-xlib to find X11 socket in PREFIX/tmp
         # PyPI's python-xlib hardcodes /tmp/.X11-unix/, but termux has it at $PREFIX/tmp/.X11-unix/
-        if 'PREFIX' in os.environ:
+        if "PREFIX" in os.environ:
             try:
                 from Xlib.support import unix_connect
                 import socket as socket_module
@@ -52,14 +52,18 @@ class DisplayManager:
                 # Patch get_socket to use termux path
                 original_get_socket = unix_connect.get_socket
 
-                def _termux_get_socket(dname: str, protocol: object, host: object, dno: int) -> object:
+                def _termux_get_socket(
+                    dname: str, protocol: object, host: object, dno: int
+                ) -> object:
                     """Termux-specific socket locator that checks PREFIX/tmp before /tmp"""
                     # For unix sockets, check termux location first
-                    if (protocol == 'unix' or (not protocol and (not host or host == 'unix'))):
+                    if protocol == "unix" or (not protocol and (not host or host == "unix")):
                         termux_address = f"{os.environ['PREFIX']}/tmp/.X11-unix/X{dno}"
                         if os.path.exists(termux_address):
                             # Connect directly to termux socket
-                            s = socket_module.socket(socket_module.AF_UNIX, socket_module.SOCK_STREAM)
+                            s = socket_module.socket(
+                                socket_module.AF_UNIX, socket_module.SOCK_STREAM
+                            )
                             s.connect(termux_address)
                             return s
                     # Fall back to original implementation
@@ -139,8 +143,8 @@ class DisplayManager:
         pointer_data = root.query_pointer()
         self._original_position = Position(x=pointer_data.root_x, y=pointer_data.root_y)
 
-        # Move cursor to confinement position
-        root.warp_pointer(position.x, position.y)
+        # Move cursor to confinement position using XTest
+        xtest.fake_input(display, X.MotionNotify, detail=0, x=position.x, y=position.y)
         display.sync()
 
         # Grab pointer to confine it
@@ -152,7 +156,7 @@ class DisplayManager:
             X.GrabModeAsync,
             root,  # confine_to
             0,  # cursor
-            X.CurrentTime
+            X.CurrentTime,
         )
 
         if result == 0:  # GrabSuccess
@@ -172,16 +176,20 @@ class DisplayManager:
             return  # Not confined
 
         display = self.display_get()
-        screen = display.screen()
-        root = screen.root
 
         # Release pointer grab
         display.ungrab_pointer(X.CurrentTime)
         display.sync()
 
-        # Restore original cursor position if we have it
+        # Restore original cursor position if we have it using XTest
         if self._original_position:
-            root.warp_pointer(self._original_position.x, self._original_position.y)
+            xtest.fake_input(
+                display,
+                X.MotionNotify,
+                detail=0,
+                x=self._original_position.x,
+                y=self._original_position.y,
+            )
             display.sync()
             self._original_position = None
 
@@ -189,7 +197,7 @@ class DisplayManager:
 
     def cursorPosition_set(self, position: Position) -> None:
         """
-        Move cursor to absolute position
+        Move cursor to absolute position using XTest (unified implementation)
 
         Args:
             position: Target position
@@ -197,26 +205,12 @@ class DisplayManager:
         Raises:
             RuntimeError: If not connected to display
         """
-        display = self.display_get()
-        screen = display.screen()
-        root = screen.root
-
-        logger.debug(f"[X11] Calling root.warp_pointer({position.x}, {position.y})")
-        root.warp_pointer(position.x, position.y)
-        display.sync()
-        logger.debug(f"[X11] display.sync() completed")
-
-        # Verify position immediately after warp
-        pointer_data = root.query_pointer()
-        actual_x = pointer_data.root_x
-        actual_y = pointer_data.root_y
-        logger.debug(f"[X11] After warp: actual position = ({actual_x}, {actual_y})")
+        self.cursorPosition_setViaXTest(position)
 
     def cursorPosition_setViaXTest(self, position: Position) -> None:
         """
-        Move cursor using XTest fake_input instead of warp_pointer.
-        This may work better with compositors that block warp_pointer.
-
+        Move cursor using XTest fake_input.
+        
         Args:
             position: Target position
 
@@ -237,7 +231,9 @@ class DisplayManager:
         actual_y = pointer_data.root_y
         logger.debug(f"[X11] After XTest move: actual position = ({actual_x}, {actual_y})")
 
-    def cursorPosition_setAndVerify(self, position: Position, timeout_ms: int = 100, tolerance: int = 5) -> bool:
+    def cursorPosition_setAndVerify(
+        self, position: Position, timeout_ms: int = 100, tolerance: int = 5
+    ) -> bool:
         """
         Move cursor to absolute position and verify it actually moved there.
         This prevents race conditions where we query position before warp takes effect.
@@ -257,8 +253,8 @@ class DisplayManager:
         screen = display.screen()
         root = screen.root
 
-        # Issue warp command
-        root.warp_pointer(position.x, position.y)
+        # Issue warp command using XTest
+        xtest.fake_input(display, X.MotionNotify, detail=0, x=position.x, y=position.y)
         display.sync()
 
         # Poll position until it matches or timeout
@@ -306,7 +302,7 @@ class DisplayManager:
             pixmap.fill_rectangle(gc, 0, 0, 1, 1)
 
             # Color must be a dictionary with RGB values for python-xlib
-            color = {'red': 0, 'green': 0, 'blue': 0}
+            color = {"red": 0, "green": 0, "blue": 0}
 
             # Create cursor. mask=pixmap means the shape is defined by pixmap.
             # since pixmap is all 0s, the mask is empty -> fully transparent.
@@ -344,11 +340,11 @@ class DisplayManager:
             # Colors are 16-bit RGB values (0-65535)
             # Gray foreground (50% gray), white background
             cursor = cursor_font.create_glyph_cursor(
-                cursor_font,              # mask font (same as source)
-                XC_X_CURSOR,              # source char (0 = X shape)
-                XC_X_CURSOR + 1,          # mask char
-                (32768, 32768, 32768),    # foreground: 50% gray
-                (65535, 65535, 65535)     # background: white
+                cursor_font,  # mask font (same as source)
+                XC_X_CURSOR,  # source char (0 = X shape)
+                XC_X_CURSOR + 1,  # mask char
+                (32768, 32768, 32768),  # foreground: 50% gray
+                (65535, 65535, 65535),  # background: white
             )
 
             cursor_font.close()
@@ -394,17 +390,18 @@ class DisplayManager:
             # We use a 1x1 window that we'll resize to fullscreen
             # Input events pass through because we have pointer grabbed anyway
             self._cursor_overlay_window = root.create_window(
-                0, 0,                          # position (top-left)
-                screen.width_in_pixels,        # full width
-                screen.height_in_pixels,       # full height
-                0,                             # border width
-                screen.root_depth,             # depth
-                X.InputOutput,                 # window class
-                X.CopyFromParent,              # visual
-                background_pixel=0,            # transparent (won't matter)
-                override_redirect=True,        # bypass window manager
-                cursor=cursor,                 # the gray X cursor
-                event_mask=0                   # don't capture any events
+                0,
+                0,  # position (top-left)
+                screen.width_in_pixels,  # full width
+                screen.height_in_pixels,  # full height
+                0,  # border width
+                screen.root_depth,  # depth
+                X.InputOutput,  # window class
+                X.CopyFromParent,  # visual
+                background_pixel=0,  # transparent (won't matter)
+                override_redirect=True,  # bypass window manager
+                cursor=cursor,  # the gray X cursor
+                event_mask=0,  # don't capture any events
             )
 
             # Make window transparent using the
@@ -495,7 +492,7 @@ class DisplayManager:
 
         # Method 3: XFixes (true invisibility)
         try:
-            if display.has_extension('XFIXES'):
+            if display.has_extension("XFIXES"):
                 display.xfixes.hide_cursor(root)
                 display.sync()
                 self._cursor_hidden = True
@@ -537,7 +534,7 @@ class DisplayManager:
 
         # Method 1: XFixes show_cursor
         try:
-            if display.has_extension('XFIXES'):
+            if display.has_extension("XFIXES"):
                 display.xfixes.show_cursor(root)
                 display.sync()
                 self._cursor_hidden = False
@@ -574,9 +571,9 @@ class DisplayManager:
             X.PointerMotionMask | X.ButtonPressMask | X.ButtonReleaseMask,
             X.GrabModeAsync,
             X.GrabModeAsync,
-            0,       # Don't confine to window (0 = no confinement)
+            0,  # Don't confine to window (0 = no confinement)
             cursor,  # Use blank cursor if hidden
-            X.CurrentTime
+            X.CurrentTime,
         )
 
         if result == 0:  # GrabSuccess
@@ -612,7 +609,7 @@ class DisplayManager:
             True,  # owner_events - we receive events
             X.GrabModeAsync,
             X.GrabModeAsync,
-            X.CurrentTime
+            X.CurrentTime,
         )
 
         if result == 0:  # GrabSuccess

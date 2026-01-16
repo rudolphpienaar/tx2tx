@@ -1,8 +1,6 @@
 """X11 event capturing for keyboard and mouse"""
 
-from typing import Optional
 from Xlib import X
-from Xlib.protocol import event as xevent
 
 from tx2tx.common.types import EventType, KeyEvent, MouseEvent, Position
 from tx2tx.x11.display import DisplayManager
@@ -37,10 +35,7 @@ class EventCapturer:
         root = screen.root
 
         result = root.grab_keyboard(
-            True,  # owner_events
-            X.GrabModeAsync,
-            X.GrabModeAsync,
-            X.CurrentTime
+            True, X.GrabModeAsync, X.GrabModeAsync, X.CurrentTime  # owner_events
         )
 
         if result == 0:  # GrabSuccess
@@ -75,29 +70,33 @@ class EventCapturer:
 
             # Mouse button press
             if xev.type == X.ButtonPress:
-                if hasattr(xev, 'root_x') and hasattr(xev, 'root_y') and hasattr(xev, 'detail'):
+                if hasattr(xev, "root_x") and hasattr(xev, "root_y") and hasattr(xev, "detail"):
                     position = Position(x=xev.root_x, y=xev.root_y)
                     self._last_pointer_position = position
-                    events.append(MouseEvent(
-                        event_type=EventType.MOUSE_BUTTON_PRESS,
-                        position=position,
-                        button=xev.detail
-                    ))
+                    events.append(
+                        MouseEvent(
+                            event_type=EventType.MOUSE_BUTTON_PRESS,
+                            position=position,
+                            button=xev.detail,
+                        )
+                    )
 
             # Mouse button release
             elif xev.type == X.ButtonRelease:
-                if hasattr(xev, 'root_x') and hasattr(xev, 'root_y') and hasattr(xev, 'detail'):
+                if hasattr(xev, "root_x") and hasattr(xev, "root_y") and hasattr(xev, "detail"):
                     position = Position(x=xev.root_x, y=xev.root_y)
                     self._last_pointer_position = position
-                    events.append(MouseEvent(
-                        event_type=EventType.MOUSE_BUTTON_RELEASE,
-                        position=position,
-                        button=xev.detail
-                    ))
+                    events.append(
+                        MouseEvent(
+                            event_type=EventType.MOUSE_BUTTON_RELEASE,
+                            position=position,
+                            button=xev.detail,
+                        )
+                    )
 
             # Motion notify (mouse movement)
             elif xev.type == X.MotionNotify:
-                if hasattr(xev, 'root_x') and hasattr(xev, 'root_y'):
+                if hasattr(xev, "root_x") and hasattr(xev, "root_y"):
                     position = Position(x=xev.root_x, y=xev.root_y)
                     self._last_pointer_position = position
                     # We already send mouse moves from pointer tracking,
@@ -105,19 +104,13 @@ class EventCapturer:
 
             # Key press
             elif xev.type == X.KeyPress:
-                if hasattr(xev, 'detail'):
-                    events.append(KeyEvent(
-                        event_type=EventType.KEY_PRESS,
-                        keycode=xev.detail
-                    ))
+                if hasattr(xev, "detail"):
+                    events.append(KeyEvent(event_type=EventType.KEY_PRESS, keycode=xev.detail))
 
             # Key release
             elif xev.type == X.KeyRelease:
-                if hasattr(xev, 'detail'):
-                    events.append(KeyEvent(
-                        event_type=EventType.KEY_RELEASE,
-                        keycode=xev.detail
-                    ))
+                if hasattr(xev, "detail"):
+                    events.append(KeyEvent(event_type=EventType.KEY_RELEASE, keycode=xev.detail))
 
         return events
 

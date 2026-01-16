@@ -1,7 +1,9 @@
 """Unit tests for settings singleton"""
 
 import pytest
-from tx2tx.common.config import Config, ServerConfig, ClientConnectionConfig, ClientReconnectConfig, ProtocolConfig, LoggingConfig
+from tx2tx.common.config import (
+    Config,
+)
 from tx2tx.common.settings import Settings, settings
 
 
@@ -67,7 +69,7 @@ class TestSettingsInitialization:
             clients=[],
             client=sample_config.client,
             protocol=sample_config.protocol,
-            logging=sample_config.logging
+            logging=sample_config.logging,
         )
 
         settings.initialize(different_config)

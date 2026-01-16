@@ -1,14 +1,25 @@
 #!/usr/bin/env python3
 """Simple test to check if transitions are working"""
 
+import os
 import subprocess
 import time
 from Xlib import display as xdisplay
+from Xlib import X
+from Xlib.ext import xtest
+
+
+def move_cursor(disp, x, y):
+    xtest.fake_input(disp, X.MotionNotify, detail=0, x=int(x), y=int(y))
+    disp.sync()
 
 
 def main():
     # Start server
     print("Starting server...")
+    env = os.environ.copy()
+    env["DISPLAY"] = ":0"
+
     server = subprocess.Popen(
         ["tx2tx"],
         stdout=subprocess.PIPE,
@@ -16,7 +27,7 @@ def main():
         text=True,
         bufsize=1,
         universal_newlines=True,
-        env={"DISPLAY": ":0"}
+        env=env,
     )
 
     # Wait for server to start
@@ -34,15 +45,15 @@ def main():
 
     # Move to center
     print("Moving to center...")
-    root.warp_pointer(width // 2, mid_y)
-    disp.sync()
+    move_cursor(disp, width // 2, mid_y)
     time.sleep(1)
 
     # Start reading server output in background
     import threading
+
     def read_output():
         for line in server.stdout:
-            print(f"[SERVER] {line}", end='')
+            print(f"[SERVER] {line}", end="")
 
     output_thread = threading.Thread(target=read_output, daemon=True)
     output_thread.start()
@@ -50,8 +61,7 @@ def main():
     # Move left slowly
     print("\nMoving left slowly (below velocity threshold)...")
     for x in range(width // 2, -10, -10):
-        root.warp_pointer(x, mid_y)
-        disp.sync()
+        move_cursor(disp, x, mid_y)
         time.sleep(0.1)  # Slow movement
 
     time.sleep(2)
@@ -60,15 +70,13 @@ def main():
 
     # Move back to center
     print("\nMoving back to center...")
-    root.warp_pointer(width // 2, mid_y)
-    disp.sync()
+    move_cursor(disp, width // 2, mid_y)
     time.sleep(1)
 
     # Move left quickly
     print("\nMoving left quickly (above velocity threshold)...")
     for x in range(width // 2, -10, -100):
-        root.warp_pointer(x, mid_y)
-        disp.sync()
+        move_cursor(disp, x, mid_y)
         time.sleep(0.01)  # Fast movement
 
     time.sleep(2)

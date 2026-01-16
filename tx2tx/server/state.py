@@ -13,9 +13,9 @@ class ServerState:
     passing mutable references around.
     """
 
-    _instance: Optional['ServerState'] = None
+    _instance: Optional["ServerState"] = None
 
-    def __new__(cls) -> 'ServerState':
+    def __new__(cls) -> "ServerState":
         """Ensure only one instance exists (singleton pattern)"""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
@@ -79,8 +79,10 @@ class ServerState:
             return True  # First position, always send
 
         # Consider position changed if moved by at least 1 pixel
-        return (self.last_sent_position.x != current_position.x or
-                self.last_sent_position.y != current_position.y)
+        return (
+            self.last_sent_position.x != current_position.x
+            or self.last_sent_position.y != current_position.y
+        )
 
     def lastSentPosition_update(self, position: Position) -> None:
         """
@@ -92,7 +94,7 @@ class ServerState:
         self.last_sent_position = position
 
     @classmethod
-    def instance_get(cls) -> 'ServerState':
+    def instance_get(cls) -> "ServerState":
         """Get the singleton instance"""
         if cls._instance is None:
             cls._instance = cls()

@@ -2,7 +2,6 @@
 
 import logging
 from enum import Enum
-from typing import Optional
 
 from tx2tx.common.types import Direction, Position, ScreenGeometry, ScreenTransition
 
@@ -16,6 +15,7 @@ ENTRY_MARGIN_PIXELS = 50
 
 class ClientPosition(Enum):
     """Position of client screen relative to server"""
+
     NORTH = "north"
     NORTHEAST = "northeast"
     EAST = "east"
@@ -82,8 +82,8 @@ class ScreenLayout:
             # Diagonals (future):
             ClientPosition.NORTHWEST: Direction.BOTTOM,  # Could be BOTTOM or RIGHT
             ClientPosition.NORTHEAST: Direction.BOTTOM,  # Could be BOTTOM or LEFT
-            ClientPosition.SOUTHWEST: Direction.TOP,     # Could be TOP or RIGHT
-            ClientPosition.SOUTHEAST: Direction.TOP,     # Could be TOP or LEFT
+            ClientPosition.SOUTHWEST: Direction.TOP,  # Could be TOP or RIGHT
+            ClientPosition.SOUTHEAST: Direction.TOP,  # Could be TOP or LEFT
         }
         return position_to_entry_edge[self._client_position]
 
@@ -102,9 +102,9 @@ class ScreenLayout:
             ClientPosition.NORTH: Direction.TOP,
             ClientPosition.SOUTH: Direction.BOTTOM,
             # Diagonals (future):
-            ClientPosition.NORTHWEST: Direction.LEFT,   # Could be LEFT or TOP
+            ClientPosition.NORTHWEST: Direction.LEFT,  # Could be LEFT or TOP
             ClientPosition.NORTHEAST: Direction.RIGHT,  # Could be RIGHT or TOP
-            ClientPosition.SOUTHWEST: Direction.LEFT,   # Could be LEFT or BOTTOM
+            ClientPosition.SOUTHWEST: Direction.LEFT,  # Could be LEFT or BOTTOM
             ClientPosition.SOUTHEAST: Direction.RIGHT,  # Could be RIGHT or BOTTOM
         }
         return position_to_reentry_edge[self._client_position]
@@ -113,7 +113,7 @@ class ScreenLayout:
         self,
         server_transition: ScreenTransition,
         server_geometry: ScreenGeometry,
-        client_geometry: ScreenGeometry
+        client_geometry: ScreenGeometry,
     ) -> ScreenTransition:
         """
         Transform server exit coordinates to client entry coordinates
@@ -139,13 +139,19 @@ class ScreenLayout:
 
         # Validate screen geometries
         if server_geometry.height <= 0 or server_geometry.width <= 0:
-            raise ValueError(f"Invalid server geometry: {server_geometry.width}x{server_geometry.height}")
+            raise ValueError(
+                f"Invalid server geometry: {server_geometry.width}x{server_geometry.height}"
+            )
         if client_geometry.height <= 0 or client_geometry.width <= 0:
-            raise ValueError(f"Invalid client geometry: {client_geometry.width}x{client_geometry.height}")
+            raise ValueError(
+                f"Invalid client geometry: {client_geometry.width}x{client_geometry.height}"
+            )
 
         # Determine client entry edge
         client_entry_edge = self.clientEntryEdge_get()
-        logger.info(f"[COORD XFORM → CLIENT] Calculated client_entry_edge={client_entry_edge.value}")
+        logger.info(
+            f"[COORD XFORM → CLIENT] Calculated client_entry_edge={client_entry_edge.value}"
+        )
 
         # Calculate client entry position
         if self._client_position in (ClientPosition.WEST, ClientPosition.EAST):
@@ -193,12 +199,11 @@ class ScreenLayout:
         else:
             # Diagonal positions (future): need more complex logic
             # For now, treat as cardinal direction
-            raise NotImplementedError(f"Diagonal position {self._client_position} not yet supported")
+            raise NotImplementedError(
+                f"Diagonal position {self._client_position} not yet supported"
+            )
 
-        result = ScreenTransition(
-            direction=client_entry_edge,
-            position=client_pos
-        )
+        result = ScreenTransition(direction=client_entry_edge, position=client_pos)
         logger.info(
             f"[COORD XFORM → CLIENT] Output: client_entry={result.direction.value} "
             f"pos=({result.position.x}, {result.position.y})"
@@ -209,7 +214,7 @@ class ScreenLayout:
         self,
         client_transition: ScreenTransition,
         client_geometry: ScreenGeometry,
-        server_geometry: ScreenGeometry
+        server_geometry: ScreenGeometry,
     ) -> ScreenTransition:
         """
         Transform client exit coordinates to server re-entry coordinates
@@ -235,13 +240,19 @@ class ScreenLayout:
 
         # Validate screen geometries
         if server_geometry.height <= 0 or server_geometry.width <= 0:
-            raise ValueError(f"Invalid server geometry: {server_geometry.width}x{server_geometry.height}")
+            raise ValueError(
+                f"Invalid server geometry: {server_geometry.width}x{server_geometry.height}"
+            )
         if client_geometry.height <= 0 or client_geometry.width <= 0:
-            raise ValueError(f"Invalid client geometry: {client_geometry.width}x{client_geometry.height}")
+            raise ValueError(
+                f"Invalid client geometry: {client_geometry.width}x{client_geometry.height}"
+            )
 
         # Determine server re-entry edge
         server_reentry_edge = self.serverReentryEdge_get()
-        logger.info(f"[COORD XFORM → SERVER] Calculated server_reentry_edge={server_reentry_edge.value}")
+        logger.info(
+            f"[COORD XFORM → SERVER] Calculated server_reentry_edge={server_reentry_edge.value}"
+        )
 
         # Calculate server re-entry position (inverse of to_client transform)
         if self._client_position in (ClientPosition.WEST, ClientPosition.EAST):
@@ -288,12 +299,11 @@ class ScreenLayout:
 
         else:
             # Diagonal positions (future)
-            raise NotImplementedError(f"Diagonal position {self._client_position} not yet supported")
+            raise NotImplementedError(
+                f"Diagonal position {self._client_position} not yet supported"
+            )
 
-        result = ScreenTransition(
-            direction=server_reentry_edge,
-            position=server_pos
-        )
+        result = ScreenTransition(direction=server_reentry_edge, position=server_pos)
         logger.info(
             f"[COORD XFORM → SERVER] Output: server_reentry={result.direction.value} "
             f"pos=({result.position.x}, {result.position.y})"

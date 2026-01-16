@@ -2,8 +2,8 @@
 
 import pytest
 import time
-from unittest.mock import Mock, MagicMock
-from tx2tx.common.types import Direction, Position, Screen, ScreenTransition
+from unittest.mock import Mock
+from tx2tx.common.types import Direction, Position, Screen
 from tx2tx.x11.pointer import PointerTracker
 
 
@@ -19,9 +19,7 @@ class TestPointerTrackerVelocityCalculation:
     def tracker(self, mock_display_manager):
         """Create PointerTracker with mocked display"""
         return PointerTracker(
-            display_manager=mock_display_manager,
-            edge_threshold=5,
-            velocity_threshold=100.0
+            display_manager=mock_display_manager, edge_threshold=5, velocity_threshold=100.0
         )
 
     def test_velocity_calculate_insufficient_samples(self, tracker):
@@ -118,9 +116,7 @@ class TestPointerTrackerBoundaryDetection:
     def tracker(self, mock_display_manager):
         """Create PointerTracker with mocked display"""
         return PointerTracker(
-            display_manager=mock_display_manager,
-            edge_threshold=5,
-            velocity_threshold=100.0
+            display_manager=mock_display_manager, edge_threshold=5, velocity_threshold=100.0
         )
 
     @pytest.fixture
@@ -257,7 +253,7 @@ class TestPointerTrackerEdgeCases:
         tracker = PointerTracker(
             display_manager=mock_display_manager,
             edge_threshold=10,
-            velocity_threshold=500.0  # Much higher threshold
+            velocity_threshold=500.0,  # Much higher threshold
         )
 
         assert tracker._velocity_threshold == 500.0
@@ -265,10 +261,7 @@ class TestPointerTrackerEdgeCases:
 
     def test_default_velocity_threshold(self, mock_display_manager):
         """Test tracker uses default velocity threshold when not specified"""
-        tracker = PointerTracker(
-            display_manager=mock_display_manager,
-            edge_threshold=5
-        )
+        tracker = PointerTracker(display_manager=mock_display_manager, edge_threshold=5)
 
         # Should use settings.DEFAULT_VELOCITY_THRESHOLD (100.0)
         assert tracker._velocity_threshold == 100.0
@@ -276,9 +269,7 @@ class TestPointerTrackerEdgeCases:
     def test_zero_edge_threshold(self, mock_display_manager):
         """Test boundary detection with zero edge threshold"""
         tracker = PointerTracker(
-            display_manager=mock_display_manager,
-            edge_threshold=0,
-            velocity_threshold=100.0
+            display_manager=mock_display_manager, edge_threshold=0, velocity_threshold=100.0
         )
 
         screen = Screen(width=1920, height=1080)
@@ -297,19 +288,14 @@ class TestPointerTrackerEdgeCases:
 
     def test_positionLast_get_initially_none(self, mock_display_manager):
         """Test last position is None initially"""
-        tracker = PointerTracker(
-            display_manager=mock_display_manager,
-            edge_threshold=5
-        )
+        tracker = PointerTracker(display_manager=mock_display_manager, edge_threshold=5)
 
         assert tracker.positionLast_get() is None
 
     def test_corner_positions_prioritize_horizontal(self, mock_display_manager):
         """Test that corner positions are detected correctly (left/right checked first)"""
         tracker = PointerTracker(
-            display_manager=mock_display_manager,
-            edge_threshold=5,
-            velocity_threshold=100.0
+            display_manager=mock_display_manager, edge_threshold=5, velocity_threshold=100.0
         )
 
         screen = Screen(width=1920, height=1080)

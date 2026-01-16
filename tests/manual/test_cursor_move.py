@@ -38,7 +38,7 @@ def main():
     time.sleep(0.5)
     pointer = root.query_pointer()
     print(f"X server reports position: ({pointer.root_x}, {pointer.root_y})")
-    warp_worked = (pointer.root_x == new_x)
+    warp_worked = pointer.root_x == new_x
     print(f"Internal position updated: {warp_worked}")
     print(">>> Did the cursor VISUALLY move? (y/n)")
 
@@ -57,16 +57,16 @@ def main():
     time.sleep(0.5)
     pointer = root.query_pointer()
     print(f"X server reports position: ({pointer.root_x}, {pointer.root_y})")
-    xtest_worked = (pointer.root_x == new_x)
+    xtest_worked = pointer.root_x == new_x
     print(f"Internal position updated: {xtest_worked}")
     print(">>> Did the cursor VISUALLY move? (y/n)")
 
     time.sleep(2)  # Let user observe
 
     # Summary
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print("SUMMARY")
-    print("="*50)
+    print("=" * 50)
     print(f"warp_pointer - Internal position updated: {warp_worked}")
     print(f"XTest fake_input - Internal position updated: {xtest_worked}")
     print()

@@ -2,7 +2,7 @@
 
 import argparse
 import sys
-from typing import NoReturn, Optional
+from typing import NoReturn
 
 from tx2tx import __version__
 
@@ -16,14 +16,10 @@ def arguments_parse() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(
         prog="tx2tx",
-        description="X11 KVM for termux-x11: share mouse/keyboard between X11 displays"
+        description="X11 KVM for termux-x11: share mouse/keyboard between X11 displays",
     )
 
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"tx2tx {__version__}"
-    )
+    parser.add_argument("--version", action="version", version=f"tx2tx {__version__}")
 
     # Mode selection: --server means client mode (connect to server)
     # No --server means run as server
@@ -32,7 +28,7 @@ def arguments_parse() -> argparse.Namespace:
         type=str,
         metavar="HOST:PORT",
         default=None,
-        help="Connect to server at HOST:PORT (client mode). If omitted, run as server."
+        help="Connect to server at HOST:PORT (client mode). If omitted, run as server.",
     )
 
     # Common options
@@ -40,29 +36,20 @@ def arguments_parse() -> argparse.Namespace:
         "--config",
         type=str,
         default=None,
-        help="Path to config file (default: search standard locations)"
+        help="Path to config file (default: search standard locations)",
     )
 
     parser.add_argument(
-        "--display",
-        type=str,
-        default=None,
-        help="X11 display name (overrides config)"
+        "--display", type=str, default=None, help="X11 display name (overrides config)"
     )
 
     # Server-specific options
     parser.add_argument(
-        "--host",
-        type=str,
-        default=None,
-        help="[Server] Host address to bind to (overrides config)"
+        "--host", type=str, default=None, help="[Server] Host address to bind to (overrides config)"
     )
 
     parser.add_argument(
-        "--port",
-        type=int,
-        default=None,
-        help="[Server] Port to listen on (overrides config)"
+        "--port", type=int, default=None, help="[Server] Port to listen on (overrides config)"
     )
 
     parser.add_argument(
@@ -70,21 +57,15 @@ def arguments_parse() -> argparse.Namespace:
         type=int,
         default=None,
         dest="edge_threshold",
-        help="[Server] Pixels from edge to trigger transition (overrides config)"
+        help="[Server] Pixels from edge to trigger transition (overrides config)",
     )
 
     parser.add_argument(
-        "--name",
-        type=str,
-        default=None,
-        help="[Server] Server name for logging (overrides config)"
+        "--name", type=str, default=None, help="[Server] Server name for logging (overrides config)"
     )
 
     parser.add_argument(
-        "--client",
-        type=str,
-        default=None,
-        help="[Client] Client name from config (e.g., 'phomux')"
+        "--client", type=str, default=None, help="[Client] Client name from config (e.g., 'phomux')"
     )
 
     return parser.parse_args()
@@ -100,12 +81,14 @@ def main() -> NoReturn:
             # If --client is specified, treat it as client name if --name not provided
             if args.client and not args.name:
                 args.name = args.client
-                
+
             from tx2tx.client.main import client_run
+
             client_run(args)
         else:
             # No --server or --client: run as server
             from tx2tx.server.main import server_run
+
             server_run(args)
         # Both client_run and server_run are NoReturn, so this is unreachable
         # But we need explicit exit for mypy

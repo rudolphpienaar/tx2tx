@@ -7,6 +7,7 @@ from typing import Optional
 
 class EventType(Enum):
     """Types of input events"""
+
     MOUSE_MOVE = "mouse_move"
     MOUSE_BUTTON_PRESS = "mouse_button_press"
     MOUSE_BUTTON_RELEASE = "mouse_button_release"
@@ -18,6 +19,7 @@ class EventType(Enum):
 
 class Direction(Enum):
     """Screen edge directions"""
+
     LEFT = "left"
     RIGHT = "right"
     TOP = "top"
@@ -26,16 +28,18 @@ class Direction(Enum):
 
 class ScreenContext(Enum):
     """Global context - which screen has active control"""
+
     CENTER = "center"  # Server has control, cursor shown
-    WEST = "west"      # West client has control, cursor hidden
-    EAST = "east"      # East client has control, cursor hidden
-    NORTH = "north"    # North client has control, cursor hidden
-    SOUTH = "south"    # South client has control, cursor hidden
+    WEST = "west"  # West client has control, cursor hidden
+    EAST = "east"  # East client has control, cursor hidden
+    NORTH = "north"  # North client has control, cursor hidden
+    SOUTH = "south"  # South client has control, cursor hidden
 
 
 @dataclass(frozen=True)
 class Position:
     """Absolute pixel position on a screen"""
+
     x: int
     y: int
 
@@ -54,6 +58,7 @@ class NormalizedPoint:
 
     Used for transmitting coordinates between screens of different resolutions.
     """
+
     x: float  # 0.0-1.0
     y: float  # 0.0-1.0
 
@@ -61,7 +66,9 @@ class NormalizedPoint:
         """Validate that coordinates are in valid range"""
         # Allow slightly out of bounds for edge cases (like hide signal at -1.0)
         if not (-1.0 <= self.x <= 1.0) or not (-1.0 <= self.y <= 1.0):
-            raise ValueError(f"NormalizedPoint coordinates must be in range [-1.0, 1.0], got ({self.x}, {self.y})")
+            raise ValueError(
+                f"NormalizedPoint coordinates must be in range [-1.0, 1.0], got ({self.x}, {self.y})"
+            )
 
 
 @dataclass(frozen=True)
@@ -72,6 +79,7 @@ class Screen:
     and provides coordinate transformation between pixel positions and
     normalized points.
     """
+
     width: int
     height: int
 
@@ -93,10 +101,7 @@ class Screen:
             pos = Position(x=960, y=540)  # Center of screen
             npt = screen.normalize(pos)   # NormalizedPoint(x=0.5, y=0.5)
         """
-        return NormalizedPoint(
-            x=pos.x / self.width,
-            y=pos.y / self.height
-        )
+        return NormalizedPoint(x=pos.x / self.width, y=pos.y / self.height)
 
     def denormalize(self, npt: NormalizedPoint) -> Position:
         """Convert normalized point to pixel position
@@ -112,10 +117,7 @@ class Screen:
             npt = NormalizedPoint(x=0.5, y=0.5)
             pos = screen.denormalize(npt)  # Position(x=960, y=540)
         """
-        return Position(
-            x=int(npt.x * self.width),
-            y=int(npt.y * self.height)
-        )
+        return Position(x=int(npt.x * self.width), y=int(npt.y * self.height))
 
 
 # Backward compatibility alias
@@ -132,6 +134,7 @@ class MouseEvent:
     For MOUSE_MOVE over protocol: use normalized_point
     For button events: use position (local pixel coordinates)
     """
+
     event_type: EventType
     position: Optional[Position] = None  # Pixel coordinates (local use)
     normalized_point: Optional[NormalizedPoint] = None  # Normalized coords (protocol use)
@@ -144,18 +147,17 @@ class MouseEvent:
 
     def isButtonEvent(self) -> bool:
         """Check if this is a button press/release event"""
-        return self.event_type in (
-            EventType.MOUSE_BUTTON_PRESS,
-            EventType.MOUSE_BUTTON_RELEASE
-        )
+        return self.event_type in (EventType.MOUSE_BUTTON_PRESS, EventType.MOUSE_BUTTON_RELEASE)
 
 
 @dataclass(frozen=True)
 class KeyEvent:
     """Keyboard event data"""
+
     event_type: EventType
     keycode: int
     keysym: Optional[int] = None
+    state: Optional[int] = None  # X11 modifier state (server-side use only)
 
     def isPressEvent(self) -> bool:
         """Check if this is a key press (vs release)"""
@@ -165,5 +167,6 @@ class KeyEvent:
 @dataclass(frozen=True)
 class ScreenTransition:
     """Screen boundary crossing event"""
+
     direction: Direction
     position: Position

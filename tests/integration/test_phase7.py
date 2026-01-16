@@ -6,10 +6,8 @@ import subprocess
 import time
 import signal
 import sys
-from pathlib import Path
 
 from Xlib import display as xdisplay, X
-from Xlib.display import Display
 from Xlib.ext import xtest
 
 
@@ -34,9 +32,11 @@ class Harness:
             try:
                 outs, errs = self.server_proc.communicate(timeout=5)
                 print("--- SERVER OUTPUT ---")
-                if outs: print(outs)
+                if outs:
+                    print(outs)
                 print("--- SERVER ERRORS ---")
-                if errs: print(errs)
+                if errs:
+                    print(errs)
                 print("---------------------")
             except subprocess.TimeoutExpired:
                 self.server_proc.kill()
@@ -47,9 +47,11 @@ class Harness:
             try:
                 outs, errs = self.client_proc.communicate(timeout=5)
                 print("--- CLIENT OUTPUT ---")
-                if outs: print(outs)
+                if outs:
+                    print(outs)
                 print("--- CLIENT ERRORS ---")
-                if errs: print(errs)
+                if errs:
+                    print(errs)
                 print("---------------------")
             except subprocess.TimeoutExpired:
                 self.client_proc.kill()
@@ -72,7 +74,7 @@ class Harness:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            env=env
+            env=env,
         )
         time.sleep(1)  # Give server time to start
         print("[SERVER] Server started")
@@ -87,7 +89,7 @@ class Harness:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            env=env
+            env=env,
         )
         time.sleep(1)  # Give client time to connect
         print("[CLIENT] Client started")
@@ -106,14 +108,14 @@ class Harness:
         # root.warp_pointer(x, y)
         xtest.fake_input(self.display, X.MotionNotify, detail=0, x=x, y=y)
         self.display.sync()
-        
+
         # Verify
         screen = self.display.screen()
         root = screen.root
         p = root.query_pointer()
         # Relaxed verification for XTest as it might be interpolated
         if abs(p.root_x - x) > 50 or abs(p.root_y - y) > 50:
-             print(f"[WARN] move_cursor({x},{y}) failed? actual=({p.root_x},{p.root_y})")
+            print(f"[WARN] move_cursor({x},{y}) failed? actual=({p.root_x},{p.root_y})")
 
     def is_cursor_visible(self):
         """Check if cursor is visible (rough heuristic)"""
@@ -129,9 +131,9 @@ class Harness:
 
     def test_baseline(self):
         """Test 1: Baseline - CENTER mode works normally"""
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("TEST 1: Baseline - CENTER mode")
-        print("="*60)
+        print("=" * 60)
 
         width, height = self.get_screen_geometry()
         print(f"[INFO] Screen geometry: {width}x{height}")
@@ -152,9 +154,9 @@ class Harness:
 
     def test_center_to_west(self):
         """Test 2: CENTER → WEST transition"""
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("TEST 2: CENTER → WEST transition")
-        print("="*60)
+        print("=" * 60)
 
         width, height = self.get_screen_geometry()
         mid_y = height // 2
@@ -190,9 +192,9 @@ class Harness:
 
     def test_west_to_center(self):
         """Test 3: WEST → CENTER transition"""
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("TEST 3: WEST → CENTER transition")
-        print("="*60)
+        print("=" * 60)
 
         width, height = self.get_screen_geometry()
         mid_y = height // 2
@@ -224,9 +226,9 @@ class Harness:
 
     def run_all_tests(self):
         """Run all tests"""
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("tx2tx Phase 7: Input Isolation Testing")
-        print("="*60)
+        print("=" * 60)
 
         try:
             self.setup()
@@ -241,9 +243,9 @@ class Harness:
             results.append(("WEST→CENTER", self.test_west_to_center()))
 
             # Summary
-            print("\n" + "="*60)
+            print("\n" + "=" * 60)
             print("TEST SUMMARY")
-            print("="*60)
+            print("=" * 60)
             for name, passed in results:
                 status = "✓ PASS" if passed else "✗ FAIL"
                 print(f"{name:20} {status}")
@@ -275,6 +277,7 @@ def main():
     except Exception as e:
         print(f"\n[ERROR] Test harness failed: {e}")
         import traceback
+
         traceback.print_exc()
         harness.cleanup()
         sys.exit(1)

@@ -17,11 +17,12 @@ except ImportError:
     print("Install with: pkg install python-xlib")
     sys.exit(1)
 
+
 def test_x11_connection():
     """Test if we can connect to X11"""
     try:
         d = display.Display()
-        print(f"✅ X11 connection successful")
+        print("✅ X11 connection successful")
         print(f"   Display: {d.get_display_name()}")
         screen = d.screen()
         root = screen.root
@@ -31,8 +32,10 @@ def test_x11_connection():
     except Exception as e:
         print(f"❌ Cannot connect to X11: {e}")
         import traceback
+
         traceback.print_exc()
         return None
+
 
 def test_pointer_query(d):
     """Test if we can query pointer position"""
@@ -41,26 +44,28 @@ def test_pointer_query(d):
         root = screen.root
         geom = root.get_geometry()
         pointer = root.query_pointer()
-        print(f"✅ Pointer query works")
+        print("✅ Pointer query works")
         print(f"   Current position: ({pointer.root_x}, {pointer.root_y})")
         print(f"   Screen boundaries: 0-{geom.width}, 0-{geom.height}")
         return True
     except Exception as e:
         print(f"❌ Pointer query failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
+
 
 def test_xtest_extension(d):
     """Test if XTest extension is available"""
     try:
         # Check if extension exists
-        ext_info = d.query_extension('XTEST')
+        ext_info = d.query_extension("XTEST")
         if not ext_info:
             print("❌ XTest extension not available")
             return False
 
-        print(f"✅ XTest extension available")
+        print("✅ XTest extension available")
 
         # Try to get the version
         try:
@@ -79,30 +84,33 @@ def test_xtest_extension(d):
         xtest.fake_input(d, X.MotionNotify, detail=0, x=current_x, y=current_y)
         d.sync()
 
-        print(f"✅ XTest event injection works!")
-        print(f"   (tested with no-op motion event)")
+        print("✅ XTest event injection works!")
+        print("   (tested with no-op motion event)")
 
         return True
 
     except Exception as e:
         print(f"❌ XTest test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
+
 
 def test_xinput2_extension(d):
     """Test if XInput2 is available (optional, nice to have)"""
     try:
-        ext_info = d.query_extension('XInputExtension')
+        ext_info = d.query_extension("XInputExtension")
         if ext_info:
-            print(f"✅ XInput2 extension available (bonus!)")
+            print("✅ XInput2 extension available (bonus!)")
             return True
         else:
-            print(f"ℹ️  XInput2 not available (not critical)")
+            print("ℹ️  XInput2 not available (not critical)")
             return False
     except Exception as e:
         print(f"ℹ️  XInput2 check failed (not critical): {e}")
         return False
+
 
 def main():
     print("=" * 60)
@@ -163,6 +171,7 @@ def main():
         if not xtest_ok:
             print("  • Cannot inject events via XTest")
         return False
+
 
 if __name__ == "__main__":
     success = main()

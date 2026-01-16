@@ -35,9 +35,9 @@ class Settings:
     configuration values and protocol constants.
     """
 
-    _instance: Optional['Settings'] = None
+    _instance: Optional["Settings"] = None
 
-    def __new__(cls) -> 'Settings':
+    def __new__(cls) -> "Settings":
         """Ensure only one Settings instance exists"""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
@@ -45,7 +45,7 @@ class Settings:
 
     def __init__(self) -> None:
         """Initialize settings singleton (only runs once)"""
-        if hasattr(self, '_initialized'):
+        if hasattr(self, "_initialized"):
             return
         self._initialized = True
         self._config: Optional[Config] = None
@@ -139,9 +139,7 @@ class Settings:
             RuntimeError: If settings not initialized with config
         """
         if self._config is None:
-            raise RuntimeError(
-                "Settings not initialized. Call settings.initialize(config) first."
-            )
+            raise RuntimeError("Settings not initialized. Call settings.initialize(config) first.")
         return self._config
 
 

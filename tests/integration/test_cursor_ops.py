@@ -2,22 +2,21 @@
 """Test cursor operations in isolation"""
 
 import time
-import sys
 import logging
-
-# Setup logging to see all debug messages
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 
 from tx2tx.x11.display import DisplayManager
 from tx2tx.common.types import Position
 
+# Setup logging to see all debug messages
+logging.basicConfig(
+    level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+
+
 def main():
-    print("="*60)
+    print("=" * 60)
     print("Testing cursor operations in isolation")
-    print("="*60)
+    print("=" * 60)
 
     dm = DisplayManager()
 
@@ -29,7 +28,7 @@ def main():
         print(f"[TEST] Connected! Screen: {geom.width}x{geom.height}")
 
         # Get initial position
-        from Xlib import display as xdisplay
+
         disp = dm.display_get()
         root = disp.screen().root
         pos = root.query_pointer()
@@ -58,6 +57,7 @@ def main():
         except Exception as e:
             print(f"[TEST 2] ✗ FAIL - cursor_hide() raised: {e}")
             import traceback
+
             traceback.print_exc()
             return
 
@@ -77,6 +77,7 @@ def main():
         except Exception as e:
             print(f"[TEST 3] ✗ FAIL - cursorPosition_set() raised: {e}")
             import traceback
+
             traceback.print_exc()
 
         # Test 4: Show cursor
@@ -89,6 +90,7 @@ def main():
         except Exception as e:
             print(f"[TEST 4] ✗ FAIL - cursor_show() raised: {e}")
             import traceback
+
             traceback.print_exc()
 
         # Test 5: Grab and ungrab
@@ -104,6 +106,7 @@ def main():
         except Exception as e:
             print(f"[TEST 5] ✗ FAIL - {e}")
             import traceback
+
             traceback.print_exc()
 
         # Test 6: Full transition sequence
@@ -142,14 +145,16 @@ def main():
         except Exception as e:
             print(f"[TEST 6] ✗ FAIL - {e}")
             import traceback
+
             traceback.print_exc()
 
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("Test completed")
-        print("="*60)
+        print("=" * 60)
 
     finally:
         dm.connection_close()
+
 
 if __name__ == "__main__":
     main()

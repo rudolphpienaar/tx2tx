@@ -11,7 +11,7 @@ from tx2tx import __version__
 from tx2tx.client.network import ClientNetwork
 from tx2tx.common.config import ConfigLoader
 from tx2tx.common.settings import settings
-from tx2tx.common.types import EventType, MouseEvent, Position
+from tx2tx.common.types import EventType, MouseEvent
 from tx2tx.protocol.message import Message, MessageParser, MessageType
 from tx2tx.x11.display import DisplayManager
 from tx2tx.x11.injector import EventInjector
@@ -26,42 +26,33 @@ def arguments_parse() -> argparse.Namespace:
     Returns:
         Parsed arguments
     """
-    parser = argparse.ArgumentParser(
-        description="tx2tx client - receives and injects input events"
-    )
+    parser = argparse.ArgumentParser(description="tx2tx client - receives and injects input events")
 
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"tx2tx {__version__}"
-    )
+    parser.add_argument("--version", action="version", version=f"tx2tx {__version__}")
 
     parser.add_argument(
         "--config",
         type=str,
         default=None,
-        help="Path to config file (default: search standard locations)"
+        help="Path to config file (default: search standard locations)",
     )
 
     parser.add_argument(
         "--server",
         type=str,
         default=None,
-        help="Server address to connect to (overrides config, e.g., 192.168.1.100:24800)"
+        help="Server address to connect to (overrides config, e.g., 192.168.1.100:24800)",
     )
 
     parser.add_argument(
-        "--display",
-        type=str,
-        default=None,
-        help="X11 display name (overrides config)"
+        "--display", type=str, default=None, help="X11 display name (overrides config)"
     )
 
     parser.add_argument(
         "--name",
         type=str,
         default=None,
-        help="Client name for logging and identification (e.g., 'phomux')"
+        help="Client name for logging and identification (e.g., 'phomux')",
     )
 
     return parser.parse_args()
@@ -108,22 +99,17 @@ def logging_setup(level: str, log_format: str, log_file: Optional[str]) -> None:
 
     # Inject version and commit hash into log format after timestamp
     # Format: "%(asctime)s [v2.0.3.c0f8] - %(name)s - %(levelname)s - %(message)s"
-    enhanced_format = log_format.replace(
-        "%(asctime)s",
-        f"%(asctime)s [v{__version__}]"
-    )
+    enhanced_format = log_format.replace("%(asctime)s", f"%(asctime)s [v{__version__}]")
 
     logging.basicConfig(
-        level=getattr(logging, level.upper()),
-        format=enhanced_format,
-        handlers=handlers
+        level=getattr(logging, level.upper()), format=enhanced_format, handlers=handlers
     )
 
 
 def serverMessage_handle(
     message: Message,
     injector: Optional[EventInjector] = None,
-    display_manager: Optional[DisplayManager] = None
+    display_manager: Optional[DisplayManager] = None,
 ) -> None:
     """
     Handle message received from server
@@ -172,7 +158,7 @@ def serverMessage_handle(
                     actual_event = MouseEvent(
                         event_type=mouse_event.event_type,
                         position=pixel_position,
-                        button=mouse_event.button
+                        button=mouse_event.button,
                     )
 
                     # Ensure cursor is shown
@@ -186,7 +172,9 @@ def serverMessage_handle(
 
             if actual_event.event_type == EventType.MOUSE_MOVE:
                 if actual_event.position:
-                    logger.debug(f"Cursor at ({actual_event.position.x}, {actual_event.position.y})")
+                    logger.debug(
+                        f"Cursor at ({actual_event.position.x}, {actual_event.position.y})"
+                    )
             else:
                 logger.info(f"Mouse {actual_event.event_type.value}: button={actual_event.button}")
         else:
@@ -203,9 +191,7 @@ def serverMessage_handle(
                     f"keysym={key_event.keysym:#x}"
                 )
             else:
-                logger.info(
-                    f"Key {key_event.event_type.value}: keycode={key_event.keycode}"
-                )
+                logger.info(f"Key {key_event.event_type.value}: keycode={key_event.keycode}")
         else:
             logger.warning("Received key event but injector not available")
 
@@ -225,9 +211,7 @@ def client_run(args: argparse.Namespace) -> None:
 
     try:
         config = ConfigLoader.configWithOverrides_load(
-            file_path=config_path,
-            server_address=args.server,
-            display=args.display
+            file_path=config_path, server_address=args.server, display=args.display
         )
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -283,7 +267,7 @@ def client_run(args: argparse.Namespace) -> None:
         port=port,
         reconnect_enabled=config.client.reconnect.enabled,
         reconnect_max_attempts=config.client.reconnect.max_attempts,
-        reconnect_delay=config.client.reconnect.delay_seconds
+        reconnect_delay=config.client.reconnect.delay_seconds,
     )
 
     try:
@@ -291,7 +275,7 @@ def client_run(args: argparse.Namespace) -> None:
         network.connection_establish(
             screen_width=screen_geometry.width,
             screen_height=screen_geometry.height,
-            client_name=args.name
+            client_name=args.name,
         )
 
         # Main event loop

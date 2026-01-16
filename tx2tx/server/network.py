@@ -61,7 +61,9 @@ class ClientConnection:
 
             # Check buffer size to prevent memory exhaustion
             if len(self.buffer) + len(decoded) > MAX_BUFFER_SIZE:
-                logger.error(f"Buffer overflow from {self.address}: buffer size would exceed {MAX_BUFFER_SIZE} bytes")
+                logger.error(
+                    f"Buffer overflow from {self.address}: buffer size would exceed {MAX_BUFFER_SIZE} bytes"
+                )
                 raise ConnectionError("Buffer size limit exceeded")
 
             self.buffer += decoded
@@ -190,8 +192,7 @@ class ServerNetwork:
             logger.info(f"Client disconnected: {client.address}")
 
     def clientData_receive(
-        self,
-        message_handler: Callable[[ClientConnection, Message], None]
+        self, message_handler: Callable[[ClientConnection, Message], None]
     ) -> None:
         """
         Receive data from all connected clients (non-blocking)

@@ -6,14 +6,13 @@ Run this on your Crostini machine to test if cursor appearance can be changed.
 """
 
 import time
-from Xlib import display as xdisplay, X, Xatom
-from Xlib.ext import xfixes
+from Xlib import display as xdisplay, X
 
 # X11 cursor font constants
-XC_X_CURSOR = 0        # X shape
-XC_CROSSHAIR = 34      # Crosshair +
-XC_PIRATE = 88         # Skull and crossbones
-XC_WATCH = 150         # Watch/hourglass
+XC_X_CURSOR = 0  # X shape
+XC_CROSSHAIR = 34  # Crosshair +
+XC_PIRATE = 88  # Skull and crossbones
+XC_WATCH = 150  # Watch/hourglass
 
 
 def main():
@@ -38,8 +37,8 @@ def main():
             cursor_font,
             XC_X_CURSOR,
             XC_X_CURSOR + 1,
-            (65535, 0, 0),       # Red foreground
-            (65535, 65535, 65535) # White background
+            (65535, 0, 0),  # Red foreground
+            (65535, 65535, 65535),  # White background
         )
         cursor_font.close()
 
@@ -55,7 +54,7 @@ def main():
     print()
     print("--- Test 2: XFixes hide_cursor ---")
     try:
-        if d.has_extension('XFIXES'):
+        if d.has_extension("XFIXES"):
             print("XFixes extension available")
             d.xfixes.hide_cursor(root)
             d.sync()
@@ -82,22 +81,24 @@ def main():
             cursor_font,
             XC_PIRATE,
             XC_PIRATE + 1,
-            (0, 0, 0),           # Black foreground
-            (65535, 65535, 65535) # White background
+            (0, 0, 0),  # Black foreground
+            (65535, 65535, 65535),  # White background
         )
         cursor_font.close()
 
         # Create a small window
         window = root.create_window(
-            100, 100,  # position
-            400, 300,  # size
-            2,         # border width
+            100,
+            100,  # position
+            400,
+            300,  # size
+            2,  # border width
             screen.root_depth,
             X.InputOutput,
             X.CopyFromParent,
             background_pixel=screen.white_pixel,
             event_mask=X.ExposureMask,
-            cursor=pirate_cursor
+            cursor=pirate_cursor,
         )
         window.map()
         d.sync()
@@ -121,8 +122,8 @@ def main():
             cursor_font,
             XC_WATCH,
             XC_WATCH + 1,
-            (0, 0, 65535),       # Blue foreground
-            (65535, 65535, 65535) # White background
+            (0, 0, 65535),  # Blue foreground
+            (65535, 65535, 65535),  # White background
         )
         cursor_font.close()
 

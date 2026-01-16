@@ -4,7 +4,6 @@ import argparse
 import logging
 import sys
 import time
-from enum import Enum
 from pathlib import Path
 from typing import NoReturn, Optional, Union
 
@@ -14,8 +13,17 @@ from tx2tx import __version__
 from tx2tx.common.config import ConfigLoader
 from tx2tx.common.layout import ClientPosition, ScreenLayout
 from tx2tx.common.settings import settings
-from tx2tx.common.types import Direction, EventType, KeyEvent, MouseEvent, NormalizedPoint, Position, Screen, ScreenContext, ScreenTransition
-from tx2tx.protocol.message import Message, MessageBuilder, MessageParser, MessageType
+from tx2tx.common.types import (
+    Direction,
+    EventType,
+    KeyEvent,
+    MouseEvent,
+    NormalizedPoint,
+    Position,
+    Screen,
+    ScreenContext,
+)
+from tx2tx.protocol.message import Message, MessageBuilder, MessageType
 from tx2tx.server.network import ClientConnection, ServerNetwork
 from tx2tx.server.state import server_state
 from tx2tx.x11.display import DisplayManager
@@ -27,43 +35,70 @@ logger = logging.getLogger(__name__)
 # See /usr/include/X11/keysymdef.h for full list
 KEY_NAME_TO_KEYSYM = {
     # Function keys
-    "F1": 0xffbe, "F2": 0xffbf, "F3": 0xffc0, "F4": 0xffc1,
-    "F5": 0xffc2, "F6": 0xffc3, "F7": 0xffc4, "F8": 0xffc5,
-    "F9": 0xffc6, "F10": 0xffc7, "F11": 0xffc8, "F12": 0xffc9,
+    "F1": 0xFFBE,
+    "F2": 0xFFBF,
+    "F3": 0xFFC0,
+    "F4": 0xFFC1,
+    "F5": 0xFFC2,
+    "F6": 0xFFC3,
+    "F7": 0xFFC4,
+    "F8": 0xFFC5,
+    "F9": 0xFFC6,
+    "F10": 0xFFC7,
+    "F11": 0xFFC8,
+    "F12": 0xFFC9,
     # Special keys
-    "Scroll_Lock": 0xff14,
-    "Pause": 0xff13, "Break": 0xff13,
-    "Escape": 0xff1b, "Esc": 0xff1b,
-    "Print": 0xff61, "Print_Screen": 0xff61,
-    "Insert": 0xff63, "Delete": 0xffff,
-    "Home": 0xff50, "End": 0xff57,
-    "Page_Up": 0xff55, "Page_Down": 0xff56,
-    "BackSpace": 0xff08, "Tab": 0xff09,
-    "Return": 0xff0d, "Enter": 0xff0d,
-    "space": 0x0020, "Space": 0x0020,
+    "Scroll_Lock": 0xFF14,
+    "Pause": 0xFF13,
+    "Break": 0xFF13,
+    "Escape": 0xFF1B,
+    "Esc": 0xFF1B,
+    "Print": 0xFF61,
+    "Print_Screen": 0xFF61,
+    "Insert": 0xFF63,
+    "Delete": 0xFFFF,
+    "Home": 0xFF50,
+    "End": 0xFF57,
+    "Page_Up": 0xFF55,
+    "Page_Down": 0xFF56,
+    "BackSpace": 0xFF08,
+    "Tab": 0xFF09,
+    "Return": 0xFF0D,
+    "Enter": 0xFF0D,
+    "space": 0x0020,
+    "Space": 0x0020,
     # Arrow keys
-    "Left": 0xff51, "Up": 0xff52, "Right": 0xff53, "Down": 0xff54,
+    "Left": 0xFF51,
+    "Up": 0xFF52,
+    "Right": 0xFF53,
+    "Down": 0xFF54,
     # Modifier keys (for reference, not typically used as panic key)
-    "Shift_L": 0xffe1, "Shift_R": 0xffe2,
-    "Control_L": 0xffe3, "Control_R": 0xffe4,
-    "Alt_L": 0xffe9, "Alt_R": 0xffea,
-    "Super_L": 0xffeb, "Super_R": 0xffec,
+    "Shift_L": 0xFFE1,
+    "Shift_R": 0xFFE2,
+    "Control_L": 0xFFE3,
+    "Control_R": 0xFFE4,
+    "Alt_L": 0xFFE9,
+    "Alt_R": 0xFFEA,
+    "Super_L": 0xFFEB,
+    "Super_R": 0xFFEC,
 }
 
 # Modifier key masks (from X11)
 MODIFIER_MASKS = {
     "Shift": 0x1,
-    "Lock": 0x2,      # Caps Lock
-    "Ctrl": 0x4, "Control": 0x4,
-    "Alt": 0x8, "Mod1": 0x8,
-    "Mod2": 0x10,     # Num Lock typically
+    "Lock": 0x2,  # Caps Lock
+    "Ctrl": 0x4,
+    "Control": 0x4,
+    "Alt": 0x8,
+    "Mod1": 0x8,
+    "Mod2": 0x10,  # Num Lock typically
     "Mod3": 0x20,
-    "Mod4": 0x40,     # Super/Windows key typically
+    "Mod4": 0x40,  # Super/Windows key typically
     "Mod5": 0x80,
 }
 
 # Default panic keysyms (used if config parsing fails)
-DEFAULT_PANIC_KEYSYMS = {0xff14, 0xff13}  # Scroll_Lock, Pause
+DEFAULT_PANIC_KEYSYMS = {0xFF14, 0xFF13}  # Scroll_Lock, Pause
 
 
 def panicKeyConfig_parse(config) -> tuple[set[int], int]:
@@ -100,7 +135,9 @@ def panicKeyConfig_parse(config) -> tuple[set[int], int]:
             else:
                 logger.warning(f"Unknown modifier '{mod}' in panic key config")
 
-        logger.info(f"Panic key configured: {'+'.join(modifiers + [key_name])} (keysym=0x{keysym:x}, mask=0x{mod_mask:x})")
+        logger.info(
+            f"Panic key configured: {'+'.join(modifiers + [key_name])} (keysym=0x{keysym:x}, mask=0x{mod_mask:x})"
+        )
         return {keysym}, mod_mask
 
     except Exception as e:
@@ -108,7 +145,12 @@ def panicKeyConfig_parse(config) -> tuple[set[int], int]:
         return DEFAULT_PANIC_KEYSYMS, 0
 
 
-def panicKey_check(events: list[Union[MouseEvent, KeyEvent]], panic_keysyms: set[int], required_modifiers: int, current_modifiers: int) -> bool:
+def panicKey_check(
+    events: list[Union[MouseEvent, KeyEvent]],
+    panic_keysyms: set[int],
+    required_modifiers: int,
+    current_modifiers: int,
+) -> bool:
     """
     Check if any event in the list is a panic key press.
 
@@ -119,25 +161,30 @@ def panicKey_check(events: list[Union[MouseEvent, KeyEvent]], panic_keysyms: set
         events: List of input events to check
         panic_keysyms: Set of keysyms that trigger panic
         required_modifiers: Modifier mask that must be active
-        current_modifiers: Currently active modifier mask
+        current_modifiers: Currently active modifier mask (fallback)
 
     Returns:
         True if a panic key press was detected
     """
-    # Check if required modifiers are held
-    if required_modifiers != 0:
-        if (current_modifiers & required_modifiers) != required_modifiers:
-            return False
-
     for event in events:
         if isinstance(event, KeyEvent):
             if event.event_type == EventType.KEY_PRESS:
+                # Use event-specific state if available, otherwise fallback
+                event_state = event.state if event.state is not None else current_modifiers
+
+                # Check modifiers
+                if required_modifiers != 0:
+                    if (event_state & required_modifiers) != required_modifiers:
+                        continue
+
                 if event.keysym in panic_keysyms:
                     return True
     return False
 
 
-def read_input_events(display_manager: DisplayManager) -> tuple[list[Union[MouseEvent, KeyEvent]], int]:
+def read_input_events(
+    display_manager: DisplayManager,
+) -> tuple[list[Union[MouseEvent, KeyEvent]], int]:
     """
     Read pending X11 input events (buttons and keys)
 
@@ -157,32 +204,42 @@ def read_input_events(display_manager: DisplayManager) -> tuple[list[Union[Mouse
         event = display.next_event()
 
         if event.type == X.ButtonPress:
-            events.append(MouseEvent(
-                event_type=EventType.MOUSE_BUTTON_PRESS,
-                position=Position(x=event.root_x, y=event.root_y),
-                button=event.detail
-            ))
+            events.append(
+                MouseEvent(
+                    event_type=EventType.MOUSE_BUTTON_PRESS,
+                    position=Position(x=event.root_x, y=event.root_y),
+                    button=event.detail,
+                )
+            )
             modifier_state = event.state
         elif event.type == X.ButtonRelease:
-            events.append(MouseEvent(
-                event_type=EventType.MOUSE_BUTTON_RELEASE,
-                position=Position(x=event.root_x, y=event.root_y),
-                button=event.detail
-            ))
+            events.append(
+                MouseEvent(
+                    event_type=EventType.MOUSE_BUTTON_RELEASE,
+                    position=Position(x=event.root_x, y=event.root_y),
+                    button=event.detail,
+                )
+            )
             modifier_state = event.state
         elif event.type == X.KeyPress:
-            events.append(KeyEvent(
-                event_type=EventType.KEY_PRESS,
-                keycode=event.detail,
-                keysym=display.keycode_to_keysym(event.detail, 0)
-            ))
+            events.append(
+                KeyEvent(
+                    event_type=EventType.KEY_PRESS,
+                    keycode=event.detail,
+                    keysym=display.keycode_to_keysym(event.detail, 0),
+                    state=event.state,
+                )
+            )
             modifier_state = event.state
         elif event.type == X.KeyRelease:
-            events.append(KeyEvent(
-                event_type=EventType.KEY_RELEASE,
-                keycode=event.detail,
-                keysym=display.keycode_to_keysym(event.detail, 0)
-            ))
+            events.append(
+                KeyEvent(
+                    event_type=EventType.KEY_RELEASE,
+                    keycode=event.detail,
+                    keysym=display.keycode_to_keysym(event.detail, 0),
+                    state=event.state,
+                )
+            )
             modifier_state = event.state
 
     return events, modifier_state
@@ -192,7 +249,7 @@ def state_revert_to_center(
     display_manager: DisplayManager,
     screen_geometry: Screen,
     position: Position,
-    pointer_tracker: PointerTracker
+    pointer_tracker: PointerTracker,
 ) -> None:
     """
     Emergency revert to CENTER context (restore input and cursor)
@@ -223,7 +280,7 @@ def state_revert_to_center(
         entry_pos = Position(x=screen_geometry.width - 2, y=position.y)
     elif prev_context == ScreenContext.NORTH:
         entry_pos = Position(x=position.x, y=1)
-    else: # SOUTH
+    else:  # SOUTH
         entry_pos = Position(x=position.x, y=screen_geometry.height - 2)
 
     try:
@@ -259,31 +316,21 @@ def arguments_parse() -> argparse.Namespace:
         description="tx2tx server - captures and broadcasts input events"
     )
 
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"tx2tx {__version__}"
-    )
+    parser.add_argument("--version", action="version", version=f"tx2tx {__version__}")
 
     parser.add_argument(
         "--config",
         type=str,
         default=None,
-        help="Path to config file (default: search standard locations)"
+        help="Path to config file (default: search standard locations)",
     )
 
     parser.add_argument(
-        "--host",
-        type=str,
-        default=None,
-        help="Host address to bind to (overrides config)"
+        "--host", type=str, default=None, help="Host address to bind to (overrides config)"
     )
 
     parser.add_argument(
-        "--port",
-        type=int,
-        default=None,
-        help="Port to listen on (overrides config)"
+        "--port", type=int, default=None, help="Port to listen on (overrides config)"
     )
 
     parser.add_argument(
@@ -291,21 +338,18 @@ def arguments_parse() -> argparse.Namespace:
         type=int,
         default=None,
         dest="edge_threshold",
-        help="Pixels from edge to trigger screen transition (overrides config)"
+        help="Pixels from edge to trigger screen transition (overrides config)",
     )
 
     parser.add_argument(
-        "--display",
-        type=str,
-        default=None,
-        help="X11 display name (overrides config)"
+        "--display", type=str, default=None, help="X11 display name (overrides config)"
     )
 
     parser.add_argument(
         "--name",
         type=str,
         default=None,
-        help="Server name for logging and identification (default: from config)"
+        help="Server name for logging and identification (default: from config)",
     )
 
     return parser.parse_args()
@@ -327,21 +371,15 @@ def logging_setup(level: str, log_format: str, log_file: Optional[str]) -> None:
 
     # Inject version and commit hash into log format after timestamp
     # Format: "%(asctime)s [v2.0.3.c0f8] - %(name)s - %(levelname)s - %(message)s"
-    enhanced_format = log_format.replace(
-        "%(asctime)s",
-        f"%(asctime)s [v{__version__}]"
-    )
+    enhanced_format = log_format.replace("%(asctime)s", f"%(asctime)s [v{__version__}]")
 
     logging.basicConfig(
-        level=getattr(logging, level.upper()),
-        format=enhanced_format,
-        handlers=handlers
+        level=getattr(logging, level.upper()), format=enhanced_format, handlers=handlers
     )
 
 
 def clientMessage_handle(
-    client: ClientConnection,
-    message: Message
+    client: ClientConnection, message: Message, network: ServerNetwork
 ) -> None:
     """
     Handle message received from client
@@ -349,6 +387,7 @@ def clientMessage_handle(
     Args:
         client: Client connection
         message: Received message
+        network: Server network instance (for managing connections)
     """
     logger.info(f"Received {message.msg_type.value} from {client.address}")
 
@@ -358,11 +397,22 @@ def clientMessage_handle(
         if "screen_width" in payload and "screen_height" in payload:
             client.screen_width = payload["screen_width"]
             client.screen_height = payload["screen_height"]
-        
+
         if "client_name" in payload:
             # Normalize name to lowercase for consistent matching
-            client.name = payload["client_name"].lower()
-            
+            new_name = payload["client_name"].lower()
+            client.name = new_name
+
+            # Check for existing clients with same name (Zombie detection)
+            # We iterate over a copy since we might modify the list
+            for existing_client in list(network.clients):
+                if existing_client is not client and existing_client.name == new_name:
+                    logger.warning(
+                        f"Duplicate client name '{new_name}' detected. "
+                        f"Disconnecting old connection from {existing_client.address}."
+                    )
+                    network.client_disconnect(existing_client)
+
         logger.info(
             f"Client handshake: version={payload.get('version')}, "
             f"screen={client.screen_width}x{client.screen_height}, "
@@ -393,7 +443,7 @@ def server_run(args: argparse.Namespace) -> None:
             host=args.host,
             port=args.port,
             edge_threshold=args.edge_threshold,
-            display=args.display
+            display=args.display,
         )
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -443,24 +493,24 @@ def server_run(args: argparse.Namespace) -> None:
     pointer_tracker = PointerTracker(
         display_manager=display_manager,
         edge_threshold=config.server.edge_threshold,
-        velocity_threshold=config.server.velocity_threshold
+        velocity_threshold=config.server.velocity_threshold,
     )
-    logger.info(f"Pointer tracker initialized (velocity_threshold={config.server.velocity_threshold})")
+    logger.info(
+        f"Pointer tracker initialized (velocity_threshold={config.server.velocity_threshold})"
+    )
 
     # Initialize screen layout for coordinate transformations
     try:
         client_position = ClientPosition(config.server.client_position)
         screen_layout = ScreenLayout(client_position=client_position)
         logger.info(f"Client position: {client_position.value}")
-    except ValueError as e:
+    except ValueError:
         logger.error(f"Invalid client_position in config: {config.server.client_position}")
         sys.exit(1)
 
     # Initialize network server
     network = ServerNetwork(
-        host=config.server.host,
-        port=config.server.port,
-        max_clients=config.server.max_clients
+        host=config.server.host, port=config.server.port, max_clients=config.server.max_clients
     )
 
     # Map context to client name
@@ -472,7 +522,9 @@ def server_run(args: argparse.Namespace) -> None:
                 # Normalize name to lowercase
                 context_to_client[ctx] = client_cfg.name.lower()
             except ValueError:
-                logger.warning(f"Invalid position '{client_cfg.position}' for client {client_cfg.name}")
+                logger.warning(
+                    f"Invalid position '{client_cfg.position}' for client {client_cfg.name}"
+                )
 
     # Reset server state singleton to initial values
     server_state.reset()
@@ -490,7 +542,7 @@ def server_run(args: argparse.Namespace) -> None:
             # Receive messages from clients
             def message_handler(client: ClientConnection, message: Message) -> None:
                 """Handle incoming messages from clients"""
-                clientMessage_handle(client, message)
+                clientMessage_handle(client, message, network)
 
             network.clientData_receive(message_handler)
 
@@ -516,11 +568,13 @@ def server_run(args: argparse.Namespace) -> None:
                                 Direction.LEFT: ScreenContext.WEST,
                                 Direction.RIGHT: ScreenContext.EAST,
                                 Direction.TOP: ScreenContext.NORTH,
-                                Direction.BOTTOM: ScreenContext.SOUTH
+                                Direction.BOTTOM: ScreenContext.SOUTH,
                             }
                             new_context = direction_to_context.get(transition.direction)
                             if not new_context:
-                                logger.error(f"Invalid transition direction: {transition.direction}")
+                                logger.error(
+                                    f"Invalid transition direction: {transition.direction}"
+                                )
                                 continue
 
                             logger.info(
@@ -538,17 +592,23 @@ def server_run(args: argparse.Namespace) -> None:
 
                                 # Calculate where cursor should be warped to (opposite edge)
                                 if transition.direction == Direction.LEFT:
-                                    warp_pos = Position(x=screen_geometry.width - 3, y=transition.position.y)
+                                    warp_pos = Position(
+                                        x=screen_geometry.width - 3, y=transition.position.y
+                                    )
                                 elif transition.direction == Direction.RIGHT:
                                     warp_pos = Position(x=2, y=transition.position.y)
                                 elif transition.direction == Direction.TOP:
-                                    warp_pos = Position(x=transition.position.x, y=screen_geometry.height - 3)
+                                    warp_pos = Position(
+                                        x=transition.position.x, y=screen_geometry.height - 3
+                                    )
                                 else:  # BOTTOM
                                     warp_pos = Position(x=transition.position.x, y=2)
 
                                 # CRITICAL: Warp cursor BEFORE grabbing pointer!
                                 # Use XTest fake_input instead of warp_pointer - compositors often block warp_pointer
-                                logger.info(f"[WARP] Warping cursor from ({transition.position.x}, {transition.position.y}) to ({warp_pos.x}, {warp_pos.y})")
+                                logger.info(
+                                    f"[WARP] Warping cursor from ({transition.position.x}, {transition.position.y}) to ({warp_pos.x}, {warp_pos.y})"
+                                )
                                 display_manager.cursorPosition_setViaXTest(warp_pos)
 
                                 # Small delay to ensure warp takes effect before grab
@@ -570,7 +630,9 @@ def server_run(args: argparse.Namespace) -> None:
 
                                 # Reset velocity tracker and last sent position
                                 pointer_tracker.reset()
-                                server_state.last_sent_position = None  # Ensure first position in new context is sent
+                                server_state.last_sent_position = (
+                                    None  # Ensure first position in new context is sent
+                                )
 
                                 logger.info(f"[STATE] → {new_context.value.upper()} context")
 
@@ -584,10 +646,12 @@ def server_run(args: argparse.Namespace) -> None:
                                     display_manager.keyboard_ungrab()
                                     display_manager.pointer_ungrab()
                                     display_manager.cursor_show()
-                                except:
+                                except Exception:
                                     pass
                                 server_state.context = ScreenContext.CENTER
-                                server_state.last_center_switch_time = time.time()  # Prevent rapid re-entry
+                                server_state.last_center_switch_time = (
+                                    time.time()
+                                )  # Prevent rapid re-entry
                                 logger.warning("Reverted to CENTER after failed transition")
 
                 elif server_state.context != ScreenContext.CENTER:
@@ -614,22 +678,26 @@ def server_run(args: argparse.Namespace) -> None:
                     # Check velocity for return (to prevent accidental triggers)
                     # Use lower threshold for return to make it feel natural
                     if should_return and velocity >= (config.server.velocity_threshold * 0.5):
-                        logger.info(f"[BOUNDARY] Returning from {server_state.context.value.upper()} at ({position.x}, {position.y})")
+                        logger.info(
+                            f"[BOUNDARY] Returning from {server_state.context.value.upper()} at ({position.x}, {position.y})"
+                        )
 
                         try:
                             # 1. Send Hide Signal to Client
                             if target_client_name:
                                 hide_event = MouseEvent(
                                     event_type=EventType.MOUSE_MOVE,
-                                    normalized_point=NormalizedPoint(x=-1.0, y=-1.0)
+                                    normalized_point=NormalizedPoint(x=-1.0, y=-1.0),
                                 )
                                 hide_msg = MessageBuilder.mouseEventMessage_create(hide_event)
                                 # We try to send it, but if it fails we still need to revert local state
                                 network.messageToClient_send(target_client_name, hide_msg)
-                        
+
                             # 2. Revert State (Restore desktop)
-                            state_revert_to_center(display_manager, screen_geometry, position, pointer_tracker)
-                        
+                            state_revert_to_center(
+                                display_manager, screen_geometry, position, pointer_tracker
+                            )
+
                         except Exception as e:
                             logger.error(f"Return transition failed: {e}", exc_info=True)
                             # Emergency cleanup
@@ -638,26 +706,32 @@ def server_run(args: argparse.Namespace) -> None:
                                 display_manager.cursor_show()
                                 display_manager.keyboard_ungrab()
                                 display_manager.pointer_ungrab()
-                            except:
+                            except Exception:
                                 pass
                     else:
                         if target_client_name:
                             # Not returning - Send events to active client ONLY if position changed
                             if server_state.positionChanged_check(position):
-                                logger.info(f"[MOUSE] Sending pos ({position.x}, {position.y}) to {target_client_name}")
+                                logger.info(
+                                    f"[MOUSE] Sending pos ({position.x}, {position.y}) to {target_client_name}"
+                                )
                                 normalized_point = screen_geometry.normalize(position)
 
                                 mouse_event = MouseEvent(
                                     event_type=EventType.MOUSE_MOVE,
-                                    normalized_point=normalized_point
+                                    normalized_point=normalized_point,
                                 )
                                 move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
 
                                 # If sending fails, revert to CENTER
                                 if not network.messageToClient_send(target_client_name, move_msg):
                                     connected_names = [c.name for c in network.clients]
-                                    logger.error(f"Failed to send movement to '{target_client_name}'. Connected clients: {connected_names}. Reverting.")
-                                    state_revert_to_center(display_manager, screen_geometry, position, pointer_tracker)
+                                    logger.error(
+                                        f"Failed to send movement to '{target_client_name}'. Connected clients: {connected_names}. Reverting."
+                                    )
+                                    state_revert_to_center(
+                                        display_manager, screen_geometry, position, pointer_tracker
+                                    )
                                     continue
 
                                 # Update last sent position
@@ -667,9 +741,15 @@ def server_run(args: argparse.Namespace) -> None:
                             input_events, modifier_state = read_input_events(display_manager)
 
                             # Check for panic key - configurable escape hatch
-                            if panicKey_check(input_events, panic_keysyms, panic_modifiers, modifier_state):
-                                logger.warning("[PANIC] Panic key pressed - forcing return to CENTER")
-                                state_revert_to_center(display_manager, screen_geometry, position, pointer_tracker)
+                            if panicKey_check(
+                                input_events, panic_keysyms, panic_modifiers, modifier_state
+                            ):
+                                logger.warning(
+                                    "[PANIC] Panic key pressed - forcing return to CENTER"
+                                )
+                                state_revert_to_center(
+                                    display_manager, screen_geometry, position, pointer_tracker
+                                )
                                 continue
 
                             for event in input_events:
@@ -682,26 +762,41 @@ def server_run(args: argparse.Namespace) -> None:
                                         norm_event = MouseEvent(
                                             event_type=event.event_type,
                                             normalized_point=norm_pos,
-                                            button=event.button
+                                            button=event.button,
                                         )
                                         msg = MessageBuilder.mouseEventMessage_create(norm_event)
-                                        logger.debug(f"[BUTTON] {event.event_type.value} button={event.button}")
+                                        logger.debug(
+                                            f"[BUTTON] {event.event_type.value} button={event.button}"
+                                        )
                                 elif isinstance(event, KeyEvent):
                                     msg = MessageBuilder.keyEventMessage_create(event)
-                                    logger.debug(f"[KEY] {event.event_type.value} keycode={event.keycode}")
+                                    logger.debug(
+                                        f"[KEY] {event.event_type.value} keycode={event.keycode}"
+                                    )
 
                                 if msg:
                                     if not network.messageToClient_send(target_client_name, msg):
-                                        logger.error(f"Failed to send {event.event_type.value} to {target_client_name}")
+                                        logger.error(
+                                            f"Failed to send {event.event_type.value} to {target_client_name}"
+                                        )
                                         # We don't break/continue here, the next loop iteration will handle it if move fails
                                         # but actually we should probably revert now.
-                                        state_revert_to_center(display_manager, screen_geometry, position, pointer_tracker)
+                                        state_revert_to_center(
+                                            display_manager,
+                                            screen_geometry,
+                                            position,
+                                            pointer_tracker,
+                                        )
                                         break
                         else:
                             # Drain events if no client connected but in remote mode
                             _, _ = read_input_events(display_manager)
-                            logger.error(f"Active context {server_state.context.value} has no connected client, reverting")
-                            state_revert_to_center(display_manager, screen_geometry, position, pointer_tracker)
+                            logger.error(
+                                f"Active context {server_state.context.value} has no connected client, reverting"
+                            )
+                            state_revert_to_center(
+                                display_manager, screen_geometry, position, pointer_tracker
+                            )
 
             # Small sleep to prevent busy waiting
             time.sleep(config.server.poll_interval_ms / settings.POLL_INTERVAL_DIVISOR)
