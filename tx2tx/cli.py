@@ -97,6 +97,10 @@ def main() -> NoReturn:
     try:
         if args.server or args.client:
             # --server or --client specified: run as client
+            # If --client is specified, treat it as client name if --name not provided
+            if args.client and not args.name:
+                args.name = args.client
+                
             from tx2tx.client.main import client_run
             client_run(args)
         else:

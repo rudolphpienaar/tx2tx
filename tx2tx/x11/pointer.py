@@ -118,6 +118,8 @@ class PointerTracker:
         # If at boundary, check velocity (momentum/edge resistance)
         if at_boundary and direction is not None:
             velocity = self.velocity_calculate()
+            import logging
+            logging.getLogger(__name__).info(f"At boundary {direction.value}: velocity={velocity:.1f}, threshold={self._velocity_threshold}")
             if velocity >= self._velocity_threshold:
                 return ScreenTransition(direction=direction, position=position)
             # else: At boundary but not enough momentum - don't transition

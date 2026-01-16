@@ -15,11 +15,11 @@ server:
   display: null
 
   # Distance from edge (in pixels) to trigger screen transition
-  edge_threshold: 0
+  edge_threshold: 1
 
   # Minimum velocity (pixels/second) required to cross screen boundary
   # This provides "edge resistance" - prevents accidental transitions
-  velocity_threshold: 100
+  velocity_threshold: 50
 
   # Polling interval in milliseconds
   poll_interval_ms: 20
