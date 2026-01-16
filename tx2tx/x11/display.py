@@ -12,6 +12,14 @@ from tx2tx.common.types import Position, ScreenGeometry
 
 logger = logging.getLogger(__name__)
 
+# X11 cursor font constants (from X11/cursorfont.h)
+# Each cursor shape has an even number; the mask is shape + 1
+XC_X_CURSOR = 0        # X shape
+XC_CROSSHAIR = 34      # Crosshair +
+XC_DOT = 38            # Small dot
+XC_TCROSS = 130        # Thin cross
+XC_PIRATE = 88         # Skull and crossbones
+
 
 class DisplayManager:
     """Manages X11 display connection and screen information"""
@@ -29,6 +37,7 @@ class DisplayManager:
         self._original_position: Optional[Position] = None
         self._cursor_hidden: bool = False
         self._blank_cursor: Optional[int] = None
+        self._remote_cursor: Optional[int] = None  # Gray X cursor for remote mode
 
     def connection_establish(self) -> None:
         """Establish connection to X11 display"""
@@ -312,9 +321,52 @@ class DisplayManager:
             logger.error(f"Failed to create blank cursor: {e}")
             return 0
 
+    def _remoteCursor_create(self) -> int:
+        """
+        Create a gray X cursor to indicate remote control mode.
+        Uses the standard X11 cursor font which is universally supported.
+
+        Returns:
+            Cursor ID, or 0 on failure
+        """
+        if self._remote_cursor is not None:
+            return self._remote_cursor
+
+        display = self.display_get()
+
+        try:
+            # Open the standard cursor font
+            cursor_font = display.open_font("cursor")
+
+            # Create cursor from font glyph
+            # XC_X_CURSOR = 0, mask is always glyph + 1
+            # Colors are 16-bit RGB values (0-65535)
+            # Gray foreground (50% gray), white background
+            cursor = cursor_font.create_glyph_cursor(
+                cursor_font,              # mask font (same as source)
+                XC_X_CURSOR,              # source char (0 = X shape)
+                XC_X_CURSOR + 1,          # mask char
+                (32768, 32768, 32768),    # foreground: 50% gray
+                (65535, 65535, 65535)     # background: white
+            )
+
+            cursor_font.close()
+            self._remote_cursor = cursor
+            logger.debug("Created gray X cursor for remote mode")
+            return cursor
+
+        except Exception as e:
+            logger.error(f"Failed to create gray X cursor: {e}")
+            return 0
+
     def cursor_hide(self) -> None:
         """
-        Hide cursor using XFixes extension (preferred) or blank cursor strategy (fallback)
+        Hide cursor or change to remote-mode indicator.
+
+        Tries in order:
+        1. XFixes hide_cursor (true invisibility)
+        2. Blank pixmap cursor (transparent)
+        3. Gray X cursor (visible but distinct indicator for remote mode)
 
         Raises:
             RuntimeError: If not connected to display
@@ -326,7 +378,7 @@ class DisplayManager:
         screen = display.screen()
         root = screen.root
 
-        # method 1: XFixes (Preferred)
+        # Method 1: XFixes (Preferred - true invisibility)
         try:
             if display.has_extension('XFIXES'):
                 display.xfixes.hide_cursor(root)
@@ -337,7 +389,7 @@ class DisplayManager:
         except Exception as e:
             logger.warning(f"XFixes hide_cursor failed: {e}")
 
-        # method 2: Blank Cursor (Fallback)
+        # Method 2: Blank Cursor (transparent)
         try:
             cursor = self._ensure_blank_cursor()
             if cursor:
@@ -349,7 +401,21 @@ class DisplayManager:
         except Exception as e:
             logger.warning(f"Failed to set blank cursor: {e}")
 
-        logger.warning("Cursor hiding failed")
+        # Method 3: Gray X Cursor (visible but indicates remote mode)
+        # This is the most reliable fallback for environments like Crostini
+        # where cursor hiding is blocked but cursor appearance can be changed
+        try:
+            cursor = self._remoteCursor_create()
+            if cursor:
+                root.change_attributes(cursor=cursor)
+                display.sync()
+                self._cursor_hidden = True
+                logger.info("Cursor set to gray X (remote mode indicator)")
+                return
+        except Exception as e:
+            logger.warning(f"Failed to set gray X cursor: {e}")
+
+        logger.warning("All cursor hiding methods failed")
 
     def cursor_show(self) -> None:
         """
