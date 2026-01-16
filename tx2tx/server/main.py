@@ -23,6 +23,35 @@ from tx2tx.x11.pointer import PointerTracker
 
 logger = logging.getLogger(__name__)
 
+# Panic key keysyms - pressing any of these forces return to CENTER
+# Scroll_Lock is the traditional Synergy/Barrier panic key
+PANIC_KEY_KEYSYMS = {
+    0xff14,  # Scroll_Lock
+    0xff13,  # Pause/Break
+}
+
+
+def panicKey_check(events: list[Union[MouseEvent, KeyEvent]]) -> bool:
+    """
+    Check if any event in the list is a panic key press.
+
+    The panic key (Scroll Lock or Pause/Break) forces immediate return
+    to CENTER context, providing an escape hatch if the client dies
+    or the user gets stuck in remote mode.
+
+    Args:
+        events: List of input events to check
+
+    Returns:
+        True if a panic key press was detected
+    """
+    for event in events:
+        if isinstance(event, KeyEvent):
+            if event.event_type == EventType.KEY_PRESS:
+                if event.keysym in PANIC_KEY_KEYSYMS:
+                    return True
+    return False
+
 
 def read_input_events(display_manager: DisplayManager) -> list[Union[MouseEvent, KeyEvent]]:
     """
@@ -542,6 +571,14 @@ def server_run(args: argparse.Namespace) -> None:
 
                             # Send Input Events (Buttons & Keys)
                             input_events = read_input_events(display_manager)
+
+                            # Check for panic key (Scroll Lock or Pause/Break)
+                            # This provides an escape hatch if client dies or user gets stuck
+                            if panicKey_check(input_events):
+                                logger.warning("[PANIC] Scroll Lock/Pause pressed - forcing return to CENTER")
+                                state_revert_to_center(display_manager, screen_geometry, position, pointer_tracker)
+                                continue
+
                             for event in input_events:
                                 msg = None
                                 if isinstance(event, MouseEvent):
