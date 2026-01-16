@@ -604,21 +604,11 @@ def server_run(args: argparse.Namespace) -> None:
                                 else:  # BOTTOM
                                     warp_pos = Position(x=transition.position.x, y=2)
 
-                                # CRITICAL: Warp cursor BEFORE grabbing pointer!
-                                # Use XTest fake_input instead of warp_pointer - compositors often block warp_pointer
-                                logger.info(
-                                    f"[WARP] Warping cursor from ({transition.position.x}, {transition.position.y}) to ({warp_pos.x}, {warp_pos.y})"
-                                )
-                                display_manager.cursorPosition_setViaXTest(warp_pos)
-
-                                # Small delay to ensure warp takes effect before grab
-                                time.sleep(0.01)  # 10ms
-
                                 # Now transition state
                                 server_state.context = new_context
                                 logger.debug(f"[CONTEXT] Changed to {new_context.value.upper()}")
 
-                                # Grab input AFTER warp (may fail - handle gracefully)
+                                # Grab input (may fail - handle gracefully)
                                 try:
                                     display_manager.pointer_grab()
                                     display_manager.keyboard_grab()
@@ -627,6 +617,17 @@ def server_run(args: argparse.Namespace) -> None:
 
                                 # Hide cursor (doesn't work but try anyway)
                                 display_manager.cursor_hide()
+
+                                # CRITICAL: Warp cursor AFTER grabbing and hiding!
+                                # This ensures that if the overlay creation resets the cursor, we override it.
+                                # Use XTest fake_input instead of warp_pointer - compositors often block warp_pointer
+                                logger.info(
+                                    f"[WARP] Warping cursor from ({transition.position.x}, {transition.position.y}) to ({warp_pos.x}, {warp_pos.y})"
+                                )
+                                display_manager.cursorPosition_setViaXTest(warp_pos)
+
+                                # Small delay to ensure warp takes effect
+                                time.sleep(0.01)  # 10ms
 
                                 # Reset velocity tracker and last sent position
                                 pointer_tracker.reset()
