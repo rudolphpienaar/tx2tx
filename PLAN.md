@@ -43,16 +43,20 @@ server_state.last_sent_position = None  # Ensure first position in new context i
 
 **Status:** 🔄 TESTING - Added INFO-level `[MOUSE]` logging to verify events are being sent
 
-### Issue C: Cursor Hiding Failure ⚠️
+### Issue C: Cursor Hiding → Gray X Cursor Fallback ✅
 
 **Problem Description:**
-Both XFixes and blank cursor methods fail:
-```
-XFixes hide_cursor failed: xfixes
-Failed to create blank cursor: create_pixmap_cursor
-```
+True cursor hiding fails in Crostini because the visual cursor is rendered by ChromeOS compositor, not X11. Both XFixes and blank pixmap methods fail.
 
-**Status:** ⚠️ KNOWN LIMITATION - Does not block core functionality
+**Solution Implemented (commit 009e8ac):**
+Added a 3-tier fallback in `cursor_hide()`:
+1. XFixes `hide_cursor` (true invisibility) - fails in Crostini
+2. Blank pixmap cursor (transparent) - fails in Crostini
+3. **Gray X cursor from cursor font** - WORKS as visible indicator
+
+The gray X cursor uses the standard X11 cursor font (`cursor`) which is universally supported. When in remote mode, instead of an invisible cursor, the user sees a distinct gray X shape.
+
+**Status:** ✅ IMPLEMENTED - Acceptable UX compromise
 
 ## 2. Debug Logging Available
 
@@ -72,6 +76,7 @@ Failed to create blank cursor: create_pixmap_cursor
 - **FIX:** Use XTest `fake_input(MotionNotify)` instead of `warp_pointer()` for cursor warps
 - **FIX:** Reset `last_sent_position` when entering REMOTE context
 - **DEBUG:** Added INFO-level `[MOUSE]` logging for mouse event sending
+- **FEAT:** Gray X cursor fallback when cursor hiding fails (Crostini compatibility)
 
 ### Session 2026-01-15
 - **REFACTOR:** Created ServerState singleton class with RPN naming convention
