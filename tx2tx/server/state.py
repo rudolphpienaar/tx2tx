@@ -32,6 +32,9 @@ class ServerState:
 
         # Timestamp of last transition to CENTER context
         self.last_center_switch_time: float = 0.0
+        
+        # Timestamp of last transition to REMOTE context (WEST/EAST/etc)
+        self.last_remote_switch_time: float = 0.0
 
         # Boundary crossing state
         self.boundary_crossed: bool = False
@@ -46,6 +49,7 @@ class ServerState:
         """Reset state to initial values"""
         self.context = ScreenContext.CENTER
         self.last_center_switch_time = 0.0
+        self.last_remote_switch_time = 0.0
         self.boundary_crossed = False
         self.target_warp_position = None
         self.last_sent_position = None

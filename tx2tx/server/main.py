@@ -634,6 +634,7 @@ def server_run(args: argparse.Namespace) -> None:
                                 server_state.last_sent_position = (
                                     None  # Ensure first position in new context is sent
                                 )
+                                server_state.last_remote_switch_time = time.time()
 
                                 logger.info(f"[STATE] → {new_context.value.upper()} context")
 
@@ -658,6 +659,26 @@ def server_run(args: argparse.Namespace) -> None:
                 elif server_state.context != ScreenContext.CENTER:
                     # In REMOTE mode - Server Authoritative Return Logic
                     target_client_name = context_to_client.get(server_state.context)
+
+                    # 0. WARP ENFORCEMENT (Grace Period)
+                    # If physical mouse fights back (snaps to edge), force warp again
+                    if (time.time() - server_state.last_remote_switch_time) < 0.5:
+                        # Determine where we SHOULD be
+                        target_pos = None
+                        if server_state.context == ScreenContext.WEST:
+                            target_pos = Position(x=screen_geometry.width - 3, y=position.y)
+                        elif server_state.context == ScreenContext.EAST:
+                            target_pos = Position(x=2, y=position.y)
+                        
+                        # Only checking WEST/EAST for now as they are primary use cases
+                        if target_pos:
+                            # If we are far from target (e.g. at wrong edge), re-warp
+                            if abs(position.x - target_pos.x) > 100:
+                                logger.info(f"[ENFORCE] Cursor at ({position.x},{position.y}), enforcing warp to ({target_pos.x},{target_pos.y})")
+                                display_manager.cursorPosition_setViaXTest(target_pos)
+                                # Skip return check this iteration to allow warp to take effect
+                                time.sleep(0.01)
+                                continue
 
                     # 1. Check for Return Condition
                     # Determine which edge triggers return based on current context
