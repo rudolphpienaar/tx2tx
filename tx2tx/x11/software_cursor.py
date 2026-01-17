@@ -89,9 +89,10 @@ class SoftwareCursor:
         if not self._window:
             self._setup()
 
-        # Center the cursor window on the hotspot
-        win_x = x - (self._width // 2)
-        win_y = y - (self._height // 2)
+        # Offset the cursor window from the hotspot so it doesn't block clicks
+        # The actual click happens at (x,y). We draw the cursor at (x+5, y+5).
+        win_x = x + 5
+        win_y = y + 5
 
         display = self._display_manager.display_get()
         
