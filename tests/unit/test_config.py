@@ -8,6 +8,7 @@ from tx2tx.common.config import (
     ServerConfig,
     ClientReconnectConfig,
     NamedClientConfig,
+    PanicKeyConfig,
 )
 
 
@@ -413,12 +414,15 @@ class TestConfigDataclasses:
             poll_interval_ms=10,
             max_clients=4,
             client_position="west",
+            panic_key=PanicKeyConfig(key="F12", modifiers=[]),
+            overlay_enabled=True,
         )
 
         assert server.name == "TestServer"
         assert server.host == "0.0.0.0"
         assert server.port == 25000
         assert server.display == ":0"
+        assert server.overlay_enabled is True
 
     def test_named_client_config_creation(self):
         """Test NamedClientConfig dataclass creation"""

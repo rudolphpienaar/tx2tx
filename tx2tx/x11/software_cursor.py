@@ -3,6 +3,7 @@
 import logging
 from typing import Optional
 from Xlib import X, display
+from Xlib.ext import shape
 from Xlib.protocol import request
 
 logger = logging.getLogger(__name__)
@@ -60,18 +61,60 @@ class SoftwareCursor:
             override_redirect=True
         )
 
-        # Shape Extension for Input Transparency (Click-through)
-        # If possible, we want to make the window "input transparent".
-        # Standard X11 rectangular windows catch input.
-        # We try to use XShape to mask the shape if available, 
-        # or XFixes SetWindowShapeRegion if supported.
-        # For now, simplistic approach: The window catches input.
-        # Since we are injecting input *logically* via XTest, 
-        # physical clicks on this window might be blocked?
-        # Actually, XTest injects to the 'pointer', which might be 'under' this window.
-        
-        # Let's draw a simple crosshair shape using standard window background for now.
-        # A solid square is fine for MVP.
+        # Apply Shape Mask to make it look like an arrow
+        if display.has_extension("SHAPE"):
+            try:
+                # Create a bitmap (depth 1) for the mask
+                pm = self._window.create_pixmap(self._width, self._height, 1)
+                gc = pm.create_gc(foreground=0, background=0)
+                
+                # 1. Clear everything to transparent (0)
+                pm.fill_rectangle(gc, 0, 0, self._width, self._height)
+                
+                # 2. Draw the arrow shape as opaque (1)
+                gc.change(foreground=1)
+                
+                # Simple pointer polygon points
+                # (0,0) is the tip
+                points = [
+                    (0, 0),    # Tip
+                    (0, 18),   # Left edge bottom
+                    (5, 13),   # Notch
+                    (9, 20),   # Stem bottom left
+                    (12, 19),  # Stem bottom right
+                    (8, 12),   # Stem top right join
+                    (14, 12),  # Right wing
+                    (0, 0)     # Close
+                ]
+                
+                # X.Complex might be needed if the polygon self-intersects, but this one is convex-ish
+                pm.fill_poly(gc, X.Complex, X.CoordModeOrigin, points)
+                
+                # 3. Apply the mask to the window
+                # Get constants safely (handling different python-xlib versions)
+                SK_Bounding = getattr(shape, "SK_Bounding", 0)
+                if not hasattr(shape, "SK_Bounding"):
+                    SK_Bounding = getattr(shape, "ShapeBounding", 0)
+                    
+                SO_Set = getattr(shape, "SO_Set", 0)
+                if not hasattr(shape, "SO_Set"):
+                    SO_Set = getattr(shape, "ShapeSet", 0)
+                
+                self._window.shape_mask(SO_Set, SK_Bounding, 0, 0, pm)
+                
+                # Optional: Input shape (XShape 1.1) to allow clicks through transparent parts
+                # If we want the cursor to capture clicks, we leave it. 
+                # If we want clicks to pass through the empty space, we can apply the same mask to Input.
+                # But since we are likely handling input via global grabs or XTest injection, 
+                # visual shape is the priority here.
+                
+                pm.free()
+                logger.debug("Applied software cursor shape mask")
+                
+            except Exception as e:
+                logger.warning(f"Failed to apply cursor shape: {e}")
+        else:
+            logger.info("SHAPE extension not available; falling back to square cursor")
 
         self._window.map()
         display.sync()
