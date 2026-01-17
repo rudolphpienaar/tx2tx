@@ -88,8 +88,8 @@ def main() -> NoReturn:
     args = arguments_parse()
 
     try:
-        if args.server or args.client:
-            # --server or --client specified: run as client
+        if args.server or args.client or args.software_cursor:
+            # --server, --client, or --software-cursor specified: run as client
             # If --client is specified, treat it as client name if --name not provided
             if args.client and not args.name:
                 args.name = args.client
@@ -98,7 +98,7 @@ def main() -> NoReturn:
 
             client_run(args)
         else:
-            # No --server or --client: run as server
+            # No client-related flags: run as server
             from tx2tx.server.main import server_run
 
             # Handle flag
