@@ -15,6 +15,7 @@ from tx2tx.common.types import EventType, MouseEvent
 from tx2tx.protocol.message import Message, MessageParser, MessageType
 from tx2tx.x11.display import DisplayManager
 from tx2tx.x11.injector import EventInjector
+from tx2tx.x11.software_cursor import SoftwareCursor
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +111,7 @@ def serverMessage_handle(
     message: Message,
     injector: Optional[EventInjector] = None,
     display_manager: Optional[DisplayManager] = None,
+    software_cursor: Optional[SoftwareCursor] = None,
 ) -> None:
     """
     Handle message received from server
@@ -160,6 +162,10 @@ def serverMessage_handle(
                         position=pixel_position,
                         button=mouse_event.button,
                     )
+
+                    # Update software cursor if enabled
+                    if software_cursor:
+                        software_cursor.move(pixel_position.x, pixel_position.y)
 
                     # Ensure cursor is shown
                     display_manager.cursor_show()
@@ -261,6 +267,12 @@ def client_run(args: argparse.Namespace) -> None:
 
     logger.info("XTest extension verified, event injection ready")
 
+    # Initialize software cursor if requested
+    software_cursor = None
+    if args.software_cursor:
+        software_cursor = SoftwareCursor(display_manager)
+        logger.info("Software cursor enabled")
+
     # Initialize network client
     network = ClientNetwork(
         host=host,
@@ -287,7 +299,7 @@ def client_run(args: argparse.Namespace) -> None:
                 messages = network.messages_receive()
 
                 for message in messages:
-                    serverMessage_handle(message, event_injector, display_manager)
+                    serverMessage_handle(message, event_injector, display_manager, software_cursor)
 
                 # Small sleep to prevent busy waiting
                 time.sleep(settings.RECONNECT_CHECK_INTERVAL)

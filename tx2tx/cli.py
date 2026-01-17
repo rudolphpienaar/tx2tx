@@ -71,6 +71,12 @@ def arguments_parse() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--software-cursor",
+        action="store_true",
+        help="[Client] Enable software rendered cursor (useful if hardware cursor is invisible)",
+    )
+
+    parser.add_argument(
         "--client", type=str, default=None, help="[Client] Client name from config (e.g., 'phomux')"
     )
 
