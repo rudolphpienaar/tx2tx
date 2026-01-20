@@ -49,11 +49,11 @@ server:
 
 # Named clients configuration
 clients:
-  - name: "phomux"
-    position: "west"
+  # - name: "phomux"
+  #   position: "west"
   # Future clients can be added here with different positions:
-  # - name: "desktop"
-  #   position: "east"
+  - name: "penguin"
+    position: "east"
 
 # Client configuration
 client:
