@@ -284,22 +284,28 @@ def state_revert_to_center(
         entry_pos = Position(x=position.x, y=screen_geometry.height - 2)
 
     try:
-        # 1. Show cursor FIRST
-        # Some compositors or X server states ignore WarpPointer if the cursor is hidden
-        # via XFixes. Showing it first ensures the Warp is respected.
-        # We are still Grabbed, so the user can't move it yet.
+        # 1. First Warp Attempt (Best Effort)
+        # Try to warp while hidden and grabbed. This is ideal if the compositor supports it.
+        try:
+            display_manager.cursorPosition_set(entry_pos)
+        except Exception:
+            pass
+
+        # 2. Show cursor
+        # Necessary because some compositors ignore WarpPointer for hidden cursors.
         display_manager.cursor_show()
 
-        # 2. Warp to entry position (while still grabbed)
+        # 3. Second Warp Attempt (Verified)
+        # Now that cursor is visible, this warp MUST work.
+        # We are still Grabbed, so the user can't move it yet.
         try:
             logger.info(f"[WARP RETURN] Warping to entry position ({entry_pos.x}, {entry_pos.y})")
             if not display_manager.cursorPosition_setAndVerify(entry_pos):
                  logger.warning(f"Return warp verification failed for position ({entry_pos.x}, {entry_pos.y})")
         except Exception as e:
             logger.error(f"Warp failed during revert: {e}")
-            # Continue to ungrab ensures we don't lock the user out
 
-        # 3. Ungrab to restore desktop control
+        # 4. Ungrab to restore desktop control
         try:
             display_manager.keyboard_ungrab()
             display_manager.pointer_ungrab()

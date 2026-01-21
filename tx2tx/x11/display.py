@@ -101,10 +101,7 @@ def xfixes_hide_cursor_native(display: Display, window_id: int) -> bool:
 
         # Call XFixesHideCursor(Display *dpy, Window window)
         libXfixes.XFixesHideCursor(ctypes.c_void_p(_xfixes_display_ptr), ctypes.c_ulong(_xfixes_root_window))
-        
-        # Use XSync instead of XFlush to ensure server has processed the command
-        # This prevents race conditions with the main connection (e.g. warping immediately after)
-        libX11.XSync(ctypes.c_void_p(_xfixes_display_ptr), 0)
+        libX11.XFlush(ctypes.c_void_p(_xfixes_display_ptr))
 
         return True
     except Exception as e:
@@ -133,10 +130,7 @@ def xfixes_show_cursor_native(display: Display, window_id: int) -> bool:
     try:
         # Call XFixesShowCursor(Display *dpy, Window window)
         libXfixes.XFixesShowCursor(ctypes.c_void_p(_xfixes_display_ptr), ctypes.c_ulong(_xfixes_root_window))
-        
-        # Use XSync instead of XFlush to ensure server has processed the command
-        # This ensures the cursor is widely known as "visible" before we attempt to warp it on the other connection
-        libX11.XSync(ctypes.c_void_p(_xfixes_display_ptr), 0)
+        libX11.XFlush(ctypes.c_void_p(_xfixes_display_ptr))
 
         return True
     except Exception as e:
