@@ -284,19 +284,16 @@ def state_revert_to_center(
         entry_pos = Position(x=position.x, y=screen_geometry.height - 2)
 
     try:
-        # Warp to entry position BEFORE ungrab (prevents physical mouse from overriding)
-        logger.info(f"[WARP RETURN] Warping to entry position ({entry_pos.x}, {entry_pos.y})")
-        display_manager.cursorPosition_set(entry_pos)
-
-        # Small delay to ensure warp takes effect before ungrab
-        time.sleep(0.02)
-
         # Ungrab to restore desktop control
         try:
             display_manager.keyboard_ungrab()
             display_manager.pointer_ungrab()
         except Exception as e:
             logger.warning(f"Ungrab failed: {e}")
+
+        # Warp to entry position AFTER ungrab (so physical mouse position is set)
+        logger.info(f"[WARP RETURN] Warping to entry position ({entry_pos.x}, {entry_pos.y})")
+        display_manager.cursorPosition_set(entry_pos)
 
         # Show cursor
         display_manager.cursor_show()
