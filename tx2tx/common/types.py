@@ -43,7 +43,7 @@ class Position:
     x: int
     y: int
 
-    def bounds_check(self, width: int, height: int) -> bool:
+    def isWithinBounds(self, width: int, height: int) -> bool:
         """Check if position is within given bounds"""
         return 0 <= self.x < width and 0 <= self.y < height
 
@@ -85,9 +85,9 @@ class Screen:
 
     def contains(self, pos: Position) -> bool:
         """Check if pixel position is within screen bounds"""
-        return pos.bounds_check(self.width, self.height)
+        return pos.isWithinBounds(self.width, self.height)
 
-    def coordinates_normalize(self, pos: Position) -> NormalizedPoint:
+    def normalize(self, pos: Position) -> NormalizedPoint:
         """Convert pixel position to normalized point
 
         Args:
@@ -99,11 +99,11 @@ class Screen:
         Example:
             screen = Screen(width=1920, height=1080)
             pos = Position(x=960, y=540)  # Center of screen
-            npt = screen.coordinates_normalize(pos)   # NormalizedPoint(x=0.5, y=0.5)
+            npt = screen.normalize(pos)   # NormalizedPoint(x=0.5, y=0.5)
         """
         return NormalizedPoint(x=pos.x / self.width, y=pos.y / self.height)
 
-    def coordinates_denormalize(self, npt: NormalizedPoint) -> Position:
+    def denormalize(self, npt: NormalizedPoint) -> Position:
         """Convert normalized point to pixel position
 
         Args:
@@ -145,7 +145,7 @@ class MouseEvent:
         if self.position is None and self.normalized_point is None:
             raise ValueError("MouseEvent must have either position or normalized_point")
 
-    def buttonEvent_check(self) -> bool:
+    def isButtonEvent(self) -> bool:
         """Check if this is a button press/release event"""
         return self.event_type in (EventType.MOUSE_BUTTON_PRESS, EventType.MOUSE_BUTTON_RELEASE)
 
@@ -159,7 +159,7 @@ class KeyEvent:
     keysym: Optional[int] = None
     state: Optional[int] = None  # X11 modifier state (server-side use only)
 
-    def pressEvent_check(self) -> bool:
+    def isPressEvent(self) -> bool:
         """Check if this is a key press (vs release)"""
         return self.event_type == EventType.KEY_PRESS
 

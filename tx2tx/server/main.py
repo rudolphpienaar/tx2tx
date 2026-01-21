@@ -26,7 +26,7 @@ from tx2tx.common.types import (
 from tx2tx.protocol.message import Message, MessageBuilder, MessageType
 from tx2tx.server.network import ClientConnection, ServerNetwork
 from tx2tx.server.state import server_state
-from tx2tx.x11.display import DisplayManager, nativeX11_check
+from tx2tx.x11.display import DisplayManager, is_native_x11
 from tx2tx.x11.pointer import PointerTracker
 
 logger = logging.getLogger(__name__)
@@ -182,7 +182,7 @@ def panicKey_check(
     return False
 
 
-def inputEvents_read(
+def read_input_events(
     display_manager: DisplayManager,
 ) -> tuple[list[Union[MouseEvent, KeyEvent]], int]:
     """
@@ -287,27 +287,25 @@ def state_revertToCenter(
         entry_pos = Position(x=position.x, y=screen_geometry.height - offset)
 
     try:
-        # 1. Ungrab FIRST
-        try:
-            display_manager.keyboard_ungrab()
-            display_manager.pointer_ungrab()
-            # Give X server a moment to process the ungrab state
-            time.sleep(0.05)
-        except Exception as e:
-            logger.warning(f"Ungrab failed: {e}")
+        # 1. Show cursor FIRST
+        # Anchoring the cursor while still grabbed prevents the WM from
+        # snapping it to center during the ungrab momentum window.
+        display_manager.cursor_show()
 
-        # 2. Warp to entry position
-        # Using XTest (which display_manager now enforces) requires no grab.
+        # 2. Warp to entry position (while still grabbed)
         try:
-            logger.info(f"[WARP RETURN] Warping to entry position ({entry_pos.x}, {entry_pos.y})")
+            logger.info(f"[WARP RETURN] Anchoring at entry position ({entry_pos.x}, {entry_pos.y})")
             if not display_manager.cursorPosition_setAndVerify(entry_pos):
                  logger.warning(f"Return warp verification failed for position ({entry_pos.x}, {entry_pos.y})")
         except Exception as e:
             logger.error(f"Warp failed during revert: {e}")
 
-        # 3. Show cursor
-        # Show it last so we don't interfere with the warp logic
-        display_manager.cursor_show()
+        # 3. Ungrab to restore desktop control
+        try:
+            display_manager.keyboard_ungrab()
+            display_manager.pointer_ungrab()
+        except Exception as e:
+            logger.warning(f"Ungrab failed: {e}")
 
         # Reset tracker to prevent velocity spike from triggering immediate re-entry
         pointer_tracker.reset()
@@ -445,7 +443,7 @@ def clientMessage_handle(
         logger.warning(f"Unexpected message type: {message.msg_type.value}")
 
 
-def _pollingLoop_process(
+def _process_polling_loop(
     network: ServerNetwork,
     display_manager: DisplayManager,
     pointer_tracker: PointerTracker,
@@ -661,7 +659,7 @@ def _pollingLoop_process(
                         logger.info(
                             f"[MOUSE] Sending pos ({position.x}, {position.y}) to {target_client_name}"
                         )
-                        normalized_point = screen_geometry.coordinates_normalize(position)
+                        normalized_point = screen_geometry.normalize(position)
 
                         mouse_event = MouseEvent(
                             event_type=EventType.MOUSE_MOVE,
@@ -684,7 +682,7 @@ def _pollingLoop_process(
                         server_state.lastSentPosition_update(position)
 
                     # Send Input Events (Buttons & Keys)
-                    input_events, modifier_state = inputEvents_read(display_manager)
+                    input_events, modifier_state = read_input_events(display_manager)
 
                     # Check for panic key - configurable escape hatch
                     if panicKey_check(
@@ -703,7 +701,7 @@ def _pollingLoop_process(
                         if isinstance(event, MouseEvent):
                             # Normalize position for button events
                             if event.position:
-                                norm_pos = screen_geometry.coordinates_normalize(event.position)
+                                norm_pos = screen_geometry.normalize(event.position)
                                 # Create new event with normalized point
                                 norm_event = MouseEvent(
                                     event_type=event.event_type,
@@ -736,7 +734,7 @@ def _pollingLoop_process(
                                 break
                 else:
                     # Drain events if no client connected but in remote mode
-                    _, _ = inputEvents_read(display_manager)
+                    _, _ = read_input_events(display_manager)
                     logger.error(
                         f"Active context {server_state.context.value} has no connected client, reverting"
                     )
@@ -874,7 +872,7 @@ def server_run(args: argparse.Namespace) -> None:
         logger.info("Server running. Press Ctrl+C to stop.")
 
         while network.is_running:
-            _pollingLoop_process(
+            _process_polling_loop(
                 network,
                 display_manager,
                 pointer_tracker,

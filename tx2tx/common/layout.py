@@ -43,7 +43,7 @@ class ScreenLayout:
         """Get configured client position"""
         return self._client_position
 
-    def clientTransition_check(self, server_edge: Direction) -> bool:
+    def toClient_shouldTransition(self, server_edge: Direction) -> bool:
         """
         Determine if crossing this server edge should trigger transition to client
 
@@ -109,7 +109,7 @@ class ScreenLayout:
         }
         return position_to_reentry_edge[self._client_position]
 
-    def coordinatesToClient_transform(
+    def toClientCoordinates_transform(
         self,
         server_transition: ScreenTransition,
         server_geometry: ScreenGeometry,
@@ -210,7 +210,7 @@ class ScreenLayout:
         )
         return result
 
-    def coordinatesToServer_transform(
+    def toServerCoordinates_transform(
         self,
         client_transition: ScreenTransition,
         client_geometry: ScreenGeometry,

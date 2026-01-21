@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 
-def _gitHash_get() -> str:
+def _get_git_hash() -> str:
     """Get short git hash, or 'dev' if not in git repo"""
     try:
         repo_path = Path(__file__).parent.parent
@@ -25,5 +25,5 @@ def _gitHash_get() -> str:
     return "dev"
 
 
-__version__ = f"2.3.30.{_gitHash_get()}"
+__version__ = f"2.3.31.{_gitHash_get()}"
 __author__ = "tx2tx contributors"
