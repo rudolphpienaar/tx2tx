@@ -43,7 +43,7 @@ class Position:
     x: int
     y: int
 
-    def isWithinBounds(self, width: int, height: int) -> bool:
+    def bounds_check(self, width: int, height: int) -> bool:
         """Check if position is within given bounds"""
         return 0 <= self.x < width and 0 <= self.y < height
 
@@ -85,7 +85,7 @@ class Screen:
 
     def contains(self, pos: Position) -> bool:
         """Check if pixel position is within screen bounds"""
-        return pos.isWithinBounds(self.width, self.height)
+        return pos.bounds_check(self.width, self.height)
 
     def normalize(self, pos: Position) -> NormalizedPoint:
         """Convert pixel position to normalized point
@@ -145,7 +145,7 @@ class MouseEvent:
         if self.position is None and self.normalized_point is None:
             raise ValueError("MouseEvent must have either position or normalized_point")
 
-    def isButtonEvent(self) -> bool:
+    def buttonEvent_check(self) -> bool:
         """Check if this is a button press/release event"""
         return self.event_type in (EventType.MOUSE_BUTTON_PRESS, EventType.MOUSE_BUTTON_RELEASE)
 
@@ -159,7 +159,7 @@ class KeyEvent:
     keysym: Optional[int] = None
     state: Optional[int] = None  # X11 modifier state (server-side use only)
 
-    def isPressEvent(self) -> bool:
+    def pressEvent_check(self) -> bool:
         """Check if this is a key press (vs release)"""
         return self.event_type == EventType.KEY_PRESS
 

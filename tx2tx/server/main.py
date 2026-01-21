@@ -26,7 +26,7 @@ from tx2tx.common.types import (
 from tx2tx.protocol.message import Message, MessageBuilder, MessageType
 from tx2tx.server.network import ClientConnection, ServerNetwork
 from tx2tx.server.state import server_state
-from tx2tx.x11.display import DisplayManager, is_native_x11
+from tx2tx.x11.display import DisplayManager, nativeX11_check
 from tx2tx.x11.pointer import PointerTracker
 
 logger = logging.getLogger(__name__)
@@ -182,7 +182,7 @@ def panicKey_check(
     return False
 
 
-def read_input_events(
+def inputEvents_read(
     display_manager: DisplayManager,
 ) -> tuple[list[Union[MouseEvent, KeyEvent]], int]:
     """
@@ -684,7 +684,7 @@ def _process_polling_loop(
                         server_state.lastSentPosition_update(position)
 
                     # Send Input Events (Buttons & Keys)
-                    input_events, modifier_state = read_input_events(display_manager)
+                    input_events, modifier_state = inputEvents_read(display_manager)
 
                     # Check for panic key - configurable escape hatch
                     if panicKey_check(
@@ -736,7 +736,7 @@ def _process_polling_loop(
                                 break
                 else:
                     # Drain events if no client connected but in remote mode
-                    _, _ = read_input_events(display_manager)
+                    _, _ = inputEvents_read(display_manager)
                     logger.error(
                         f"Active context {server_state.context.value} has no connected client, reverting"
                     )

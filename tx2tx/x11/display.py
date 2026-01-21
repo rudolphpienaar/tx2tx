@@ -31,7 +31,7 @@ except OSError as e:
     _xfixes_root_window = None
 
 
-def xfixes_hide_cursor_native(display: Display, window_id: int) -> bool:
+def cursor_hideViaXFixesNative(display: Display, window_id: int) -> bool:
     """
     Hide cursor using native XFixes library via ctypes.
 
@@ -74,7 +74,7 @@ def xfixes_hide_cursor_native(display: Display, window_id: int) -> bool:
         return False
 
 
-def xfixes_show_cursor_native(display: Display, window_id: int) -> bool:
+def cursor_showViaXFixesNative(display: Display, window_id: int) -> bool:
     """
     Show cursor using native XFixes library via ctypes.
 
@@ -103,7 +103,7 @@ def xfixes_show_cursor_native(display: Display, window_id: int) -> bool:
         return False
 
 
-def is_native_x11() -> bool:
+def nativeX11_check() -> bool:
     """
     Detect if running on native X11 vs Wayland/Crostini compositor.
 
@@ -444,7 +444,7 @@ class DisplayManager:
         )
         return False
 
-    def _ensure_blank_cursor(self) -> int:
+    def _blankCursor_ensure(self) -> int:
         """Create a blank cursor if one doesn't exist"""
         if self._blank_cursor is not None:
             return self._blank_cursor
@@ -628,21 +628,21 @@ class DisplayManager:
         root = screen.root
 
         # Determine if we're on native X11
-        native_x11 = self._x11native or is_native_x11()
+        native_x11 = self._x11native or nativeX11_check()
 
         # NATIVE X11 PATH - Use native XFixes via ctypes
         if native_x11 and not self._overlay_enabled:
             logger.debug("Using native X11 cursor hiding methods")
 
             # Method 1: Native XFixes via ctypes (bypasses python-xlib's missing implementation)
-            if xfixes_hide_cursor_native(display, root.id):
+            if cursor_hideViaXFixesNative(display, root.id):
                 self._cursor_hidden = True
                 logger.info("Cursor hidden (native XFixes via ctypes)")
                 return
 
             # Method 2: Blank pixmap cursor (fallback - truly invisible)
             try:
-                cursor = self._ensure_blank_cursor()
+                cursor = self._blankCursor_ensure()
                 if cursor:
                     root.change_attributes(cursor=cursor)
                     display.sync()
@@ -679,7 +679,7 @@ class DisplayManager:
 
             # Method 2: Blank cursor (may work on some compositors)
             try:
-                cursor = self._ensure_blank_cursor()
+                cursor = self._blankCursor_ensure()
                 if cursor:
                     root.change_attributes(cursor=cursor)
                     display.sync()
@@ -721,7 +721,7 @@ class DisplayManager:
         self._cursorOverlay_hide()
 
         # Try native XFixes first if available
-        if xfixes_show_cursor_native(display, root.id):
+        if cursor_showViaXFixesNative(display, root.id):
             self._cursor_hidden = False
             logger.debug("Cursor shown (native XFixes via ctypes)")
             return
