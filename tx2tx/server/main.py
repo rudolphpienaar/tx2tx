@@ -274,14 +274,17 @@ def state_revert_to_center(
     server_state.last_center_switch_time = time.time()
 
     # Calculate Entry Position (Inverse of Exit)
+    # Use a safe offset (15px) to ensure we are clearly 'inside' the screen
+    # and don't immediately trigger a boundary crossing.
+    offset = 15
     if prev_context == ScreenContext.WEST:
-        entry_pos = Position(x=1, y=position.y)
+        entry_pos = Position(x=offset, y=position.y)
     elif prev_context == ScreenContext.EAST:
-        entry_pos = Position(x=screen_geometry.width - 2, y=position.y)
+        entry_pos = Position(x=screen_geometry.width - offset, y=position.y)
     elif prev_context == ScreenContext.NORTH:
-        entry_pos = Position(x=position.x, y=1)
+        entry_pos = Position(x=position.x, y=offset)
     else:  # SOUTH
-        entry_pos = Position(x=position.x, y=screen_geometry.height - 2)
+        entry_pos = Position(x=position.x, y=screen_geometry.height - offset)
 
     try:
         # 1. Ungrab FIRST
@@ -537,16 +540,15 @@ def _process_polling_loop(
                         # Hide cursor
                         display_manager.cursor_hide()
 
-                        # On native X11: Don't warp - pointer grab prevents physical mouse movement
-                        # On Crostini/Wayland: Warp to opposite edge (grab alone isn't enough)
-                        if not (x11native or is_native_x11()):
-                            logger.info(
-                                f"[WARP] Warping cursor from ({transition.position.x}, {transition.position.y}) to ({warp_pos.x}, {warp_pos.y})"
-                            )
-                            display_manager.cursorPosition_set(warp_pos)
-                            time.sleep(0.01)  # 10ms delay for warp
-                        else:
-                            logger.debug("[NATIVE X11] Skipping warp - pointer grab is sufficient")
+                        # WARP (Parking): Move cursor to opposite edge
+                        # This prevents the user from accidentally clicking things on the server
+                        # while controlling the client, and sets up the 'return' position logic.
+                        # We do this on ALL platforms (Native X11 & Crostini) for consistency.
+                        logger.info(
+                            f"[WARP] Warping cursor from ({transition.position.x}, {transition.position.y}) to ({warp_pos.x}, {warp_pos.y})"
+                        )
+                        display_manager.cursorPosition_set(warp_pos)
+                        time.sleep(0.01)  # 10ms delay for warp
 
                         # Reset velocity tracker and last sent position
                         pointer_tracker.reset()
