@@ -287,53 +287,30 @@ def state_revertToCenter(
     else:  # SOUTH
         entry_pos = Position(x=position.x, y=screen_geometry.height - offset)
 
+    try:
+        # 1. Ungrab FIRST
         try:
+            display_manager.keyboard_ungrab()
+            display_manager.pointer_ungrab()
+            
+            # Immediate 'Pre-Warp' to halt momentum.
+            # Even if this is partially ignored by the WM, it helps 'anchor' the cursor
+            # before the OS processes the momentum overrun.
+            display_manager.cursorPosition_set(entry_pos)
+            
+            # Give X server a tiny moment to process the ungrab state (10ms)
+            time.sleep(0.01)
+        except Exception as e:
+            logger.warning(f"Ungrab failed: {e}")
 
-            # 1. Ungrab FIRST
-
-            try:
-
-                display_manager.keyboard_ungrab()
-
-                display_manager.pointer_ungrab()
-
-                
-
-                # Immediate 'Pre-Warp' to halt momentum.
-
-                # Even if this is partially ignored by the WM, it helps 'anchor' the cursor
-
-                # before the OS processes the momentum overrun.
-
-                display_manager.cursorPosition_set(entry_pos)
-
-                
-
-                # Give X server a tiny moment to process the ungrab state (10ms)
-
-                time.sleep(0.01)
-
-            except Exception as e:
-
-                logger.warning(f"Ungrab failed: {e}")
-
-    
-
-            # 2. Final Verified Warp
-
-            # Now that we are ungrabbed and the state has settled, enforce the position.
-
-            try:
-
-                logger.info(f"[WARP RETURN] Finalizing entry position ({entry_pos.x}, {entry_pos.y})")
-
-                if not display_manager.cursorPosition_setAndVerify(entry_pos):
-
-                     logger.warning(f"Return warp verification failed for position ({entry_pos.x}, {entry_pos.y})")
-
-            except Exception as e:
-
-                logger.error(f"Warp failed during revert: {e}")
+        # 2. Final Verified Warp
+        # Now that we are ungrabbed and the state has settled, enforce the position.
+        try:
+            logger.info(f"[WARP RETURN] Finalizing entry position ({entry_pos.x}, {entry_pos.y})")
+            if not display_manager.cursorPosition_setAndVerify(entry_pos):
+                 logger.warning(f"Return warp verification failed for position ({entry_pos.x}, {entry_pos.y})")
+        except Exception as e:
+            logger.error(f"Warp failed during revert: {e}")
 
         # 3. Show cursor
         # Show it last so we don't interfere with the warp logic
