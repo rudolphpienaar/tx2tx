@@ -661,7 +661,7 @@ def _pollingLoop_process(
                         logger.info(
                             f"[MOUSE] Sending pos ({position.x}, {position.y}) to {target_client_name}"
                         )
-                        normalized_point = screen_geometry.normalize(position)
+                        normalized_point = screen_geometry.coordinates_normalize(position)
 
                         mouse_event = MouseEvent(
                             event_type=EventType.MOUSE_MOVE,
@@ -703,7 +703,7 @@ def _pollingLoop_process(
                         if isinstance(event, MouseEvent):
                             # Normalize position for button events
                             if event.position:
-                                norm_pos = screen_geometry.normalize(event.position)
+                                norm_pos = screen_geometry.coordinates_normalize(event.position)
                                 # Create new event with normalized point
                                 norm_event = MouseEvent(
                                     event_type=event.event_type,

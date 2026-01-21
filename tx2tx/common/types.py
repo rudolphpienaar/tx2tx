@@ -87,7 +87,7 @@ class Screen:
         """Check if pixel position is within screen bounds"""
         return pos.bounds_check(self.width, self.height)
 
-    def normalize(self, pos: Position) -> NormalizedPoint:
+    def coordinates_normalize(self, pos: Position) -> NormalizedPoint:
         """Convert pixel position to normalized point
 
         Args:
@@ -99,11 +99,11 @@ class Screen:
         Example:
             screen = Screen(width=1920, height=1080)
             pos = Position(x=960, y=540)  # Center of screen
-            npt = screen.normalize(pos)   # NormalizedPoint(x=0.5, y=0.5)
+            npt = screen.coordinates_normalize(pos)   # NormalizedPoint(x=0.5, y=0.5)
         """
         return NormalizedPoint(x=pos.x / self.width, y=pos.y / self.height)
 
-    def denormalize(self, npt: NormalizedPoint) -> Position:
+    def coordinates_denormalize(self, npt: NormalizedPoint) -> Position:
         """Convert normalized point to pixel position
 
         Args:
