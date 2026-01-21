@@ -315,6 +315,14 @@ def state_revertToCenter(
 
         logger.info(f"[STATE] → CENTER (revert) - Cursor at ({entry_pos.x}, {entry_pos.y})")
     except Exception as e:
+        logger.error(f"Emergency revert failed: {e}")
+        # Last ditch effort to unlock desktop
+        try:
+            display_manager.cursor_show()
+            display_manager.keyboard_ungrab()
+            display_manager.pointer_ungrab()
+        except Exception:
+            pass
 
 
 def arguments_parse() -> argparse.Namespace:
