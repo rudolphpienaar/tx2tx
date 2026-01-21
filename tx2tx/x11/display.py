@@ -683,12 +683,14 @@ class DisplayManager:
         if native_x11 and not self._overlay_enabled:
             logger.debug("Using native X11 cursor hiding methods")
 
-            # Method 1: Native XFixes via ctypes (bypasses python-xlib's missing implementation)
-            if xfixes_hide_cursor_native(display, root.id):
-                self._cursor_hidden = True
-                self._hide_method = "xfixes"
-                logger.info("Cursor hidden (native XFixes via ctypes)")
-                return
+            # Method 1: Native XFixes via ctypes
+            # DISABLED: XFixes causes WarpPointer to be ignored on some WMs/Compositors.
+            # Falling back to Blank Cursor ensures the cursor remains "active" for warping.
+            # if xfixes_hide_cursor_native(display, root.id):
+            #     self._cursor_hidden = True
+            #     self._hide_method = "xfixes"
+            #     logger.info("Cursor hidden (native XFixes via ctypes)")
+            #     return
 
             # Method 2: Blank pixmap cursor (fallback - truly invisible)
             try:
