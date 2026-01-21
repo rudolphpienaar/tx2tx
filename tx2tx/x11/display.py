@@ -317,27 +317,27 @@ class DisplayManager:
 
     def cursorPosition_set(self, position: Position) -> None:
         """
-        Move cursor to absolute position (environment-aware implementation).
-        
-        Uses a 'Belt and Suspenders' approach:
-        1. Try standard X11 WarpPointer (fast, correct)
-        2. Always follow up with XTest Fake Input (robust, forces WM compliance)
-        
-        This ensures the cursor moves even if the Window Manager ignores WarpPointer.
+        Move cursor to absolute position using standard X11 WarpPointer.
         """
-        # 1. Attempt Native Warp (Best for standard X11)
-        try:
-            self.cursorPosition_setViaWarpPointer(position)
-        except Exception as e:
-            logger.debug(f"WarpPointer failed (harmless if XTest succeeds): {e}")
+        self.cursorPosition_setViaWarpPointer(position)
 
-        # 2. Force with XTest (Simulated Hardware Input)
-        # This is the "Nuclear Option" that works on stubborn WMs/Compositors
-        # that ignore WarpPointer (e.g., Termux-X11, some Wayland bridges).
-        try:
-            self.cursorPosition_setViaXTest(position)
-        except Exception as e:
-            logger.warning(f"XTest cursor move failed: {e}")
+    def connection_sync(self) -> None:
+        """
+        Force synchronization on both the Python-xlib and native libX11 connections.
+        This ensures all pending commands (like Ungrab or Show) are fully processed
+        by the X server before the next command starts.
+        """
+        # 1. Sync Python-xlib connection
+        if self._display:
+            self._display.sync()
+        
+        # 2. Sync Native libX11 connection (for XFixes)
+        global _xfixes_display_ptr
+        if _xfixes_display_ptr is not None and libX11 is not None:
+            try:
+                libX11.XSync(ctypes.c_void_p(_xfixes_display_ptr), 0)
+            except Exception:
+                pass
 
     def cursorPosition_setViaWarpPointer(self, position: Position) -> None:
         """
