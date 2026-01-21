@@ -12,6 +12,35 @@ from tx2tx.common.types import Position, ScreenGeometry
 
 logger = logging.getLogger(__name__)
 
+
+def is_native_x11() -> bool:
+    """
+    Detect if running on native X11 vs Wayland/Crostini compositor.
+
+    Returns:
+        True if native X11 (XFCE4, KDE, GNOME on X11), False for Wayland/Crostini
+    """
+    # Check session type environment variable
+    session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
+    if session_type == "x11":
+        return True
+    elif session_type == "wayland":
+        return False
+
+    # Check for Crostini/sommelier compositor (Wayland-based)
+    wayland_display = os.environ.get("WAYLAND_DISPLAY", "")
+    if "wayland" in wayland_display.lower() or "sommelier" in wayland_display.lower():
+        return False
+
+    # Check for termux environment (Android X11)
+    if "PREFIX" in os.environ:
+        prefix = os.environ.get("PREFIX", "")
+        if "termux" in prefix or "com.termux" in prefix:
+            return False  # termux-x11 needs special handling
+
+    # Default: assume native X11 if DISPLAY is set without Wayland indicators
+    return "DISPLAY" in os.environ
+
 # X11 cursor font constants (from X11/cursorfont.h)
 # Each cursor shape has an even number; the mask is shape + 1
 XC_X_CURSOR = 0  # X shape
@@ -25,18 +54,23 @@ class DisplayManager:
     """Manages X11 display connection and screen information"""
 
     def __init__(
-        self, display_name: Optional[str] = None, overlay_enabled: bool = False
+        self,
+        display_name: Optional[str] = None,
+        overlay_enabled: bool = False,
+        x11native: bool = False,
     ) -> None:
         """
         Initialize display manager
 
         Args:
             display_name: X11 display name (e.g., ':0'), None for default
-            overlay_enabled: Whether to use fullscreen overlay window
+            overlay_enabled: Whether to use fullscreen overlay window (Crostini workaround)
+            x11native: Whether to optimize for native X11 (disables Crostini workarounds)
         """
         self._display: Optional[Display] = None
         self._display_name: Optional[str] = display_name
         self._overlay_enabled: bool = overlay_enabled
+        self._x11native: bool = x11native
         self._cursor_confined: bool = False
         self._original_position: Optional[Position] = None
         self._cursor_hidden: bool = False
@@ -147,9 +181,8 @@ class DisplayManager:
         pointer_data = root.query_pointer()
         self._original_position = Position(x=pointer_data.root_x, y=pointer_data.root_y)
 
-        # Move cursor to confinement position using XTest
-        xtest.fake_input(display, X.MotionNotify, detail=0, x=position.x, y=position.y)
-        display.sync()
+        # Move cursor to confinement position (uses warp_pointer on native X11, XTest on Crostini)
+        self.cursorPosition_set(position)
 
         # Grab pointer to confine it
         # This prevents the physical mouse from moving the cursor
@@ -185,23 +218,18 @@ class DisplayManager:
         display.ungrab_pointer(X.CurrentTime)
         display.sync()
 
-        # Restore original cursor position if we have it using XTest
+        # Restore original cursor position (uses warp_pointer on native X11, XTest on Crostini)
         if self._original_position:
-            xtest.fake_input(
-                display,
-                X.MotionNotify,
-                detail=0,
-                x=self._original_position.x,
-                y=self._original_position.y,
-            )
-            display.sync()
+            self.cursorPosition_set(self._original_position)
             self._original_position = None
 
         self._cursor_confined = False
 
     def cursorPosition_set(self, position: Position) -> None:
         """
-        Move cursor to absolute position using XTest (unified implementation)
+        Move cursor to absolute position (environment-aware implementation).
+
+        Uses native warp_pointer on X11, XTest fake_input on Wayland/Crostini.
 
         Args:
             position: Target position
@@ -209,12 +237,48 @@ class DisplayManager:
         Raises:
             RuntimeError: If not connected to display
         """
-        self.cursorPosition_setViaXTest(position)
+        # Use native warp_pointer on native X11 for proper cursor control
+        if self._x11native or is_native_x11():
+            self.cursorPosition_setViaWarpPointer(position)
+        else:
+            # Fall back to XTest for Crostini/Wayland where warp_pointer is blocked
+            self.cursorPosition_setViaXTest(position)
+
+    def cursorPosition_setViaWarpPointer(self, position: Position) -> None:
+        """
+        Move cursor using native X11 warp_pointer (works on native X11 only).
+
+        This is the proper X11 API for cursor positioning and works perfectly
+        on native X11 desktops (XFCE4, KDE, GNOME on X11). Wayland compositors
+        may block or ignore this method.
+
+        Args:
+            position: Target position
+
+        Raises:
+            RuntimeError: If not connected to display
+        """
+        display = self.display_get()
+        screen = display.screen()
+        root = screen.root
+
+        logger.debug(f"[X11] warp_pointer to ({position.x}, {position.y})")
+        root.warp_pointer(position.x, position.y)
+        display.sync()
+
+        # Verify position
+        pointer_data = root.query_pointer()
+        actual_x = pointer_data.root_x
+        actual_y = pointer_data.root_y
+        logger.debug(f"[X11] After warp: actual position = ({actual_x}, {actual_y})")
 
     def cursorPosition_setViaXTest(self, position: Position) -> None:
         """
-        Move cursor using XTest fake_input.
-        
+        Move cursor using XTest fake_input (Crostini/Wayland workaround).
+
+        XTest was designed for testing/automation, not cursor control, but
+        it works in environments where warp_pointer is blocked by compositors.
+
         Args:
             position: Target position
 
@@ -257,9 +321,8 @@ class DisplayManager:
         screen = display.screen()
         root = screen.root
 
-        # Issue warp command using XTest
-        xtest.fake_input(display, X.MotionNotify, detail=0, x=position.x, y=position.y)
-        display.sync()
+        # Issue warp command (uses warp_pointer on native X11, XTest on Crostini)
+        self.cursorPosition_set(position)
 
         # Poll position until it matches or timeout
         start_time = time.time()
@@ -455,15 +518,9 @@ class DisplayManager:
         """
         Hide cursor or change to remote-mode indicator.
 
-        Tries in order:
-        1. Fullscreen overlay window with gray X cursor (works in Crostini!)
-        2. Gray X cursor on root window (fails silently in Crostini)
-        3. XFixes hide_cursor (fails silently in Crostini)
-        4. Blank pixmap cursor (fails silently in Crostini)
-
-        The overlay window approach works because Crostini's compositor
-        respects cursor settings on X11 windows, but ignores root window
-        cursor changes.
+        Strategy depends on environment:
+        - Native X11 (--x11native or auto-detected): Use XFixes/root cursor (optimal)
+        - Crostini/Wayland: Use overlay window (workaround for compositor issues)
 
         Raises:
             RuntimeError: If not connected to display
@@ -475,50 +532,95 @@ class DisplayManager:
         screen = display.screen()
         root = screen.root
 
-        # Method 1: Fullscreen overlay window with cursor
-        # This WORKS in Crostini because compositor respects window cursors
-        if self._overlay_enabled:
-            if self._cursorOverlay_show():
-                self._cursor_hidden = True
-                return
+        # Determine if we're on native X11
+        native_x11 = self._x11native or is_native_x11()
+
+        # NATIVE X11 PATH - Optimal methods that work perfectly on full X11
+        if native_x11 and not self._overlay_enabled:
+            logger.debug("Using native X11 cursor hiding methods")
+
+            # Method 1: XFixes (best - true invisibility)
+            try:
+                if display.has_extension("XFIXES"):
+                    display.xfixes.hide_cursor(root)
+                    display.sync()
+                    self._cursor_hidden = True
+                    logger.info("Cursor hidden (XFixes - native X11)")
+                    return
+            except Exception as e:
+                logger.debug(f"XFixes hide_cursor failed: {e}")
+
+            # Method 2: Gray X Cursor on root window
+            try:
+                cursor = self._remoteCursor_create()
+                if cursor:
+                    root.change_attributes(cursor=cursor)
+                    display.sync()
+                    self._cursor_hidden = True
+                    logger.info("Cursor set to gray X (remote mode indicator)")
+                    return
+            except Exception as e:
+                logger.debug(f"Failed to set gray X cursor: {e}")
+
+            # Method 3: Blank pixmap cursor (fallback)
+            try:
+                cursor = self._ensure_blank_cursor()
+                if cursor:
+                    root.change_attributes(cursor=cursor)
+                    display.sync()
+                    self._cursor_hidden = True
+                    logger.info("Cursor hidden (blank pixmap)")
+                    return
+            except Exception as e:
+                logger.debug(f"Failed to set blank cursor: {e}")
+
+        # CROSTINI/WAYLAND PATH - Overlay window workaround
         else:
-            logger.debug("Overlay disabled by config, skipping overlay creation")
+            logger.debug("Using Crostini/Wayland cursor hiding methods")
 
-        # Method 2: Gray X Cursor on root window
-        # Falls back for non-Crostini environments
-        try:
-            cursor = self._remoteCursor_create()
-            if cursor:
-                root.change_attributes(cursor=cursor)
-                display.sync()
-                self._cursor_hidden = True
-                logger.info("Cursor set to gray X (remote mode indicator)")
-                return
-        except Exception as e:
-            logger.warning(f"Failed to set gray X cursor: {e}")
+            # Method 1: Fullscreen overlay window with cursor
+            # This WORKS in Crostini because compositor respects window cursors
+            if self._overlay_enabled:
+                if self._cursorOverlay_show():
+                    self._cursor_hidden = True
+                    return
+            else:
+                logger.debug("Overlay disabled, trying fallback methods")
 
-        # Method 3: XFixes (true invisibility)
-        try:
-            if display.has_extension("XFIXES"):
-                display.xfixes.hide_cursor(root)
-                display.sync()
-                self._cursor_hidden = True
-                logger.debug("Cursor hidden (XFixes)")
-                return
-        except Exception as e:
-            logger.warning(f"XFixes hide_cursor failed: {e}")
+            # Method 2: Gray X Cursor on root window (may not work but try anyway)
+            try:
+                cursor = self._remoteCursor_create()
+                if cursor:
+                    root.change_attributes(cursor=cursor)
+                    display.sync()
+                    self._cursor_hidden = True
+                    logger.info("Cursor set to gray X (remote mode indicator)")
+                    return
+            except Exception as e:
+                logger.debug(f"Failed to set gray X cursor: {e}")
 
-        # Method 4: Blank Cursor (transparent)
-        try:
-            cursor = self._ensure_blank_cursor()
-            if cursor:
-                root.change_attributes(cursor=cursor)
-                display.sync()
-                self._cursor_hidden = True
-                logger.debug("Cursor hidden (blank cursor)")
-                return
-        except Exception as e:
-            logger.warning(f"Failed to set blank cursor: {e}")
+            # Method 3: XFixes (may not work in Crostini but try anyway)
+            try:
+                if display.has_extension("XFIXES"):
+                    display.xfixes.hide_cursor(root)
+                    display.sync()
+                    self._cursor_hidden = True
+                    logger.debug("Cursor hidden (XFixes)")
+                    return
+            except Exception as e:
+                logger.debug(f"XFixes hide_cursor failed: {e}")
+
+            # Method 4: Blank Cursor (last resort)
+            try:
+                cursor = self._ensure_blank_cursor()
+                if cursor:
+                    root.change_attributes(cursor=cursor)
+                    display.sync()
+                    self._cursor_hidden = True
+                    logger.debug("Cursor hidden (blank cursor)")
+                    return
+            except Exception as e:
+                logger.debug(f"Failed to set blank cursor: {e}")
 
         logger.warning("All cursor hiding methods failed")
 
@@ -636,3 +738,21 @@ class DisplayManager:
         display.ungrab_keyboard(X.CurrentTime)
         display.sync()
         logger.debug("Keyboard ungrabbed")
+
+    def connection_fileno(self) -> int:
+        """
+        Get file descriptor for X11 connection
+
+        Returns:
+            File descriptor number
+
+        Raises:
+            RuntimeError: If not connected to display
+        """
+        return self.display_get().fileno()
+
+    def events_process(self) -> None:
+        """Process all pending X11 events."""
+        display = self.display_get()
+        while display.pending_events() > 0:
+            display.next_event()

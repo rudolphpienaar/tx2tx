@@ -56,6 +56,12 @@ def arguments_parse() -> argparse.Namespace:
         help="Client name for logging and identification (e.g., 'phomux')",
     )
 
+    parser.add_argument(
+        "--software-cursor",
+        action="store_true",
+        help="Enable software rendered cursor (useful if hardware cursor is invisible)",
+    )
+
     return parser.parse_args()
 
 

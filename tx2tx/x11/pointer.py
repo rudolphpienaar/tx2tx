@@ -1,5 +1,6 @@
 """X11 pointer tracking and boundary detection"""
 
+import logging
 import time
 from collections import deque
 from typing import Optional
@@ -7,6 +8,8 @@ from typing import Optional
 from tx2tx.common.settings import settings
 from tx2tx.common.types import Direction, Position, ScreenGeometry, ScreenTransition
 from tx2tx.x11.display import DisplayManager
+
+logger = logging.getLogger(__name__)
 
 
 class PointerTracker:
@@ -122,9 +125,7 @@ class PointerTracker:
         # If at boundary, check velocity (momentum/edge resistance)
         if at_boundary and direction is not None:
             velocity = self.velocity_calculate()
-            import logging
-
-            logging.getLogger(__name__).info(
+            logger.info(
                 f"At boundary {direction.value}: velocity={velocity:.1f}, threshold={self._velocity_threshold}"
             )
             if velocity >= self._velocity_threshold:

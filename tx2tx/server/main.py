@@ -291,8 +291,8 @@ def state_revert_to_center(
         except Exception as e:
             logger.warning(f"Ungrab failed: {e}")
 
-        # Warp to entry position using XTest (compositors often block warp_pointer)
-        display_manager.cursorPosition_setViaXTest(entry_pos)
+        # Warp to entry position (uses warp_pointer on native X11, XTest on Crostini)
+        display_manager.cursorPosition_set(entry_pos)
 
         # Show cursor
         display_manager.cursor_show()
@@ -426,6 +426,302 @@ def clientMessage_handle(
         logger.warning(f"Unexpected message type: {message.msg_type.value}")
 
 
+def _process_polling_loop(
+    network: ServerNetwork,
+    display_manager: DisplayManager,
+    pointer_tracker: PointerTracker,
+    screen_geometry: Screen,
+    config, # Config object from ConfigLoader
+    context_to_client: dict[ScreenContext, str],
+    panic_keysyms: set[int],
+    panic_modifiers: int,
+) -> None:
+    """
+    Processes events in the polling loop (fallback mode).
+    """
+    # Accept new connections
+    network.connections_accept()
+
+    # Receive messages from clients
+    def message_handler(client: ClientConnection, message: Message) -> None:
+        clientMessage_handle(client, message, network)
+
+    network.clientData_receive(message_handler)
+
+    # Track pointer when we have clients
+    if network.clients_count() > 0:
+        # Poll pointer position
+        position = pointer_tracker.position_query()
+        velocity = pointer_tracker.velocity_calculate()
+
+        if server_state.context == ScreenContext.CENTER:
+
+            # Add hysteresis: skip boundary detection after switching to CENTER
+            # This prevents immediate re-detection of boundary after cursor release
+            time_since_center_switch = time.time() - server_state.last_center_switch_time
+
+            if time_since_center_switch >= settings.HYSTERESIS_DELAY_SEC:
+                # Detect boundary crossings
+                transition = pointer_tracker.boundary_detect(position, screen_geometry)
+
+                if transition:
+                    # Map direction to context
+                    direction_to_context = {
+                        Direction.LEFT: ScreenContext.WEST,
+                        Direction.RIGHT: ScreenContext.EAST,
+                        Direction.TOP: ScreenContext.NORTH,
+                        Direction.BOTTOM: ScreenContext.SOUTH,
+                    }
+                    new_context = direction_to_context.get(transition.direction)
+                    if not new_context:
+                        logger.error(
+                            f"Invalid transition direction: {transition.direction}"
+                        )
+                        return
+
+                    logger.info(
+                        f"[TRANSITION] Boundary crossed: pos=({transition.position.x},{transition.position.y}), "
+                        f"velocity={velocity:.1f}px/s, direction={transition.direction.value.upper()}, "
+                        f"CENTER → {new_context.value.upper()}"
+                    )
+
+                    try:
+                        # Get target client name
+                        target_client_name = context_to_client.get(new_context)
+                        if not target_client_name:
+                            logger.error(f"No client configured for {new_context.value}")
+                            return
+
+                        # Calculate where cursor should be warped to (opposite edge)
+                        if transition.direction == Direction.LEFT:
+                            warp_pos = Position(
+                                x=screen_geometry.width - 3, y=transition.position.y
+                            )
+                        elif transition.direction == Direction.RIGHT:
+                            warp_pos = Position(x=2, y=transition.position.y)
+                        elif transition.direction == Direction.TOP:
+                            warp_pos = Position(
+                                x=transition.position.x, y=screen_geometry.height - 3
+                            )
+                        else:  # BOTTOM
+                            warp_pos = Position(x=transition.position.x, y=2)
+
+                        # Now transition state
+                        server_state.context = new_context
+                        logger.debug(f"[CONTEXT] Changed to {new_context.value.upper()}")
+
+                        # Grab input (may fail - handle gracefully)
+                        try:
+                            display_manager.pointer_grab()
+                            display_manager.keyboard_grab()
+                        except RuntimeError as e:
+                            logger.warning(f"Input grab failed: {e}, continuing anyway")
+
+                        # Hide cursor (doesn't work but try anyway)
+                        display_manager.cursor_hide()
+
+                        # CRITICAL: Warp cursor AFTER grabbing and hiding!
+                        # This ensures that if the overlay creation resets the cursor, we override it.
+                        # Uses warp_pointer on native X11, XTest on Crostini/Wayland
+                        logger.info(
+                            f"[WARP] Warping cursor from ({transition.position.x}, {transition.position.y}) to ({warp_pos.x}, {warp_pos.y})"
+                        )
+                        display_manager.cursorPosition_set(warp_pos)
+
+                        # Small delay to ensure warp takes effect
+                        time.sleep(0.01)  # 10ms
+
+                        # Reset velocity tracker and last sent position
+                        pointer_tracker.reset()
+                        server_state.last_sent_position = (
+                            None  # Ensure first position in new context is sent
+                        )
+                        server_state.last_remote_switch_time = time.time()
+
+                        logger.info(f"[STATE] → {new_context.value.upper()} context")
+
+                    except Exception as e:
+                        # Cleanup on error
+                        logger.error(f"Transition failed: {e}", exc_info=True)
+                        try:
+                            display_manager.keyboard_ungrab()
+                            display_manager.pointer_ungrab()
+                            display_manager.cursor_show()
+                        except Exception:
+                            pass
+                        server_state.context = ScreenContext.CENTER
+                        server_state.last_center_switch_time = (
+                            time.time()
+                        )  # Prevent rapid re-entry
+                        logger.warning("Reverted to CENTER after failed transition")
+
+        elif server_state.context != ScreenContext.CENTER:
+            # In REMOTE mode - Server Authoritative Return Logic
+            target_client_name = context_to_client.get(server_state.context)
+
+            # 0. WARP ENFORCEMENT (Grace Period)
+            # If physical mouse fights back (snaps to edge), force warp again
+            if (time.time() - server_state.last_remote_switch_time) < 0.5:
+                # Determine where we SHOULD be
+                target_pos = None
+                if server_state.context == ScreenContext.WEST:
+                    target_pos = Position(x=screen_geometry.width - 3, y=position.y)
+                elif server_state.context == ScreenContext.EAST:
+                    target_pos = Position(x=2, y=position.y)
+                
+                # Only checking WEST/EAST for now as they are primary use cases
+                if target_pos:
+                    # If we are far from target (e.g. at wrong edge), re-warp
+                    if abs(position.x - target_pos.x) > 100:
+                        logger.info(f"[ENFORCE] Cursor at ({position.x},{position.y}), enforcing warp to ({target_pos.x},{target_pos.y})")
+                        display_manager.cursorPosition_set(target_pos)
+                        # Skip return check this iteration to allow warp to take effect
+                        time.sleep(0.01)
+            
+            # 1. Check for Return Condition
+            # Determine which edge triggers return based on current context
+            should_return = False
+
+            if server_state.context == ScreenContext.WEST:
+                # West Client: Return when hitting RIGHT edge of server screen
+                should_return = position.x >= screen_geometry.width - 1
+            elif server_state.context == ScreenContext.EAST:
+                # East Client: Return when hitting LEFT edge
+                should_return = position.x <= 0
+            elif server_state.context == ScreenContext.NORTH:
+                # North Client: Return when hitting BOTTOM edge
+                should_return = position.y >= screen_geometry.height - 1
+            elif server_state.context == ScreenContext.SOUTH:
+                # South Client: Return when hitting TOP edge
+                should_return = position.y <= 0
+
+            # Check velocity for return (to prevent accidental triggers)
+            # Use lower threshold for return to make it feel natural
+            if should_return and velocity >= (config.server.velocity_threshold * 0.5):
+                logger.info(
+                    f"[BOUNDARY] Returning from {server_state.context.value.upper()} at ({position.x}, {position.y})"
+                )
+
+                try:
+                    # 1. Send Hide Signal to Client
+                    if target_client_name:
+                        hide_event = MouseEvent(
+                            event_type=EventType.MOUSE_MOVE,
+                            normalized_point=NormalizedPoint(x=-1.0, y=-1.0),
+                        )
+                        hide_msg = MessageBuilder.mouseEventMessage_create(hide_event)
+                        # We try to send it, but if it fails we still need to revert local state
+                        network.messageToClient_send(target_client_name, hide_msg)
+
+                    # 2. Revert State (Restore desktop)
+                    state_revert_to_center(
+                        display_manager, screen_geometry, position, pointer_tracker
+                    )
+
+                except Exception as e:
+                    logger.error(f"Return transition failed: {e}", exc_info=True)
+                    # Emergency cleanup
+                    server_state.context = ScreenContext.CENTER
+                    try:
+                        display_manager.cursor_show()
+                        display_manager.keyboard_ungrab()
+                        display_manager.pointer_ungrab()
+                    except Exception:
+                        pass
+            else:
+                if target_client_name:
+                    # Not returning - Send events to active client ONLY if position changed
+                    if server_state.positionChanged_check(position):
+                        logger.info(
+                            f"[MOUSE] Sending pos ({position.x}, {position.y}) to {target_client_name}"
+                        )
+                        normalized_point = screen_geometry.normalize(position)
+
+                        mouse_event = MouseEvent(
+                            event_type=EventType.MOUSE_MOVE,
+                            normalized_point=normalized_point,
+                        )
+                        move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
+
+                        # If sending fails, revert to CENTER
+                        if not network.messageToClient_send(target_client_name, move_msg):
+                            connected_names = [c.name for c in network.clients]
+                            logger.error(
+                                f"Failed to send movement to '{target_client_name}'. Connected clients: {connected_names}. Reverting."
+                            )
+                            state_revert_to_center(
+                                display_manager, screen_geometry, position, pointer_tracker
+                            )
+                            return
+
+                        # Update last sent position
+                        server_state.lastSentPosition_update(position)
+
+                    # Send Input Events (Buttons & Keys)
+                    input_events, modifier_state = read_input_events(display_manager)
+
+                    # Check for panic key - configurable escape hatch
+                    if panicKey_check(
+                        input_events, panic_keysyms, panic_modifiers, modifier_state
+                    ):
+                        logger.warning(
+                            "[PANIC] Panic key pressed - forcing return to CENTER"
+                        )
+                        state_revert_to_center(
+                            display_manager, screen_geometry, position, pointer_tracker
+                        )
+                        return
+
+                    for event in input_events:
+                        msg = None
+                        if isinstance(event, MouseEvent):
+                            # Normalize position for button events
+                            if event.position:
+                                norm_pos = screen_geometry.normalize(event.position)
+                                # Create new event with normalized point
+                                norm_event = MouseEvent(
+                                    event_type=event.event_type,
+                                    normalized_point=norm_pos,
+                                    button=event.button,
+                                )
+                                msg = MessageBuilder.mouseEventMessage_create(norm_event)
+                                logger.debug(
+                                    f"[BUTTON] {event.event_type.value} button={event.button}"
+                                )
+                        elif isinstance(event, KeyEvent):
+                            msg = MessageBuilder.keyEventMessage_create(event)
+                            logger.debug(
+                                f"[KEY] {event.event_type.value} keycode={event.keycode}"
+                            )
+
+                        if msg:
+                            if not network.messageToClient_send(target_client_name, msg):
+                                logger.error(
+                                    f"Failed to send {event.event_type.value} to {target_client_name}"
+                                )
+                                # We don't break/continue here, the next loop iteration will handle it if move fails
+                                # but actually we should probably revert now.
+                                state_revert_to_center(
+                                    display_manager,
+                                    screen_geometry,
+                                    position,
+                                    pointer_tracker,
+                                )
+                                break
+                else:
+                    # Drain events if no client connected but in remote mode
+                    _, _ = read_input_events(display_manager)
+                    logger.error(
+                        f"Active context {server_state.context.value} has no connected client, reverting"
+                    )
+                    state_revert_to_center(
+                        display_manager, screen_geometry, position, pointer_tracker
+                    )
+
+    # Small sleep to prevent busy waiting
+    time.sleep(config.server.poll_interval_ms / settings.POLL_INTERVAL_DIVISOR)
+
+
 def server_run(args: argparse.Namespace) -> None:
     """
     Run tx2tx server
@@ -479,9 +775,24 @@ def server_run(args: argparse.Namespace) -> None:
     # Parse panic key configuration
     panic_keysyms, panic_modifiers = panicKeyConfig_parse(config)
 
+    # Determine overlay and x11native settings
+    # Priority: CLI args > config file
+    x11native = getattr(args, "x11native", False)
+    if x11native:
+        overlay_enabled = False  # Force disable overlay on native X11
+        logger.info("Native X11 mode enabled (--x11native)")
+    else:
+        overlay_enabled = getattr(args, "overlay_enabled", None)
+        if overlay_enabled is None:
+            overlay_enabled = config.server.overlay_enabled  # Use config default
+        if overlay_enabled:
+            logger.info("Overlay window enabled (Crostini mode)")
+
     # Initialize X11 display and pointer tracking
     display_manager = DisplayManager(
-        display_name=config.server.display, overlay_enabled=config.server.overlay_enabled
+        display_name=config.server.display,
+        overlay_enabled=overlay_enabled,
+        x11native=x11native,
     )
 
     try:
@@ -534,305 +845,25 @@ def server_run(args: argparse.Namespace) -> None:
 
     try:
         network.server_start()
-
-        # Main event loop
         logger.info("Server running. Press Ctrl+C to stop.")
 
         while network.is_running:
-            # Accept new connections
-            network.connections_accept()
-
-            # Receive messages from clients
-            def message_handler(client: ClientConnection, message: Message) -> None:
-                """Handle incoming messages from clients"""
-                clientMessage_handle(client, message, network)
-
-            network.clientData_receive(message_handler)
-
-            # Track pointer when we have clients
-            if network.clients_count() > 0:
-                # Poll pointer position
-                position = pointer_tracker.position_query()
-                velocity = pointer_tracker.velocity_calculate()
-
-                if server_state.context == ScreenContext.CENTER:
-
-                    # Add hysteresis: skip boundary detection after switching to CENTER
-                    # This prevents immediate re-detection of boundary after cursor release
-                    time_since_center_switch = time.time() - server_state.last_center_switch_time
-
-                    if time_since_center_switch >= settings.HYSTERESIS_DELAY_SEC:
-                        # Detect boundary crossings
-                        transition = pointer_tracker.boundary_detect(position, screen_geometry)
-
-                        if transition:
-                            # Map direction to context
-                            direction_to_context = {
-                                Direction.LEFT: ScreenContext.WEST,
-                                Direction.RIGHT: ScreenContext.EAST,
-                                Direction.TOP: ScreenContext.NORTH,
-                                Direction.BOTTOM: ScreenContext.SOUTH,
-                            }
-                            new_context = direction_to_context.get(transition.direction)
-                            if not new_context:
-                                logger.error(
-                                    f"Invalid transition direction: {transition.direction}"
-                                )
-                                continue
-
-                            logger.info(
-                                f"[TRANSITION] Boundary crossed: pos=({transition.position.x},{transition.position.y}), "
-                                f"velocity={velocity:.1f}px/s, direction={transition.direction.value.upper()}, "
-                                f"CENTER → {new_context.value.upper()}"
-                            )
-
-                            try:
-                                # Get target client name
-                                target_client_name = context_to_client.get(new_context)
-                                if not target_client_name:
-                                    logger.error(f"No client configured for {new_context.value}")
-                                    continue
-
-                                # Calculate where cursor should be warped to (opposite edge)
-                                if transition.direction == Direction.LEFT:
-                                    warp_pos = Position(
-                                        x=screen_geometry.width - 3, y=transition.position.y
-                                    )
-                                elif transition.direction == Direction.RIGHT:
-                                    warp_pos = Position(x=2, y=transition.position.y)
-                                elif transition.direction == Direction.TOP:
-                                    warp_pos = Position(
-                                        x=transition.position.x, y=screen_geometry.height - 3
-                                    )
-                                else:  # BOTTOM
-                                    warp_pos = Position(x=transition.position.x, y=2)
-
-                                # Now transition state
-                                server_state.context = new_context
-                                logger.debug(f"[CONTEXT] Changed to {new_context.value.upper()}")
-
-                                # Grab input (may fail - handle gracefully)
-                                try:
-                                    display_manager.pointer_grab()
-                                    display_manager.keyboard_grab()
-                                except RuntimeError as e:
-                                    logger.warning(f"Input grab failed: {e}, continuing anyway")
-
-                                # Hide cursor (doesn't work but try anyway)
-                                display_manager.cursor_hide()
-
-                                # CRITICAL: Warp cursor AFTER grabbing and hiding!
-                                # This ensures that if the overlay creation resets the cursor, we override it.
-                                # Use XTest fake_input instead of warp_pointer - compositors often block warp_pointer
-                                logger.info(
-                                    f"[WARP] Warping cursor from ({transition.position.x}, {transition.position.y}) to ({warp_pos.x}, {warp_pos.y})"
-                                )
-                                display_manager.cursorPosition_setViaXTest(warp_pos)
-
-                                # Small delay to ensure warp takes effect
-                                time.sleep(0.01)  # 10ms
-
-                                # Reset velocity tracker and last sent position
-                                pointer_tracker.reset()
-                                server_state.last_sent_position = (
-                                    None  # Ensure first position in new context is sent
-                                )
-                                server_state.last_remote_switch_time = time.time()
-
-                                logger.info(f"[STATE] → {new_context.value.upper()} context")
-
-                                # Continue to next iteration - REMOTE mode will handle the warp
-                                continue
-
-                            except Exception as e:
-                                # Cleanup on error
-                                logger.error(f"Transition failed: {e}", exc_info=True)
-                                try:
-                                    display_manager.keyboard_ungrab()
-                                    display_manager.pointer_ungrab()
-                                    display_manager.cursor_show()
-                                except Exception:
-                                    pass
-                                server_state.context = ScreenContext.CENTER
-                                server_state.last_center_switch_time = (
-                                    time.time()
-                                )  # Prevent rapid re-entry
-                                logger.warning("Reverted to CENTER after failed transition")
-
-                elif server_state.context != ScreenContext.CENTER:
-                    # In REMOTE mode - Server Authoritative Return Logic
-                    target_client_name = context_to_client.get(server_state.context)
-
-                    # 0. WARP ENFORCEMENT (Grace Period)
-                    # If physical mouse fights back (snaps to edge), force warp again
-                    if (time.time() - server_state.last_remote_switch_time) < 0.5:
-                        # Determine where we SHOULD be
-                        target_pos = None
-                        if server_state.context == ScreenContext.WEST:
-                            target_pos = Position(x=screen_geometry.width - 3, y=position.y)
-                        elif server_state.context == ScreenContext.EAST:
-                            target_pos = Position(x=2, y=position.y)
-                        
-                        # Only checking WEST/EAST for now as they are primary use cases
-                        if target_pos:
-                            # If we are far from target (e.g. at wrong edge), re-warp
-                            if abs(position.x - target_pos.x) > 100:
-                                logger.info(f"[ENFORCE] Cursor at ({position.x},{position.y}), enforcing warp to ({target_pos.x},{target_pos.y})")
-                                display_manager.cursorPosition_setViaXTest(target_pos)
-                                # Skip return check this iteration to allow warp to take effect
-                                time.sleep(0.01)
-                                continue
-
-                    # 1. Check for Return Condition
-                    # Determine which edge triggers return based on current context
-                    should_return = False
-
-                    if server_state.context == ScreenContext.WEST:
-                        # West Client: Return when hitting RIGHT edge of server screen
-                        should_return = position.x >= screen_geometry.width - 1
-                    elif server_state.context == ScreenContext.EAST:
-                        # East Client: Return when hitting LEFT edge
-                        should_return = position.x <= 0
-                    elif server_state.context == ScreenContext.NORTH:
-                        # North Client: Return when hitting BOTTOM edge
-                        should_return = position.y >= screen_geometry.height - 1
-                    elif server_state.context == ScreenContext.SOUTH:
-                        # South Client: Return when hitting TOP edge
-                        should_return = position.y <= 0
-
-                    # Check velocity for return (to prevent accidental triggers)
-                    # Use lower threshold for return to make it feel natural
-                    if should_return and velocity >= (config.server.velocity_threshold * 0.5):
-                        logger.info(
-                            f"[BOUNDARY] Returning from {server_state.context.value.upper()} at ({position.x}, {position.y})"
-                        )
-
-                        try:
-                            # 1. Send Hide Signal to Client
-                            if target_client_name:
-                                hide_event = MouseEvent(
-                                    event_type=EventType.MOUSE_MOVE,
-                                    normalized_point=NormalizedPoint(x=-1.0, y=-1.0),
-                                )
-                                hide_msg = MessageBuilder.mouseEventMessage_create(hide_event)
-                                # We try to send it, but if it fails we still need to revert local state
-                                network.messageToClient_send(target_client_name, hide_msg)
-
-                            # 2. Revert State (Restore desktop)
-                            state_revert_to_center(
-                                display_manager, screen_geometry, position, pointer_tracker
-                            )
-
-                        except Exception as e:
-                            logger.error(f"Return transition failed: {e}", exc_info=True)
-                            # Emergency cleanup
-                            server_state.context = ScreenContext.CENTER
-                            try:
-                                display_manager.cursor_show()
-                                display_manager.keyboard_ungrab()
-                                display_manager.pointer_ungrab()
-                            except Exception:
-                                pass
-                    else:
-                        if target_client_name:
-                            # Not returning - Send events to active client ONLY if position changed
-                            if server_state.positionChanged_check(position):
-                                logger.info(
-                                    f"[MOUSE] Sending pos ({position.x}, {position.y}) to {target_client_name}"
-                                )
-                                normalized_point = screen_geometry.normalize(position)
-
-                                mouse_event = MouseEvent(
-                                    event_type=EventType.MOUSE_MOVE,
-                                    normalized_point=normalized_point,
-                                )
-                                move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
-
-                                # If sending fails, revert to CENTER
-                                if not network.messageToClient_send(target_client_name, move_msg):
-                                    connected_names = [c.name for c in network.clients]
-                                    logger.error(
-                                        f"Failed to send movement to '{target_client_name}'. Connected clients: {connected_names}. Reverting."
-                                    )
-                                    state_revert_to_center(
-                                        display_manager, screen_geometry, position, pointer_tracker
-                                    )
-                                    continue
-
-                                # Update last sent position
-                                server_state.lastSentPosition_update(position)
-
-                            # Send Input Events (Buttons & Keys)
-                            input_events, modifier_state = read_input_events(display_manager)
-
-                            # Check for panic key - configurable escape hatch
-                            if panicKey_check(
-                                input_events, panic_keysyms, panic_modifiers, modifier_state
-                            ):
-                                logger.warning(
-                                    "[PANIC] Panic key pressed - forcing return to CENTER"
-                                )
-                                state_revert_to_center(
-                                    display_manager, screen_geometry, position, pointer_tracker
-                                )
-                                continue
-
-                            for event in input_events:
-                                msg = None
-                                if isinstance(event, MouseEvent):
-                                    # Normalize position for button events
-                                    if event.position:
-                                        norm_pos = screen_geometry.normalize(event.position)
-                                        # Create new event with normalized point
-                                        norm_event = MouseEvent(
-                                            event_type=event.event_type,
-                                            normalized_point=norm_pos,
-                                            button=event.button,
-                                        )
-                                        msg = MessageBuilder.mouseEventMessage_create(norm_event)
-                                        logger.debug(
-                                            f"[BUTTON] {event.event_type.value} button={event.button}"
-                                        )
-                                elif isinstance(event, KeyEvent):
-                                    msg = MessageBuilder.keyEventMessage_create(event)
-                                    logger.debug(
-                                        f"[KEY] {event.event_type.value} keycode={event.keycode}"
-                                    )
-
-                                if msg:
-                                    if not network.messageToClient_send(target_client_name, msg):
-                                        logger.error(
-                                            f"Failed to send {event.event_type.value} to {target_client_name}"
-                                        )
-                                        # We don't break/continue here, the next loop iteration will handle it if move fails
-                                        # but actually we should probably revert now.
-                                        state_revert_to_center(
-                                            display_manager,
-                                            screen_geometry,
-                                            position,
-                                            pointer_tracker,
-                                        )
-                                        break
-                        else:
-                            # Drain events if no client connected but in remote mode
-                            _, _ = read_input_events(display_manager)
-                            logger.error(
-                                f"Active context {server_state.context.value} has no connected client, reverting"
-                            )
-                            state_revert_to_center(
-                                display_manager, screen_geometry, position, pointer_tracker
-                            )
-
-            # Small sleep to prevent busy waiting
-            time.sleep(config.server.poll_interval_ms / settings.POLL_INTERVAL_DIVISOR)
-
+            _process_polling_loop(
+                network,
+                display_manager,
+                pointer_tracker,
+                screen_geometry,
+                config,
+                context_to_client,
+                panic_keysyms,
+                panic_modifiers,
+            )
     except Exception as e:
         logger.error(f"Server error: {e}", exc_info=True)
         raise
     finally:
         network.server_stop()
         display_manager.connection_close()
-
 
 def main() -> NoReturn:
     """Main entry point"""

@@ -67,7 +67,13 @@ def arguments_parse() -> argparse.Namespace:
     parser.add_argument(
         "--overlay",
         action="store_true",
-        help="[Server] Enable fullscreen overlay window to hide cursor (may cause cursor reset issues)",
+        help="[Server] Enable fullscreen overlay window to hide cursor (Crostini workaround)",
+    )
+
+    parser.add_argument(
+        "--x11native",
+        action="store_true",
+        help="[Server] Optimize for native X11 (disables Crostini workarounds, uses XFixes)",
     )
 
     parser.add_argument(
@@ -101,11 +107,18 @@ def main() -> NoReturn:
             # No client-related flags: run as server
             from tx2tx.server.main import server_run
 
-            # Handle flag
+            # Handle overlay flag
             if args.overlay:
                 setattr(args, "overlay_enabled", True)
             else:
                 setattr(args, "overlay_enabled", None)  # Let config decide
+
+            # Handle x11native flag (takes precedence over overlay)
+            if args.x11native:
+                setattr(args, "x11native", True)
+                setattr(args, "overlay_enabled", False)  # Force disable overlay on native X11
+            else:
+                setattr(args, "x11native", False)
 
             server_run(args)
         # Both client_run and server_run are NoReturn, so this is unreachable
