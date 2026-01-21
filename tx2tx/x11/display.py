@@ -31,7 +31,7 @@ def xfixes_hide_cursor_native(display: Display, window_id: int) -> bool:
 
     Args:
         display: Python-xlib Display object
-        window_id: X11 Window ID
+        window_id: X11 Window ID (unused - we get root from ctypes Display)
 
     Returns:
         True if successful, False otherwise
@@ -51,8 +51,12 @@ def xfixes_hide_cursor_native(display: Display, window_id: int) -> bool:
             logger.warning("Failed to open display for XFixes")
             return False
 
+        # Get the root window from THIS Display (not from python-xlib)
+        libX11.XDefaultRootWindow.restype = ctypes.c_ulong
+        root_window = libX11.XDefaultRootWindow(ctypes.c_void_p(display_ptr))
+
         # Call XFixesHideCursor(Display *dpy, Window window)
-        libXfixes.XFixesHideCursor(ctypes.c_void_p(display_ptr), ctypes.c_ulong(window_id))
+        libXfixes.XFixesHideCursor(ctypes.c_void_p(display_ptr), ctypes.c_ulong(root_window))
 
         # Flush and close
         libX11.XFlush(ctypes.c_void_p(display_ptr))
@@ -70,7 +74,7 @@ def xfixes_show_cursor_native(display: Display, window_id: int) -> bool:
 
     Args:
         display: Python-xlib Display object
-        window_id: X11 Window ID
+        window_id: X11 Window ID (unused - we get root from ctypes Display)
 
     Returns:
         True if successful, False otherwise
@@ -90,8 +94,12 @@ def xfixes_show_cursor_native(display: Display, window_id: int) -> bool:
             logger.warning("Failed to open display for XFixes")
             return False
 
+        # Get the root window from THIS Display (not from python-xlib)
+        libX11.XDefaultRootWindow.restype = ctypes.c_ulong
+        root_window = libX11.XDefaultRootWindow(ctypes.c_void_p(display_ptr))
+
         # Call XFixesShowCursor(Display *dpy, Window window)
-        libXfixes.XFixesShowCursor(ctypes.c_void_p(display_ptr), ctypes.c_ulong(window_id))
+        libXfixes.XFixesShowCursor(ctypes.c_void_p(display_ptr), ctypes.c_ulong(root_window))
 
         # Flush and close
         libX11.XFlush(ctypes.c_void_p(display_ptr))
