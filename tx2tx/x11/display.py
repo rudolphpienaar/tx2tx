@@ -1,5 +1,6 @@
 """X11 display connection and management"""
 
+import ctypes
 import logging
 import os
 import time
@@ -11,6 +12,95 @@ from Xlib.ext import xtest
 from tx2tx.common.types import Position, ScreenGeometry
 
 logger = logging.getLogger(__name__)
+
+# Load native X11 libraries for XFixes (python-xlib doesn't implement it)
+try:
+    libX11 = ctypes.CDLL("libX11.so.6")
+    libXfixes = ctypes.CDLL("libXfixes.so.3")
+    XFIXES_AVAILABLE = True
+except OSError as e:
+    logger.warning(f"Failed to load native XFixes library: {e}")
+    libX11 = None
+    libXfixes = None
+    XFIXES_AVAILABLE = False
+
+
+def xfixes_hide_cursor_native(display: Display, window_id: int) -> bool:
+    """
+    Hide cursor using native XFixes library via ctypes.
+
+    Args:
+        display: Python-xlib Display object
+        window_id: X11 Window ID
+
+    Returns:
+        True if successful, False otherwise
+    """
+    if not XFIXES_AVAILABLE:
+        return False
+
+    try:
+        # Get the display name and reopen with ctypes
+        display_name = display.get_display_name()
+
+        # XOpenDisplay returns Display*
+        libX11.XOpenDisplay.restype = ctypes.c_void_p
+        display_ptr = libX11.XOpenDisplay(display_name.encode())
+
+        if not display_ptr:
+            logger.warning("Failed to open display for XFixes")
+            return False
+
+        # Call XFixesHideCursor(Display *dpy, Window window)
+        libXfixes.XFixesHideCursor(ctypes.c_void_p(display_ptr), ctypes.c_ulong(window_id))
+
+        # Flush and close
+        libX11.XFlush(ctypes.c_void_p(display_ptr))
+        libX11.XCloseDisplay(ctypes.c_void_p(display_ptr))
+
+        return True
+    except Exception as e:
+        logger.debug(f"Native XFixesHideCursor failed: {e}")
+        return False
+
+
+def xfixes_show_cursor_native(display: Display, window_id: int) -> bool:
+    """
+    Show cursor using native XFixes library via ctypes.
+
+    Args:
+        display: Python-xlib Display object
+        window_id: X11 Window ID
+
+    Returns:
+        True if successful, False otherwise
+    """
+    if not XFIXES_AVAILABLE:
+        return False
+
+    try:
+        # Get the display name and reopen with ctypes
+        display_name = display.get_display_name()
+
+        # XOpenDisplay returns Display*
+        libX11.XOpenDisplay.restype = ctypes.c_void_p
+        display_ptr = libX11.XOpenDisplay(display_name.encode())
+
+        if not display_ptr:
+            logger.warning("Failed to open display for XFixes")
+            return False
+
+        # Call XFixesShowCursor(Display *dpy, Window window)
+        libXfixes.XFixesShowCursor(ctypes.c_void_p(display_ptr), ctypes.c_ulong(window_id))
+
+        # Flush and close
+        libX11.XFlush(ctypes.c_void_p(display_ptr))
+        libX11.XCloseDisplay(ctypes.c_void_p(display_ptr))
+
+        return True
+    except Exception as e:
+        logger.debug(f"Native XFixesShowCursor failed: {e}")
+        return False
 
 
 def is_native_x11() -> bool:
@@ -535,23 +625,29 @@ class DisplayManager:
         # Determine if we're on native X11
         native_x11 = self._x11native or is_native_x11()
 
-        # NATIVE X11 PATH - Use blank cursor (python-xlib doesn't implement XFixes)
+        # NATIVE X11 PATH - Use native XFixes via ctypes
         if native_x11 and not self._overlay_enabled:
             logger.debug("Using native X11 cursor hiding methods")
 
-            # Method 1: Blank pixmap cursor (truly invisible)
+            # Method 1: Native XFixes via ctypes (bypasses python-xlib's missing implementation)
+            if xfixes_hide_cursor_native(display, root.id):
+                self._cursor_hidden = True
+                logger.info("Cursor hidden (native XFixes via ctypes)")
+                return
+
+            # Method 2: Blank pixmap cursor (fallback - truly invisible)
             try:
                 cursor = self._ensure_blank_cursor()
                 if cursor:
                     root.change_attributes(cursor=cursor)
                     display.sync()
                     self._cursor_hidden = True
-                    logger.info("Cursor hidden (blank pixmap - native X11)")
+                    logger.info("Cursor hidden (blank pixmap)")
                     return
             except Exception as e:
                 logger.debug(f"Failed to set blank cursor: {e}")
 
-            # Method 2: Gray X Cursor on root window (fallback - visible but indicates remote mode)
+            # Method 3: Gray X Cursor on root window (last resort - visible but indicates remote mode)
             try:
                 cursor = self._remoteCursor_create()
                 if cursor:
@@ -619,7 +715,13 @@ class DisplayManager:
         # First: Hide overlay window if it exists
         self._cursorOverlay_hide()
 
-        # Restore default cursor on root (cursor=0 means None/default)
+        # Try native XFixes first if available
+        if xfixes_show_cursor_native(display, root.id):
+            self._cursor_hidden = False
+            logger.debug("Cursor shown (native XFixes via ctypes)")
+            return
+
+        # Fallback: Restore default cursor on root (cursor=0 means None/default)
         try:
             root.change_attributes(cursor=0)
             display.sync()
