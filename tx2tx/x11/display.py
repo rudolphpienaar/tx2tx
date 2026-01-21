@@ -317,9 +317,18 @@ class DisplayManager:
 
     def cursorPosition_set(self, position: Position) -> None:
         """
-        Move cursor to absolute position using standard X11 WarpPointer.
+        Move cursor to absolute position using both WarpPointer and XTest.
+        This 'Belt and Suspenders' approach ensures compliance from stubborn WMs.
         """
-        self.cursorPosition_setViaWarpPointer(position)
+        try:
+            self.cursorPosition_setViaWarpPointer(position)
+        except Exception:
+            pass
+            
+        try:
+            self.cursorPosition_setViaXTest(position)
+        except Exception:
+            pass
 
     def connection_sync(self) -> None:
         """

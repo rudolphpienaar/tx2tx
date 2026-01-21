@@ -287,42 +287,37 @@ def state_revertToCenter(
         entry_pos = Position(x=position.x, y=screen_geometry.height - offset)
 
     try:
-        # 1. Ungrab FIRST (Python connection)
+        # 1. Show cursor FIRST (while grabbed)
+        # Ensures it is visible before we move it or release control.
+        display_manager.cursor_show()
+        display_manager.connection_sync()
+
+        # 2. Warp to entry position (while still grabbed)
+        # Using both Warp and XTest (via display_manager) to force the WM to comply.
+        try:
+            logger.info(f"[WARP RETURN] Anchoring at entry position ({entry_pos.x}, {entry_pos.y})")
+            display_manager.cursorPosition_set(entry_pos)
+            display_manager.connection_sync()
+            
+            # 3. Momentum Drain: Wait while STILL GRABBED.
+            # This discards the physical mouse movement that triggered the return.
+            # If we ungrab too fast, the physical momentum slams the cursor away.
+            time.sleep(0.1)
+        except Exception as e:
+            logger.error(f"Warp failed during revert: {e}")
+
+        # 4. Ungrab to restore desktop control
         try:
             display_manager.keyboard_ungrab()
             display_manager.pointer_ungrab()
-            # Force server to process ungrab before anything else happens
             display_manager.connection_sync()
         except Exception as e:
             logger.warning(f"Ungrab failed: {e}")
 
-        # 2. Show cursor (Native connection)
-        # We do this after ungrab so the WM sees a 'normal' visible window.
-        display_manager.cursor_show()
-        # Force server to process the 'Show' before we move it
-        display_manager.connection_sync()
-
-        # 3. Warp to entry position (Python connection)
-        # Land slightly deeper (30px) to prevent momentum from hitting the edge instantly
-        # and triggering a center-snap.
-        entry_pos_robust = entry_pos
-        if prev_context == ScreenContext.WEST:
-            entry_pos_robust = Position(x=30, y=entry_pos.y)
-        elif prev_context == ScreenContext.EAST:
-            entry_pos_robust = Position(x=screen_geometry.width - 30, y=entry_pos.y)
-
-        try:
-            logger.info(f"[WARP RETURN] Warping to {entry_pos_robust.x}, {entry_pos_robust.y}")
-            display_manager.cursorPosition_set(entry_pos_robust)
-            # Final sync to ensure cursor is placed correctly
-            display_manager.connection_sync()
-        except Exception as e:
-            logger.error(f"Warp failed: {e}")
-
         # Reset tracker to prevent velocity spike from triggering immediate re-entry
         pointer_tracker.reset()
 
-        logger.info(f"[STATE] → CENTER (revert) - Cursor at ({entry_pos_robust.x}, {entry_pos_robust.y})")
+        logger.info(f"[STATE] → CENTER (revert) - Cursor at ({entry_pos.x}, {entry_pos.y})")
     except Exception as e:
         logger.error(f"Emergency revert failed: {e}")
         # Last ditch effort to unlock
