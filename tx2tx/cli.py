@@ -73,7 +73,7 @@ def arguments_parse() -> argparse.Namespace:
     parser.add_argument(
         "--x11native",
         action="store_true",
-        help="[Server] Optimize for native X11 (disables Crostini workarounds, uses XFixes)",
+        help="[Server] Optimize for native X11 (disables Crostini workarounds, uses blank cursor)",
     )
 
     parser.add_argument(

@@ -535,22 +535,23 @@ class DisplayManager:
         # Determine if we're on native X11
         native_x11 = self._x11native or is_native_x11()
 
-        # NATIVE X11 PATH - Optimal methods that work perfectly on full X11
+        # NATIVE X11 PATH - Use blank cursor (python-xlib doesn't implement XFixes)
         if native_x11 and not self._overlay_enabled:
             logger.debug("Using native X11 cursor hiding methods")
 
-            # Method 1: XFixes (best - true invisibility)
+            # Method 1: Blank pixmap cursor (truly invisible)
             try:
-                if display.has_extension("XFIXES"):
-                    display.xfixes.hide_cursor(root)
+                cursor = self._ensure_blank_cursor()
+                if cursor:
+                    root.change_attributes(cursor=cursor)
                     display.sync()
                     self._cursor_hidden = True
-                    logger.info("Cursor hidden (XFixes - native X11)")
+                    logger.info("Cursor hidden (blank pixmap - native X11)")
                     return
             except Exception as e:
-                logger.debug(f"XFixes hide_cursor failed: {e}")
+                logger.debug(f"Failed to set blank cursor: {e}")
 
-            # Method 2: Gray X Cursor on root window
+            # Method 2: Gray X Cursor on root window (fallback - visible but indicates remote mode)
             try:
                 cursor = self._remoteCursor_create()
                 if cursor:
@@ -561,18 +562,6 @@ class DisplayManager:
                     return
             except Exception as e:
                 logger.debug(f"Failed to set gray X cursor: {e}")
-
-            # Method 3: Blank pixmap cursor (fallback)
-            try:
-                cursor = self._ensure_blank_cursor()
-                if cursor:
-                    root.change_attributes(cursor=cursor)
-                    display.sync()
-                    self._cursor_hidden = True
-                    logger.info("Cursor hidden (blank pixmap)")
-                    return
-            except Exception as e:
-                logger.debug(f"Failed to set blank cursor: {e}")
 
         # CROSTINI/WAYLAND PATH - Overlay window workaround
         else:
@@ -587,7 +576,19 @@ class DisplayManager:
             else:
                 logger.debug("Overlay disabled, trying fallback methods")
 
-            # Method 2: Gray X Cursor on root window (may not work but try anyway)
+            # Method 2: Blank cursor (may work on some compositors)
+            try:
+                cursor = self._ensure_blank_cursor()
+                if cursor:
+                    root.change_attributes(cursor=cursor)
+                    display.sync()
+                    self._cursor_hidden = True
+                    logger.info("Cursor hidden (blank pixmap)")
+                    return
+            except Exception as e:
+                logger.debug(f"Failed to set blank cursor: {e}")
+
+            # Method 3: Gray X Cursor on root window (last resort - visible)
             try:
                 cursor = self._remoteCursor_create()
                 if cursor:
@@ -598,29 +599,6 @@ class DisplayManager:
                     return
             except Exception as e:
                 logger.debug(f"Failed to set gray X cursor: {e}")
-
-            # Method 3: XFixes (may not work in Crostini but try anyway)
-            try:
-                if display.has_extension("XFIXES"):
-                    display.xfixes.hide_cursor(root)
-                    display.sync()
-                    self._cursor_hidden = True
-                    logger.debug("Cursor hidden (XFixes)")
-                    return
-            except Exception as e:
-                logger.debug(f"XFixes hide_cursor failed: {e}")
-
-            # Method 4: Blank Cursor (last resort)
-            try:
-                cursor = self._ensure_blank_cursor()
-                if cursor:
-                    root.change_attributes(cursor=cursor)
-                    display.sync()
-                    self._cursor_hidden = True
-                    logger.debug("Cursor hidden (blank cursor)")
-                    return
-            except Exception as e:
-                logger.debug(f"Failed to set blank cursor: {e}")
 
         logger.warning("All cursor hiding methods failed")
 
@@ -641,23 +619,12 @@ class DisplayManager:
         # First: Hide overlay window if it exists
         self._cursorOverlay_hide()
 
-        # Method 1: XFixes show_cursor
-        try:
-            if display.has_extension("XFIXES"):
-                display.xfixes.show_cursor(root)
-                display.sync()
-                self._cursor_hidden = False
-                logger.debug("Cursor shown (XFixes)")
-                return
-        except Exception as e:
-            logger.warning(f"XFixes show_cursor failed: {e}")
-
-        # Method 2: Restore default cursor on root
+        # Restore default cursor on root (cursor=0 means None/default)
         try:
             root.change_attributes(cursor=0)
             display.sync()
             self._cursor_hidden = False
-            logger.debug("Cursor shown (default)")
+            logger.debug("Cursor shown (restored to default)")
         except Exception as e:
             logger.error(f"Failed to show cursor: {e}")
 
