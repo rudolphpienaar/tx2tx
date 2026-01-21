@@ -285,26 +285,26 @@ def state_revert_to_center(
 
     try:
         # 1. Ungrab FIRST
-        # Critical: Some WMs (like Termux-X11) block WarpPointer/XTest if the pointer is Grabbed.
-        # We must release the grab to allow the warp to happen.
         try:
             display_manager.keyboard_ungrab()
             display_manager.pointer_ungrab()
+            # Give X server a moment to process the ungrab state
+            time.sleep(0.05)
         except Exception as e:
             logger.warning(f"Ungrab failed: {e}")
 
-        # 2. Show cursor
-        # Ensure it's visible so the WM treats it as active.
-        display_manager.cursor_show()
-
-        # 3. Warp to entry position
-        # Now that we are ungrabbed and visible, this should work.
+        # 2. Warp to entry position
+        # Using XTest (which display_manager now enforces) requires no grab.
         try:
             logger.info(f"[WARP RETURN] Warping to entry position ({entry_pos.x}, {entry_pos.y})")
             if not display_manager.cursorPosition_setAndVerify(entry_pos):
                  logger.warning(f"Return warp verification failed for position ({entry_pos.x}, {entry_pos.y})")
         except Exception as e:
             logger.error(f"Warp failed during revert: {e}")
+
+        # 3. Show cursor
+        # Show it last so we don't interfere with the warp logic
+        display_manager.cursor_show()
 
         # Reset tracker to prevent velocity spike from triggering immediate re-entry
         pointer_tracker.reset()
