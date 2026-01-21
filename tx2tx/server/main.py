@@ -513,19 +513,22 @@ def _process_polling_loop(
                             logger.error(f"No client configured for {new_context.value}")
                             return
 
-                        # Calculate where cursor should be warped to (close to transition edge)
-                        # We use a 100px offset from the edge we just crossed.
-                        # This avoids large 3800px jumps that confuse WMs and ensures 
-                        # coordinate mapping remains accurate.
-                        parking_offset = 100
+                        # Calculate where cursor should be warped to (opposite edge)
+                        # We park at the far side so that movement coordinates map
+                        # naturally to the client's entry edge.
+                        parking_offset = 5
                         if transition.direction == Direction.LEFT:
-                            warp_pos = Position(x=parking_offset, y=transition.position.y)
+                            warp_pos = Position(
+                                x=screen_geometry.width - parking_offset, y=transition.position.y
+                            )
                         elif transition.direction == Direction.RIGHT:
-                            warp_pos = Position(x=screen_geometry.width - parking_offset, y=transition.position.y)
+                            warp_pos = Position(x=parking_offset, y=transition.position.y)
                         elif transition.direction == Direction.TOP:
-                            warp_pos = Position(x=transition.position.x, y=parking_offset)
+                            warp_pos = Position(
+                                x=transition.position.x, y=screen_geometry.height - parking_offset
+                            )
                         else:  # BOTTOM
-                            warp_pos = Position(x=transition.position.x, y=screen_geometry.height - parking_offset)
+                            warp_pos = Position(x=transition.position.x, y=parking_offset)
 
                         # Now transition state
                         server_state.context = new_context
@@ -599,22 +602,20 @@ def _process_polling_loop(
 
             # 1. Check for Return Condition
             # Determine which edge triggers return based on current context
-            # With 'Close Parking', return happens when moving AWAY from the entry edge.
             should_return = False
-            return_threshold = 200 # Must move 100px past parking (at 100px)
 
             if server_state.context == ScreenContext.WEST:
-                # West Client (entered from Left): Return when moving RIGHT (x increases)
-                should_return = position.x >= return_threshold
+                # West Client: Return when hitting RIGHT edge of server screen
+                should_return = position.x >= screen_geometry.width - 1
             elif server_state.context == ScreenContext.EAST:
-                # East Client (entered from Right): Return when moving LEFT (x decreases)
-                should_return = position.x <= (screen_geometry.width - return_threshold)
+                # East Client: Return when hitting LEFT edge
+                should_return = position.x <= 0
             elif server_state.context == ScreenContext.NORTH:
-                # North Client (entered from Top): Return when moving DOWN (y increases)
-                should_return = position.y >= return_threshold
+                # North Client: Return when hitting BOTTOM edge
+                should_return = position.y >= screen_geometry.height - 1
             elif server_state.context == ScreenContext.SOUTH:
-                # South Client (entered from Bottom): Return when moving UP (y decreases)
-                should_return = position.y <= (screen_geometry.height - return_threshold)
+                # South Client: Return when hitting TOP edge
+                should_return = position.y <= 0
 
             # Check velocity for return (to prevent accidental triggers)
             # Use lower threshold for return to make it feel natural
