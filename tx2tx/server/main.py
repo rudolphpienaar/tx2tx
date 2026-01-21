@@ -445,7 +445,7 @@ def clientMessage_handle(
         logger.warning(f"Unexpected message type: {message.msg_type.value}")
 
 
-def _process_polling_loop(
+def _pollingLoop_process(
     network: ServerNetwork,
     display_manager: DisplayManager,
     pointer_tracker: PointerTracker,
@@ -874,7 +874,7 @@ def server_run(args: argparse.Namespace) -> None:
         logger.info("Server running. Press Ctrl+C to stop.")
 
         while network.is_running:
-            _process_polling_loop(
+            _pollingLoop_process(
                 network,
                 display_manager,
                 pointer_tracker,
