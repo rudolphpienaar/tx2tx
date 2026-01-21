@@ -26,7 +26,7 @@ from tx2tx.common.types import (
 from tx2tx.protocol.message import Message, MessageBuilder, MessageType
 from tx2tx.server.network import ClientConnection, ServerNetwork
 from tx2tx.server.state import server_state
-from tx2tx.x11.display import DisplayManager
+from tx2tx.x11.display import DisplayManager, is_native_x11
 from tx2tx.x11.pointer import PointerTracker
 
 logger = logging.getLogger(__name__)
@@ -435,6 +435,7 @@ def _process_polling_loop(
     context_to_client: dict[ScreenContext, str],
     panic_keysyms: set[int],
     panic_modifiers: int,
+    x11native: bool,
 ) -> None:
     """
     Processes events in the polling loop (fallback mode).
@@ -517,19 +518,19 @@ def _process_polling_loop(
                         except RuntimeError as e:
                             logger.warning(f"Input grab failed: {e}, continuing anyway")
 
-                        # Hide cursor (doesn't work but try anyway)
+                        # Hide cursor
                         display_manager.cursor_hide()
 
-                        # CRITICAL: Warp cursor AFTER grabbing and hiding!
-                        # This ensures that if the overlay creation resets the cursor, we override it.
-                        # Uses warp_pointer on native X11, XTest on Crostini/Wayland
-                        logger.info(
-                            f"[WARP] Warping cursor from ({transition.position.x}, {transition.position.y}) to ({warp_pos.x}, {warp_pos.y})"
-                        )
-                        display_manager.cursorPosition_set(warp_pos)
-
-                        # Small delay to ensure warp takes effect
-                        time.sleep(0.01)  # 10ms
+                        # On native X11: Don't warp - pointer grab prevents physical mouse movement
+                        # On Crostini/Wayland: Warp to opposite edge (grab alone isn't enough)
+                        if not (x11native or is_native_x11()):
+                            logger.info(
+                                f"[WARP] Warping cursor from ({transition.position.x}, {transition.position.y}) to ({warp_pos.x}, {warp_pos.y})"
+                            )
+                            display_manager.cursorPosition_set(warp_pos)
+                            time.sleep(0.01)  # 10ms delay for warp
+                        else:
+                            logger.debug("[NATIVE X11] Skipping warp - pointer grab is sufficient")
 
                         # Reset velocity tracker and last sent position
                         pointer_tracker.reset()
@@ -857,6 +858,7 @@ def server_run(args: argparse.Namespace) -> None:
                 context_to_client,
                 panic_keysyms,
                 panic_modifiers,
+                x11native,
             )
     except Exception as e:
         logger.error(f"Server error: {e}", exc_info=True)
