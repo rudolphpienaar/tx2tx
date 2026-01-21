@@ -160,7 +160,7 @@ def serverMessage_handle(
                 else:
                     # Convert normalized coordinates to client pixel position
                     client_screen = display_manager.screenGeometry_get()
-                    pixel_position = client_screen.denormalize(norm_point)
+                    pixel_position = client_screen.coordinates_denormalize(norm_point)
 
                     # Create pixel position mouse event for injection
                     actual_event = MouseEvent(
