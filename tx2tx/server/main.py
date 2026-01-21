@@ -280,30 +280,60 @@ def state_revertToCenter(
     if prev_context == ScreenContext.WEST:
         entry_pos = Position(x=offset, y=position.y)
     elif prev_context == ScreenContext.EAST:
+        logger.info("Re-entering from EAST")
         entry_pos = Position(x=screen_geometry.width - offset, y=position.y)
     elif prev_context == ScreenContext.NORTH:
         entry_pos = Position(x=position.x, y=offset)
     else:  # SOUTH
         entry_pos = Position(x=position.x, y=screen_geometry.height - offset)
 
-    try:
-        # 1. Ungrab FIRST
         try:
-            display_manager.keyboard_ungrab()
-            display_manager.pointer_ungrab()
-            # Give X server a moment to process the ungrab state
-            time.sleep(0.05)
-        except Exception as e:
-            logger.warning(f"Ungrab failed: {e}")
 
-        # 2. Warp to entry position
-        # Using XTest (which display_manager now enforces) requires no grab.
-        try:
-            logger.info(f"[WARP RETURN] Warping to entry position ({entry_pos.x}, {entry_pos.y})")
-            if not display_manager.cursorPosition_setAndVerify(entry_pos):
-                 logger.warning(f"Return warp verification failed for position ({entry_pos.x}, {entry_pos.y})")
-        except Exception as e:
-            logger.error(f"Warp failed during revert: {e}")
+            # 1. Ungrab FIRST
+
+            try:
+
+                display_manager.keyboard_ungrab()
+
+                display_manager.pointer_ungrab()
+
+                
+
+                # Immediate 'Pre-Warp' to halt momentum.
+
+                # Even if this is partially ignored by the WM, it helps 'anchor' the cursor
+
+                # before the OS processes the momentum overrun.
+
+                display_manager.cursorPosition_set(entry_pos)
+
+                
+
+                # Give X server a tiny moment to process the ungrab state (10ms)
+
+                time.sleep(0.01)
+
+            except Exception as e:
+
+                logger.warning(f"Ungrab failed: {e}")
+
+    
+
+            # 2. Final Verified Warp
+
+            # Now that we are ungrabbed and the state has settled, enforce the position.
+
+            try:
+
+                logger.info(f"[WARP RETURN] Finalizing entry position ({entry_pos.x}, {entry_pos.y})")
+
+                if not display_manager.cursorPosition_setAndVerify(entry_pos):
+
+                     logger.warning(f"Return warp verification failed for position ({entry_pos.x}, {entry_pos.y})")
+
+            except Exception as e:
+
+                logger.error(f"Warp failed during revert: {e}")
 
         # 3. Show cursor
         # Show it last so we don't interfere with the warp logic
@@ -450,7 +480,7 @@ def _pollingLoop_process(
     display_manager: DisplayManager,
     pointer_tracker: PointerTracker,
     screen_geometry: Screen,
-    config, # Config object from ConfigLoader
+    config,  # Config object from ConfigLoader
     context_to_client: dict[ScreenContext, str],
     panic_keysyms: set[int],
     panic_modifiers: int,
@@ -494,9 +524,7 @@ def _pollingLoop_process(
                     }
                     new_context = direction_to_context.get(transition.direction)
                     if not new_context:
-                        logger.error(
-                            f"Invalid transition direction: {transition.direction}"
-                        )
+                        logger.error(f"Invalid transition direction: {transition.direction}")
                         return
 
                     logger.info(
@@ -573,9 +601,7 @@ def _pollingLoop_process(
                         except Exception:
                             pass
                         server_state.context = ScreenContext.CENTER
-                        server_state.last_center_switch_time = (
-                            time.time()
-                        )  # Prevent rapid re-entry
+                        server_state.last_center_switch_time = time.time()  # Prevent rapid re-entry
                         logger.warning("Reverted to CENTER after failed transition")
 
         elif server_state.context != ScreenContext.CENTER:
@@ -598,7 +624,9 @@ def _pollingLoop_process(
                     if target_pos:
                         # If we are far from target (e.g. at wrong edge), re-warp
                         if abs(position.x - target_pos.x) > 100:
-                            logger.info(f"[ENFORCE] Cursor at ({position.x},{position.y}), enforcing warp to ({target_pos.x},{target_pos.y})")
+                            logger.info(
+                                f"[ENFORCE] Cursor at ({position.x},{position.y}), enforcing warp to ({target_pos.x},{target_pos.y})"
+                            )
                             display_manager.cursorPosition_set(target_pos)
                             # Skip return check this iteration to allow warp to take effect
                             time.sleep(0.01)
@@ -687,12 +715,8 @@ def _pollingLoop_process(
                     input_events, modifier_state = inputEvents_read(display_manager)
 
                     # Check for panic key - configurable escape hatch
-                    if panicKey_check(
-                        input_events, panic_keysyms, panic_modifiers, modifier_state
-                    ):
-                        logger.warning(
-                            "[PANIC] Panic key pressed - forcing return to CENTER"
-                        )
+                    if panicKey_check(input_events, panic_keysyms, panic_modifiers, modifier_state):
+                        logger.warning("[PANIC] Panic key pressed - forcing return to CENTER")
                         state_revertToCenter(
                             display_manager, screen_geometry, position, pointer_tracker
                         )
@@ -716,9 +740,7 @@ def _pollingLoop_process(
                                 )
                         elif isinstance(event, KeyEvent):
                             msg = MessageBuilder.keyEventMessage_create(event)
-                            logger.debug(
-                                f"[KEY] {event.event_type.value} keycode={event.keycode}"
-                            )
+                            logger.debug(f"[KEY] {event.event_type.value} keycode={event.keycode}")
 
                         if msg:
                             if not network.messageToClient_send(target_client_name, msg):
@@ -891,6 +913,7 @@ def server_run(args: argparse.Namespace) -> None:
     finally:
         network.server_stop()
         display_manager.connection_close()
+
 
 def main() -> NoReturn:
     """Main entry point"""
