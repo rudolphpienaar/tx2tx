@@ -287,30 +287,33 @@ def state_revertToCenter(
         entry_pos = Position(x=position.x, y=screen_geometry.height - offset)
 
     try:
-        # 1. Ungrab FIRST
-        # Restoration: This is the sequence that worked slowly before.
+        # 1. Release initial grabs to prepare for trapping
         try:
             display_manager.keyboard_ungrab()
             display_manager.pointer_ungrab()
-            display_manager.connection_sync()
-        except Exception as e:
-            logger.warning(f"Ungrab failed: {e}")
+        except Exception:
+            pass
 
-        # 2. Momentum Drain Period
-        # We wait while UNGRABBED to let the OS process all residual physical 
-        # mouse movement. By the time we warp, the hand has stopped.
-        time.sleep(0.1)
-
-        # 3. Warp to entry position
-        # Now that we are ungrabbed and momentum is spent, the WM will accept the warp.
+        # 2. Trap the cursor at the target edge
+        # This physically 'ignores' all mouse movement by confining the pointer
+        # to a 1x1 box. Residual momentum will 'bounce' harmlessly inside this box.
         try:
-            logger.info(f"[WARP RETURN] Teleporting to entry position ({entry_pos.x}, {entry_pos.y})")
-            if not display_manager.cursorPosition_setAndVerify(entry_pos, timeout_ms=100):
-                 logger.warning(f"Return warp verification failed for position ({entry_pos.x}, {entry_pos.y})")
+            logger.info(f"[TRAP] Anchoring cursor at ({entry_pos.x}, {entry_pos.y}) for 100ms")
+            if display_manager.cursor_trap(entry_pos):
+                # Wait for momentum to drain
+                time.sleep(0.1)
+                display_manager.cursor_untrap()
+            else:
+                logger.warning("Failed to activate cursor trap, falling back to standard warp")
+                display_manager.cursorPosition_set(entry_pos)
         except Exception as e:
-            logger.error(f"Warp failed during revert: {e}")
+            logger.error(f"Trap sequence failed: {e}")
+            try:
+                display_manager.cursor_untrap()
+            except Exception:
+                pass
 
-        # 4. Show cursor
+        # 3. Show cursor
         display_manager.cursor_show()
 
         # Reset tracker to prevent velocity spike from triggering immediate re-entry

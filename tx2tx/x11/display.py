@@ -167,6 +167,7 @@ class DisplayManager:
         self._blank_cursor: Optional[int] = None
         self._remote_cursor: Optional[int] = None  # Gray X cursor for remote mode
         self._cursor_overlay_window = None  # Fullscreen overlay for cursor display
+        self._trap_window = None  # 1x1 window for momentum trapping
 
     def connection_establish(self) -> None:
         """Establish connection to X11 display"""
@@ -835,3 +836,66 @@ class DisplayManager:
         display = self.display_get()
         while display.pending_events() > 0:
             display.next_event()
+
+    def _trapWindow_create(self, position: Position) -> int:
+        """Create a 1x1 invisible window for pointer trapping."""
+        if self._trap_window is not None:
+            return self._trap_window
+
+        display = self.display_get()
+        screen = display.screen()
+        root = screen.root
+
+        self._trap_window = root.create_window(
+            position.x, position.y, 1, 1, 0,
+            screen.root_depth,
+            X.InputOutput,
+            X.CopyFromParent,
+            override_redirect=True,
+            event_mask=0
+        )
+        return self._trap_window
+
+    def cursor_trap(self, position: Position) -> bool:
+        """
+        Forcefully trap the cursor in a 1x1 area at the given position.
+        This uses X11 pointer confinement to a specific window, which 
+        physically prevents the cursor from moving even if the user 
+        moves their physical mouse.
+        """
+        display = self.display_get()
+        
+        # 1. Create/Move the trap window
+        trap_win = self._trapWindow_create(position)
+        trap_win.configure(x=position.x, y=position.y)
+        trap_win.map()
+        
+        # 2. Warp into the trap
+        self.cursorPosition_set(position)
+        
+        # 3. Grab and CONFINE to the trap window
+        # This is the secret sauce: confine_to=trap_win
+        result = display.screen().root.grab_pointer(
+            True,
+            X.PointerMotionMask | X.ButtonPressMask | X.ButtonReleaseMask,
+            X.GrabModeAsync,
+            X.GrabModeAsync,
+            trap_win, # confine_to
+            0, # cursor
+            X.CurrentTime
+        )
+        
+        display.sync()
+        return result == 0
+
+    def cursor_untrap(self) -> None:
+        """Release the pointer trap and cleanup."""
+        display = self.display_get()
+        display.ungrab_pointer(X.CurrentTime)
+        
+        if self._trap_window is not None:
+            self._trap_window.unmap()
+            self._trap_window.destroy()
+            self._trap_window = None
+            
+        display.sync()
