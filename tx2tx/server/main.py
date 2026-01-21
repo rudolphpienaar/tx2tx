@@ -245,7 +245,7 @@ def inputEvents_read(
     return events, modifier_state
 
 
-def state_revert_to_center(
+def state_revertToCenter(
     display_manager: DisplayManager,
     screen_geometry: Screen,
     position: Position,
@@ -640,7 +640,7 @@ def _process_polling_loop(
                         network.messageToClient_send(target_client_name, hide_msg)
 
                     # 2. Revert State (Restore desktop)
-                    state_revert_to_center(
+                    state_revertToCenter(
                         display_manager, screen_geometry, position, pointer_tracker
                     )
 
@@ -675,7 +675,7 @@ def _process_polling_loop(
                             logger.error(
                                 f"Failed to send movement to '{target_client_name}'. Connected clients: {connected_names}. Reverting."
                             )
-                            state_revert_to_center(
+                            state_revertToCenter(
                                 display_manager, screen_geometry, position, pointer_tracker
                             )
                             return
@@ -693,7 +693,7 @@ def _process_polling_loop(
                         logger.warning(
                             "[PANIC] Panic key pressed - forcing return to CENTER"
                         )
-                        state_revert_to_center(
+                        state_revertToCenter(
                             display_manager, screen_geometry, position, pointer_tracker
                         )
                         return
@@ -727,7 +727,7 @@ def _process_polling_loop(
                                 )
                                 # We don't break/continue here, the next loop iteration will handle it if move fails
                                 # but actually we should probably revert now.
-                                state_revert_to_center(
+                                state_revertToCenter(
                                     display_manager,
                                     screen_geometry,
                                     position,
@@ -740,7 +740,7 @@ def _process_polling_loop(
                     logger.error(
                         f"Active context {server_state.context.value} has no connected client, reverting"
                     )
-                    state_revert_to_center(
+                    state_revertToCenter(
                         display_manager, screen_geometry, position, pointer_tracker
                     )
 
