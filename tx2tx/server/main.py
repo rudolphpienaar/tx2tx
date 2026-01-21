@@ -582,7 +582,7 @@ def _process_polling_loop(
                         display_manager.cursorPosition_set(target_pos)
                         # Skip return check this iteration to allow warp to take effect
                         time.sleep(0.01)
-                        continue  # Skip rest of loop, don't check return yet
+                        return  # Exit function early, don't check return yet
 
             # 1. Check for Return Condition
             # Determine which edge triggers return based on current context
