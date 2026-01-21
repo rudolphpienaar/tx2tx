@@ -18,16 +18,24 @@ try:
     libX11 = ctypes.CDLL("libX11.so.6")
     libXfixes = ctypes.CDLL("libXfixes.so.3")
     XFIXES_AVAILABLE = True
+
+    # Persistent Display connection for XFixes (hide and show must use same connection)
+    _xfixes_display_ptr = None
+    _xfixes_root_window = None
 except OSError as e:
     logger.warning(f"Failed to load native XFixes library: {e}")
     libX11 = None
     libXfixes = None
     XFIXES_AVAILABLE = False
+    _xfixes_display_ptr = None
+    _xfixes_root_window = None
 
 
 def xfixes_hide_cursor_native(display: Display, window_id: int) -> bool:
     """
     Hide cursor using native XFixes library via ctypes.
+
+    Uses a persistent Display connection so hide/show work correctly.
 
     Args:
         display: Python-xlib Display object
@@ -36,31 +44,29 @@ def xfixes_hide_cursor_native(display: Display, window_id: int) -> bool:
     Returns:
         True if successful, False otherwise
     """
+    global _xfixes_display_ptr, _xfixes_root_window
+
     if not XFIXES_AVAILABLE:
         return False
 
     try:
-        # Get the display name and reopen with ctypes
-        display_name = display.get_display_name()
+        # Open persistent display connection if not already open
+        if _xfixes_display_ptr is None:
+            display_name = display.get_display_name()
+            libX11.XOpenDisplay.restype = ctypes.c_void_p
+            _xfixes_display_ptr = libX11.XOpenDisplay(display_name.encode())
 
-        # XOpenDisplay returns Display*
-        libX11.XOpenDisplay.restype = ctypes.c_void_p
-        display_ptr = libX11.XOpenDisplay(display_name.encode())
+            if not _xfixes_display_ptr:
+                logger.warning("Failed to open display for XFixes")
+                return False
 
-        if not display_ptr:
-            logger.warning("Failed to open display for XFixes")
-            return False
-
-        # Get the root window from THIS Display (not from python-xlib)
-        libX11.XDefaultRootWindow.restype = ctypes.c_ulong
-        root_window = libX11.XDefaultRootWindow(ctypes.c_void_p(display_ptr))
+            # Get root window once
+            libX11.XDefaultRootWindow.restype = ctypes.c_ulong
+            _xfixes_root_window = libX11.XDefaultRootWindow(ctypes.c_void_p(_xfixes_display_ptr))
 
         # Call XFixesHideCursor(Display *dpy, Window window)
-        libXfixes.XFixesHideCursor(ctypes.c_void_p(display_ptr), ctypes.c_ulong(root_window))
-
-        # Flush and close
-        libX11.XFlush(ctypes.c_void_p(display_ptr))
-        libX11.XCloseDisplay(ctypes.c_void_p(display_ptr))
+        libXfixes.XFixesHideCursor(ctypes.c_void_p(_xfixes_display_ptr), ctypes.c_ulong(_xfixes_root_window))
+        libX11.XFlush(ctypes.c_void_p(_xfixes_display_ptr))
 
         return True
     except Exception as e:
@@ -72,6 +78,8 @@ def xfixes_show_cursor_native(display: Display, window_id: int) -> bool:
     """
     Show cursor using native XFixes library via ctypes.
 
+    Uses the same persistent Display connection as hide.
+
     Args:
         display: Python-xlib Display object
         window_id: X11 Window ID (unused - we get root from ctypes Display)
@@ -79,31 +87,15 @@ def xfixes_show_cursor_native(display: Display, window_id: int) -> bool:
     Returns:
         True if successful, False otherwise
     """
-    if not XFIXES_AVAILABLE:
+    global _xfixes_display_ptr, _xfixes_root_window
+
+    if not XFIXES_AVAILABLE or _xfixes_display_ptr is None:
         return False
 
     try:
-        # Get the display name and reopen with ctypes
-        display_name = display.get_display_name()
-
-        # XOpenDisplay returns Display*
-        libX11.XOpenDisplay.restype = ctypes.c_void_p
-        display_ptr = libX11.XOpenDisplay(display_name.encode())
-
-        if not display_ptr:
-            logger.warning("Failed to open display for XFixes")
-            return False
-
-        # Get the root window from THIS Display (not from python-xlib)
-        libX11.XDefaultRootWindow.restype = ctypes.c_ulong
-        root_window = libX11.XDefaultRootWindow(ctypes.c_void_p(display_ptr))
-
         # Call XFixesShowCursor(Display *dpy, Window window)
-        libXfixes.XFixesShowCursor(ctypes.c_void_p(display_ptr), ctypes.c_ulong(root_window))
-
-        # Flush and close
-        libX11.XFlush(ctypes.c_void_p(display_ptr))
-        libX11.XCloseDisplay(ctypes.c_void_p(display_ptr))
+        libXfixes.XFixesShowCursor(ctypes.c_void_p(_xfixes_display_ptr), ctypes.c_ulong(_xfixes_root_window))
+        libX11.XFlush(ctypes.c_void_p(_xfixes_display_ptr))
 
         return True
     except Exception as e:

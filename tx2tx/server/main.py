@@ -562,24 +562,26 @@ def _process_polling_loop(
             target_client_name = context_to_client.get(server_state.context)
 
             # 0. WARP ENFORCEMENT (Grace Period)
-            # If physical mouse fights back (snaps to edge), force warp again
-            if (time.time() - server_state.last_remote_switch_time) < 0.5:
-                # Determine where we SHOULD be
-                target_pos = None
-                if server_state.context == ScreenContext.WEST:
-                    target_pos = Position(x=screen_geometry.width - 3, y=position.y)
-                elif server_state.context == ScreenContext.EAST:
-                    target_pos = Position(x=2, y=position.y)
-                
-                # Only checking WEST/EAST for now as they are primary use cases
-                if target_pos:
-                    # If we are far from target (e.g. at wrong edge), re-warp
-                    if abs(position.x - target_pos.x) > 100:
-                        logger.info(f"[ENFORCE] Cursor at ({position.x},{position.y}), enforcing warp to ({target_pos.x},{target_pos.y})")
-                        display_manager.cursorPosition_set(target_pos)
-                        # Skip return check this iteration to allow warp to take effect
-                        time.sleep(0.01)
-                        return  # Exit function early, don't check return yet
+            # Only needed on Crostini where warp is unreliable
+            # On native X11, pointer grab prevents mouse movement (position still updates but cursor doesn't move)
+            if not (x11native or is_native_x11()):
+                if (time.time() - server_state.last_remote_switch_time) < 0.5:
+                    # Determine where we SHOULD be
+                    target_pos = None
+                    if server_state.context == ScreenContext.WEST:
+                        target_pos = Position(x=screen_geometry.width - 3, y=position.y)
+                    elif server_state.context == ScreenContext.EAST:
+                        target_pos = Position(x=2, y=position.y)
+
+                    # Only checking WEST/EAST for now as they are primary use cases
+                    if target_pos:
+                        # If we are far from target (e.g. at wrong edge), re-warp
+                        if abs(position.x - target_pos.x) > 100:
+                            logger.info(f"[ENFORCE] Cursor at ({position.x},{position.y}), enforcing warp to ({target_pos.x},{target_pos.y})")
+                            display_manager.cursorPosition_set(target_pos)
+                            # Skip return check this iteration to allow warp to take effect
+                            time.sleep(0.01)
+                            return  # Exit function early, don't check return yet
 
             # 1. Check for Return Condition
             # Determine which edge triggers return based on current context
