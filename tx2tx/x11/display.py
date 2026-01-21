@@ -30,31 +30,6 @@ except OSError as e:
     _xfixes_display_ptr = None
     _xfixes_root_window = None
 
-# Global variable for extension check
-_xfixes_extension_checked = False
-
-
-def xfixes_check_extension(display_ptr) -> bool:
-    """Verify XFixes extension is actually available on the server"""
-    try:
-        major = ctypes.c_int(0)
-        minor = ctypes.c_int(0)
-        # We just need to query version. If it returns 1 (True), it exists.
-        # XFixesQueryVersion(Display *dpy, int *major_version_return, int *minor_version_return);
-        libXfixes.XFixesQueryVersion.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int)]
-        libXfixes.XFixesQueryVersion.restype = ctypes.c_int
-        
-        status = libXfixes.XFixesQueryVersion(ctypes.c_void_p(display_ptr), ctypes.byref(major), ctypes.byref(minor))
-        if status:
-            logger.debug(f"XFixes extension found: version {major.value}.{minor.value}")
-            return True
-        else:
-            logger.warning("XFixes extension not supported by X server")
-            return False
-    except Exception as e:
-        logger.warning(f"Failed to query XFixes version: {e}")
-        return False
-
 
 def xfixes_hide_cursor_native(display: Display, window_id: int) -> bool:
     """
@@ -69,7 +44,7 @@ def xfixes_hide_cursor_native(display: Display, window_id: int) -> bool:
     Returns:
         True if successful, False otherwise
     """
-    global _xfixes_display_ptr, _xfixes_root_window, XFIXES_AVAILABLE, _xfixes_extension_checked
+    global _xfixes_display_ptr, _xfixes_root_window
 
     if not XFIXES_AVAILABLE:
         return False
@@ -84,16 +59,6 @@ def xfixes_hide_cursor_native(display: Display, window_id: int) -> bool:
             if not _xfixes_display_ptr:
                 logger.warning("Failed to open display for XFixes")
                 return False
-
-            # Verify Extension ONCE
-            if not _xfixes_extension_checked:
-                if not xfixes_check_extension(_xfixes_display_ptr):
-                    XFIXES_AVAILABLE = False
-                    # Close the display we just opened since we won't use it
-                    libX11.XCloseDisplay(ctypes.c_void_p(_xfixes_display_ptr))
-                    _xfixes_display_ptr = None
-                    return False
-                _xfixes_extension_checked = True
 
             # Get root window once
             libX11.XDefaultRootWindow.restype = ctypes.c_ulong
@@ -166,21 +131,6 @@ def is_native_x11() -> bool:
     # Default: assume native X11 if DISPLAY is set without Wayland indicators
     return "DISPLAY" in os.environ
 
-
-def _xfixes_cleanup() -> None:
-    """Close the persistent XFixes display connection."""
-    global _xfixes_display_ptr, _xfixes_root_window
-    
-    if _xfixes_display_ptr is not None and libX11 is not None:
-        try:
-            libX11.XCloseDisplay(ctypes.c_void_p(_xfixes_display_ptr))
-        except Exception as e:
-            logger.debug(f"Error closing XFixes display: {e}")
-            
-    _xfixes_display_ptr = None
-    _xfixes_root_window = None
-
-
 # X11 cursor font constants (from X11/cursorfont.h)
 # Each cursor shape has an even number; the mask is shape + 1
 XC_X_CURSOR = 0  # X shape
@@ -217,7 +167,6 @@ class DisplayManager:
         self._blank_cursor: Optional[int] = None
         self._remote_cursor: Optional[int] = None  # Gray X cursor for remote mode
         self._cursor_overlay_window = None  # Fullscreen overlay for cursor display
-        self._hide_method: Optional[str] = None  # Track which method hid the cursor
 
     def connection_establish(self) -> None:
         """Establish connection to X11 display"""
@@ -259,9 +208,6 @@ class DisplayManager:
         if self._display is not None:
             self._display.close()
             self._display = None
-            
-        # Also clean up the persistent XFixes connection
-        _xfixes_cleanup()
 
     def display_get(self) -> Display:
         """
@@ -683,14 +629,11 @@ class DisplayManager:
         if native_x11 and not self._overlay_enabled:
             logger.debug("Using native X11 cursor hiding methods")
 
-            # Method 1: Native XFixes via ctypes
-            # DISABLED: XFixes causes WarpPointer to be ignored on some WMs/Compositors.
-            # Falling back to Blank Cursor ensures the cursor remains "active" for warping.
-            # if xfixes_hide_cursor_native(display, root.id):
-            #     self._cursor_hidden = True
-            #     self._hide_method = "xfixes"
-            #     logger.info("Cursor hidden (native XFixes via ctypes)")
-            #     return
+            # Method 1: Native XFixes via ctypes (bypasses python-xlib's missing implementation)
+            if xfixes_hide_cursor_native(display, root.id):
+                self._cursor_hidden = True
+                logger.info("Cursor hidden (native XFixes via ctypes)")
+                return
 
             # Method 2: Blank pixmap cursor (fallback - truly invisible)
             try:
@@ -699,7 +642,6 @@ class DisplayManager:
                     root.change_attributes(cursor=cursor)
                     display.sync()
                     self._cursor_hidden = True
-                    self._hide_method = "blank"
                     logger.info("Cursor hidden (blank pixmap)")
                     return
             except Exception as e:
@@ -712,7 +654,6 @@ class DisplayManager:
                     root.change_attributes(cursor=cursor)
                     display.sync()
                     self._cursor_hidden = True
-                    self._hide_method = "remote"
                     logger.info("Cursor set to gray X (remote mode indicator)")
                     return
             except Exception as e:
@@ -727,7 +668,6 @@ class DisplayManager:
             if self._overlay_enabled:
                 if self._cursorOverlay_show():
                     self._cursor_hidden = True
-                    self._hide_method = "overlay"
                     return
             else:
                 logger.debug("Overlay disabled, trying fallback methods")
@@ -739,7 +679,6 @@ class DisplayManager:
                     root.change_attributes(cursor=cursor)
                     display.sync()
                     self._cursor_hidden = True
-                    self._hide_method = "blank"
                     logger.info("Cursor hidden (blank pixmap)")
                     return
             except Exception as e:
@@ -752,7 +691,6 @@ class DisplayManager:
                     root.change_attributes(cursor=cursor)
                     display.sync()
                     self._cursor_hidden = True
-                    self._hide_method = "remote"
                     logger.info("Cursor set to gray X (remote mode indicator)")
                     return
             except Exception as e:
@@ -773,29 +711,22 @@ class DisplayManager:
         display = self.display_get()
         screen = display.screen()
         root = screen.root
-        
-        # Determine restoration method based on how it was hidden
-        method = self._hide_method
-        self._hide_method = None  # Reset state first
-        self._cursor_hidden = False
 
-        if method == "overlay":
-            self._cursorOverlay_hide()
-            logger.debug("Cursor shown (overlay hidden)")
+        # First: Hide overlay window if it exists
+        self._cursorOverlay_hide()
+
+        # Try native XFixes first if available
+        if xfixes_show_cursor_native(display, root.id):
+            self._cursor_hidden = False
+            logger.debug("Cursor shown (native XFixes via ctypes)")
             return
-            
-        elif method == "xfixes":
-            if xfixes_show_cursor_native(display, root.id):
-                logger.debug("Cursor shown (native XFixes via ctypes)")
-                return
-            logger.warning("XFixes show failed, falling back to root cursor restore")
-            
-        # Fallback for "blank", "remote", or failed "xfixes"
-        # Restore default cursor on root (cursor=0 means None/default)
+
+        # Fallback: Restore default cursor on root (cursor=0 means None/default)
         try:
             root.change_attributes(cursor=0)
             display.sync()
-            logger.debug(f"Cursor shown (restored to default, was {method})")
+            self._cursor_hidden = False
+            logger.debug("Cursor shown (restored to default)")
         except Exception as e:
             logger.error(f"Failed to show cursor: {e}")
 

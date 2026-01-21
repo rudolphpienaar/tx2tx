@@ -284,33 +284,19 @@ def state_revert_to_center(
         entry_pos = Position(x=position.x, y=screen_geometry.height - 2)
 
     try:
-        # 1. First Warp Attempt (Best Effort)
-        # Try to warp while hidden and grabbed. This is ideal if the compositor supports it.
-        try:
-            display_manager.cursorPosition_set(entry_pos)
-        except Exception:
-            pass
-
-        # 2. Show cursor
-        # Necessary because some compositors ignore WarpPointer for hidden cursors.
-        display_manager.cursor_show()
-
-        # 3. Second Warp Attempt (Verified)
-        # Now that cursor is visible, this warp MUST work.
-        # We are still Grabbed, so the user can't move it yet.
-        try:
-            logger.info(f"[WARP RETURN] Warping to entry position ({entry_pos.x}, {entry_pos.y})")
-            if not display_manager.cursorPosition_setAndVerify(entry_pos):
-                 logger.warning(f"Return warp verification failed for position ({entry_pos.x}, {entry_pos.y})")
-        except Exception as e:
-            logger.error(f"Warp failed during revert: {e}")
-
-        # 4. Ungrab to restore desktop control
+        # Ungrab to restore desktop control
         try:
             display_manager.keyboard_ungrab()
             display_manager.pointer_ungrab()
         except Exception as e:
             logger.warning(f"Ungrab failed: {e}")
+
+        # Warp to entry position AFTER ungrab (so physical mouse position is set)
+        logger.info(f"[WARP RETURN] Warping to entry position ({entry_pos.x}, {entry_pos.y})")
+        display_manager.cursorPosition_set(entry_pos)
+
+        # Show cursor
+        display_manager.cursor_show()
 
         # Reset tracker to prevent velocity spike from triggering immediate re-entry
         pointer_tracker.reset()
@@ -318,13 +304,6 @@ def state_revert_to_center(
         logger.info(f"[STATE] → CENTER (revert) - Cursor at ({entry_pos.x}, {entry_pos.y})")
     except Exception as e:
         logger.error(f"Emergency revert failed: {e}")
-        # Last ditch effort to unlock
-        try:
-            display_manager.cursor_show()
-            display_manager.keyboard_ungrab()
-            display_manager.pointer_ungrab()
-        except Exception:
-            pass
 
 
 def arguments_parse() -> argparse.Namespace:
