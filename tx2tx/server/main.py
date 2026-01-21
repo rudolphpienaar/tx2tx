@@ -287,32 +287,31 @@ def state_revertToCenter(
         entry_pos = Position(x=position.x, y=screen_geometry.height - offset)
 
     try:
-        # 1. Show cursor FIRST (while grabbed)
-        # Ensures it is visible before we move it or release control.
-        display_manager.cursor_show()
-        display_manager.connection_sync()
-
-        # 2. Warp to entry position (while still grabbed)
-        # Using both Warp and XTest (via display_manager) to force the WM to comply.
-        try:
-            logger.info(f"[WARP RETURN] Anchoring at entry position ({entry_pos.x}, {entry_pos.y})")
-            display_manager.cursorPosition_set(entry_pos)
-            display_manager.connection_sync()
-            
-            # 3. Momentum Drain: Wait while STILL GRABBED.
-            # This discards the physical mouse movement that triggered the return.
-            # If we ungrab too fast, the physical momentum slams the cursor away.
-            time.sleep(0.1)
-        except Exception as e:
-            logger.error(f"Warp failed during revert: {e}")
-
-        # 4. Ungrab to restore desktop control
+        # 1. Ungrab FIRST
+        # Restoration: This is the sequence that worked slowly before.
         try:
             display_manager.keyboard_ungrab()
             display_manager.pointer_ungrab()
             display_manager.connection_sync()
         except Exception as e:
             logger.warning(f"Ungrab failed: {e}")
+
+        # 2. Momentum Drain Period
+        # We wait while UNGRABBED to let the OS process all residual physical 
+        # mouse movement. By the time we warp, the hand has stopped.
+        time.sleep(0.1)
+
+        # 3. Warp to entry position
+        # Now that we are ungrabbed and momentum is spent, the WM will accept the warp.
+        try:
+            logger.info(f"[WARP RETURN] Teleporting to entry position ({entry_pos.x}, {entry_pos.y})")
+            if not display_manager.cursorPosition_setAndVerify(entry_pos, timeout_ms=100):
+                 logger.warning(f"Return warp verification failed for position ({entry_pos.x}, {entry_pos.y})")
+        except Exception as e:
+            logger.error(f"Warp failed during revert: {e}")
+
+        # 4. Show cursor
+        display_manager.cursor_show()
 
         # Reset tracker to prevent velocity spike from triggering immediate re-entry
         pointer_tracker.reset()
