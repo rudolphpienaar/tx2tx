@@ -293,7 +293,8 @@ def state_revert_to_center(
 
         # Warp to entry position AFTER ungrab (so physical mouse position is set)
         logger.info(f"[WARP RETURN] Warping to entry position ({entry_pos.x}, {entry_pos.y})")
-        display_manager.cursorPosition_set(entry_pos)
+        if not display_manager.cursorPosition_setAndVerify(entry_pos):
+             logger.warning(f"Return warp verification failed for position ({entry_pos.x}, {entry_pos.y})")
 
         # Show cursor
         display_manager.cursor_show()
