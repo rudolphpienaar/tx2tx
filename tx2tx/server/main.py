@@ -513,22 +513,20 @@ def _process_polling_loop(
                             logger.error(f"No client configured for {new_context.value}")
                             return
 
-                        # Calculate where cursor should be warped to (opposite edge)
-                        # We park at the far side so that movement coordinates map
-                        # naturally to the client's entry edge.
-                        parking_offset = 5
+                        # Calculate where cursor should be warped to (Shadow Parking)
+                        # We park near the edge we just CROSSED (Same Edge).
+                        # This ensures the cursor is already anchored at the correct 
+                        # return location, eliminating the need for a massive jump
+                        # when reverting to the server.
+                        parking_offset = 30
                         if transition.direction == Direction.LEFT:
-                            warp_pos = Position(
-                                x=screen_geometry.width - parking_offset, y=transition.position.y
-                            )
-                        elif transition.direction == Direction.RIGHT:
                             warp_pos = Position(x=parking_offset, y=transition.position.y)
+                        elif transition.direction == Direction.RIGHT:
+                            warp_pos = Position(x=screen_geometry.width - parking_offset, y=transition.position.y)
                         elif transition.direction == Direction.TOP:
-                            warp_pos = Position(
-                                x=transition.position.x, y=screen_geometry.height - parking_offset
-                            )
-                        else:  # BOTTOM
                             warp_pos = Position(x=transition.position.x, y=parking_offset)
+                        else:  # BOTTOM
+                            warp_pos = Position(x=transition.position.x, y=screen_geometry.height - parking_offset)
 
                         # Now transition state
                         server_state.context = new_context
