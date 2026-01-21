@@ -280,7 +280,6 @@ def state_revertToCenter(
     if prev_context == ScreenContext.WEST:
         entry_pos = Position(x=offset, y=position.y)
     elif prev_context == ScreenContext.EAST:
-        logger.info("Re-entering from EAST")
         entry_pos = Position(x=screen_geometry.width - offset, y=position.y)
     elif prev_context == ScreenContext.NORTH:
         entry_pos = Position(x=position.x, y=offset)
@@ -457,7 +456,7 @@ def _pollingLoop_process(
     display_manager: DisplayManager,
     pointer_tracker: PointerTracker,
     screen_geometry: Screen,
-    config,  # Config object from ConfigLoader
+    config, # Config object from ConfigLoader
     context_to_client: dict[ScreenContext, str],
     panic_keysyms: set[int],
     panic_modifiers: int,
@@ -501,7 +500,9 @@ def _pollingLoop_process(
                     }
                     new_context = direction_to_context.get(transition.direction)
                     if not new_context:
-                        logger.error(f"Invalid transition direction: {transition.direction}")
+                        logger.error(
+                            f"Invalid transition direction: {transition.direction}"
+                        )
                         return
 
                     logger.info(
@@ -539,6 +540,13 @@ def _pollingLoop_process(
                         server_state.context = new_context
                         logger.debug(f"[CONTEXT] Changed to {new_context.value.upper()}")
 
+                        # WARP (Parking): Move cursor to opposite edge
+                        # We do this BEFORE the grab because some WMs block warping while grabbed.
+                        logger.info(
+                            f"[WARP] Warping cursor from ({transition.position.x}, {transition.position.y}) to ({warp_pos.x}, {warp_pos.y})"
+                        )
+                        display_manager.cursorPosition_set(warp_pos)
+                        
                         # Grab input (may fail - handle gracefully)
                         try:
                             display_manager.pointer_grab()
@@ -548,16 +556,6 @@ def _pollingLoop_process(
 
                         # Hide cursor
                         display_manager.cursor_hide()
-
-                        # WARP (Parking): Move cursor to opposite edge
-                        # This prevents the user from accidentally clicking things on the server
-                        # while controlling the client, and sets up the 'return' position logic.
-                        # We do this on ALL platforms (Native X11 & Crostini) for consistency.
-                        logger.info(
-                            f"[WARP] Warping cursor from ({transition.position.x}, {transition.position.y}) to ({warp_pos.x}, {warp_pos.y})"
-                        )
-                        display_manager.cursorPosition_set(warp_pos)
-                        time.sleep(0.01)  # 10ms delay for warp
 
                         # Reset velocity tracker and last sent position
                         pointer_tracker.reset()
@@ -578,7 +576,9 @@ def _pollingLoop_process(
                         except Exception:
                             pass
                         server_state.context = ScreenContext.CENTER
-                        server_state.last_center_switch_time = time.time()  # Prevent rapid re-entry
+                        server_state.last_center_switch_time = (
+                            time.time()
+                        )  # Prevent rapid re-entry
                         logger.warning("Reverted to CENTER after failed transition")
 
         elif server_state.context != ScreenContext.CENTER:
@@ -601,9 +601,7 @@ def _pollingLoop_process(
                     if target_pos:
                         # If we are far from target (e.g. at wrong edge), re-warp
                         if abs(position.x - target_pos.x) > 100:
-                            logger.info(
-                                f"[ENFORCE] Cursor at ({position.x},{position.y}), enforcing warp to ({target_pos.x},{target_pos.y})"
-                            )
+                            logger.info(f"[ENFORCE] Cursor at ({position.x},{position.y}), enforcing warp to ({target_pos.x},{target_pos.y})")
                             display_manager.cursorPosition_set(target_pos)
                             # Skip return check this iteration to allow warp to take effect
                             time.sleep(0.01)
@@ -692,8 +690,12 @@ def _pollingLoop_process(
                     input_events, modifier_state = inputEvents_read(display_manager)
 
                     # Check for panic key - configurable escape hatch
-                    if panicKey_check(input_events, panic_keysyms, panic_modifiers, modifier_state):
-                        logger.warning("[PANIC] Panic key pressed - forcing return to CENTER")
+                    if panicKey_check(
+                        input_events, panic_keysyms, panic_modifiers, modifier_state
+                    ):
+                        logger.warning(
+                            "[PANIC] Panic key pressed - forcing return to CENTER"
+                        )
                         state_revertToCenter(
                             display_manager, screen_geometry, position, pointer_tracker
                         )
@@ -717,7 +719,9 @@ def _pollingLoop_process(
                                 )
                         elif isinstance(event, KeyEvent):
                             msg = MessageBuilder.keyEventMessage_create(event)
-                            logger.debug(f"[KEY] {event.event_type.value} keycode={event.keycode}")
+                            logger.debug(
+                                f"[KEY] {event.event_type.value} keycode={event.keycode}"
+                            )
 
                         if msg:
                             if not network.messageToClient_send(target_client_name, msg):
@@ -890,7 +894,6 @@ def server_run(args: argparse.Namespace) -> None:
     finally:
         network.server_stop()
         display_manager.connection_close()
-
 
 def main() -> NoReturn:
     """Main entry point"""
