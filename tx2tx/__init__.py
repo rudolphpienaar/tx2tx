@@ -25,5 +25,5 @@ def _get_git_hash() -> str:
     return "dev"
 
 
-__version__ = f"2.3.11.{_get_git_hash()}"
+__version__ = f"2.3.12.{_get_git_hash()}"
 __author__ = "tx2tx contributors"
