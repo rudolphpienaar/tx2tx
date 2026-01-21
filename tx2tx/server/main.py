@@ -284,26 +284,27 @@ def state_revert_to_center(
         entry_pos = Position(x=position.x, y=screen_geometry.height - 2)
 
     try:
-        # 1. Warp to entry position FIRST (while still grabbed)
-        # This prevents the OS from snapping the cursor back to the physical position
-        # immediately after ungrab due to momentum/pending events.
+        # 1. Show cursor FIRST
+        # Some compositors or X server states ignore WarpPointer if the cursor is hidden
+        # via XFixes. Showing it first ensures the Warp is respected.
+        # We are still Grabbed, so the user can't move it yet.
+        display_manager.cursor_show()
+
+        # 2. Warp to entry position (while still grabbed)
         try:
             logger.info(f"[WARP RETURN] Warping to entry position ({entry_pos.x}, {entry_pos.y})")
             if not display_manager.cursorPosition_setAndVerify(entry_pos):
                  logger.warning(f"Return warp verification failed for position ({entry_pos.x}, {entry_pos.y})")
         except Exception as e:
             logger.error(f"Warp failed during revert: {e}")
-            # Continue to ungrab/show ensures we don't lock the user out
+            # Continue to ungrab ensures we don't lock the user out
 
-        # 2. Ungrab to restore desktop control
+        # 3. Ungrab to restore desktop control
         try:
             display_manager.keyboard_ungrab()
             display_manager.pointer_ungrab()
         except Exception as e:
             logger.warning(f"Ungrab failed: {e}")
-
-        # 3. Show cursor
-        display_manager.cursor_show()
 
         # Reset tracker to prevent velocity spike from triggering immediate re-entry
         pointer_tracker.reset()
@@ -313,9 +314,9 @@ def state_revert_to_center(
         logger.error(f"Emergency revert failed: {e}")
         # Last ditch effort to unlock
         try:
+            display_manager.cursor_show()
             display_manager.keyboard_ungrab()
             display_manager.pointer_ungrab()
-            display_manager.cursor_show()
         except Exception:
             pass
 
