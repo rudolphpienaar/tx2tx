@@ -291,21 +291,15 @@ def state_revertToCenter(
         try:
             display_manager.keyboard_ungrab()
             display_manager.pointer_ungrab()
-            
-            # Immediate 'Pre-Warp' to halt momentum.
-            # Even if this is partially ignored by the WM, it helps 'anchor' the cursor
-            # before the OS processes the momentum overrun.
-            display_manager.cursorPosition_set(entry_pos)
-            
-            # Give X server a tiny moment to process the ungrab state (10ms)
-            time.sleep(0.01)
+            # Give X server a moment to process the ungrab state
+            time.sleep(0.05)
         except Exception as e:
             logger.warning(f"Ungrab failed: {e}")
 
-        # 2. Final Verified Warp
-        # Now that we are ungrabbed and the state has settled, enforce the position.
+        # 2. Warp to entry position
+        # Using XTest (which display_manager now enforces) requires no grab.
         try:
-            logger.info(f"[WARP RETURN] Finalizing entry position ({entry_pos.x}, {entry_pos.y})")
+            logger.info(f"[WARP RETURN] Warping to entry position ({entry_pos.x}, {entry_pos.y})")
             if not display_manager.cursorPosition_setAndVerify(entry_pos):
                  logger.warning(f"Return warp verification failed for position ({entry_pos.x}, {entry_pos.y})")
         except Exception as e:
@@ -540,13 +534,6 @@ def _pollingLoop_process(
                         server_state.context = new_context
                         logger.debug(f"[CONTEXT] Changed to {new_context.value.upper()}")
 
-                        # WARP (Parking): Move cursor to opposite edge
-                        # We do this BEFORE the grab because some WMs block warping while grabbed.
-                        logger.info(
-                            f"[WARP] Warping cursor from ({transition.position.x}, {transition.position.y}) to ({warp_pos.x}, {warp_pos.y})"
-                        )
-                        display_manager.cursorPosition_set(warp_pos)
-                        
                         # Grab input (may fail - handle gracefully)
                         try:
                             display_manager.pointer_grab()
@@ -556,6 +543,16 @@ def _pollingLoop_process(
 
                         # Hide cursor
                         display_manager.cursor_hide()
+
+                        # WARP (Parking): Move cursor to opposite edge
+                        # This prevents the user from accidentally clicking things on the server
+                        # while controlling the client, and sets up the 'return' position logic.
+                        # We do this on ALL platforms (Native X11 & Crostini) for consistency.
+                        logger.info(
+                            f"[WARP] Warping cursor from ({transition.position.x}, {transition.position.y}) to ({warp_pos.x}, {warp_pos.y})"
+                        )
+                        display_manager.cursorPosition_set(warp_pos)
+                        time.sleep(0.01)  # 10ms delay for warp
 
                         # Reset velocity tracker and last sent position
                         pointer_tracker.reset()
