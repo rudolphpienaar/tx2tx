@@ -274,9 +274,8 @@ def state_revertToCenter(
     server_state.last_center_switch_time = time.time()
 
     # Calculate Entry Position (Inverse of Exit)
-    # Use a safe offset (15px) to ensure we are clearly 'inside' the screen
-    # and don't immediately trigger a boundary crossing.
-    offset = 15
+    # Use a safe offset (30px) to ensure we are clearly 'inside' the screen.
+    offset = 30
     if prev_context == ScreenContext.WEST:
         entry_pos = Position(x=offset, y=position.y)
     elif prev_context == ScreenContext.EAST:
@@ -287,48 +286,35 @@ def state_revertToCenter(
         entry_pos = Position(x=position.x, y=screen_geometry.height - offset)
 
     try:
-        # 1. Release initial grabs to prepare for trapping
+        # 1. Show cursor FIRST (while still grabbed)
+        # This makes it active for the WM.
+        display_manager.cursor_show()
+        display_manager.connection_sync()
+        time.sleep(0.05)
+
+        # 2. Warp to entry position (while still grabbed)
+        # Using dual-method synchronization to anchor it.
+        try:
+            logger.info(f"[WARP RETURN] Anchoring at entry position ({entry_pos.x}, {entry_pos.y})")
+            display_manager.cursorPosition_set(entry_pos)
+            display_manager.connection_sync()
+            time.sleep(0.05)
+        except Exception as e:
+            logger.error(f"Warp failed during revert: {e}")
+
+        # 3. Ungrab LAST: Hand control back to the OS at the new position.
         try:
             display_manager.keyboard_ungrab()
             display_manager.pointer_ungrab()
-        except Exception:
-            pass
-
-        # 2. Trap the cursor at the target edge
-        # This physically 'ignores' all mouse movement by confining the pointer
-        # to a 1x1 box. Residual momentum will 'bounce' harmlessly inside this box.
-        try:
-            logger.info(f"[TRAP] Anchoring cursor at ({entry_pos.x}, {entry_pos.y}) for 100ms")
-            if display_manager.cursor_trap(entry_pos):
-                # Wait for momentum to drain
-                time.sleep(0.1)
-                display_manager.cursor_untrap()
-            else:
-                logger.warning("Failed to activate cursor trap, falling back to standard warp")
-                display_manager.cursorPosition_set(entry_pos)
+            display_manager.connection_sync()
         except Exception as e:
-            logger.error(f"Trap sequence failed: {e}")
-            try:
-                display_manager.cursor_untrap()
-            except Exception:
-                pass
-
-        # 3. Show cursor
-        display_manager.cursor_show()
+            logger.warning(f"Ungrab failed: {e}")
 
         # Reset tracker to prevent velocity spike from triggering immediate re-entry
         pointer_tracker.reset()
 
         logger.info(f"[STATE] → CENTER (revert) - Cursor at ({entry_pos.x}, {entry_pos.y})")
     except Exception as e:
-        logger.error(f"Emergency revert failed: {e}")
-        # Last ditch effort to unlock
-        try:
-            display_manager.cursor_show()
-            display_manager.keyboard_ungrab()
-            display_manager.pointer_ungrab()
-        except Exception:
-            pass
 
 
 def arguments_parse() -> argparse.Namespace:
@@ -519,28 +505,30 @@ def _process_polling_loop(
                             logger.error(f"No client configured for {new_context.value}")
                             return
 
-                        # Calculate where cursor should be warped to (opposite edge)
-                        # We use a large offset (100px) to give the user 'runway' to accelerate
-                        # against the return edge. If we park too close (e.g. 2px), the cursor
-                        # hits the edge before velocity can build up, trapping the user.
+                        # Calculate where cursor should be warped to (close to transition edge)
+                        # We use a 100px offset from the edge we just crossed.
+                        # This avoids large 3800px jumps that confuse WMs and ensures 
+                        # coordinate mapping remains accurate.
                         parking_offset = 100
                         if transition.direction == Direction.LEFT:
-                            warp_pos = Position(
-                                x=screen_geometry.width - parking_offset, y=transition.position.y
-                            )
-                        elif transition.direction == Direction.RIGHT:
                             warp_pos = Position(x=parking_offset, y=transition.position.y)
+                        elif transition.direction == Direction.RIGHT:
+                            warp_pos = Position(x=screen_geometry.width - parking_offset, y=transition.position.y)
                         elif transition.direction == Direction.TOP:
-                            warp_pos = Position(
-                                x=transition.position.x, y=screen_geometry.height - parking_offset
-                            )
-                        else:  # BOTTOM
                             warp_pos = Position(x=transition.position.x, y=parking_offset)
+                        else:  # BOTTOM
+                            warp_pos = Position(x=transition.position.x, y=screen_geometry.height - parking_offset)
 
                         # Now transition state
                         server_state.context = new_context
                         logger.debug(f"[CONTEXT] Changed to {new_context.value.upper()}")
 
+                        # WARP (Parking): Anchor cursor near transition edge
+                        logger.info(
+                            f"[WARP] Parking cursor at ({warp_pos.x}, {warp_pos.y}) near {transition.direction.value} edge"
+                        )
+                        display_manager.cursorPosition_set(warp_pos)
+                        
                         # Grab input (may fail - handle gracefully)
                         try:
                             display_manager.pointer_grab()
@@ -550,16 +538,6 @@ def _process_polling_loop(
 
                         # Hide cursor
                         display_manager.cursor_hide()
-
-                        # WARP (Parking): Move cursor to opposite edge
-                        # This prevents the user from accidentally clicking things on the server
-                        # while controlling the client, and sets up the 'return' position logic.
-                        # We do this on ALL platforms (Native X11 & Crostini) for consistency.
-                        logger.info(
-                            f"[WARP] Warping cursor from ({transition.position.x}, {transition.position.y}) to ({warp_pos.x}, {warp_pos.y})"
-                        )
-                        display_manager.cursorPosition_set(warp_pos)
-                        time.sleep(0.01)  # 10ms delay for warp
 
                         # Reset velocity tracker and last sent position
                         pointer_tracker.reset()
@@ -613,20 +591,22 @@ def _process_polling_loop(
 
             # 1. Check for Return Condition
             # Determine which edge triggers return based on current context
+            # With 'Close Parking', return happens when moving AWAY from the entry edge.
             should_return = False
+            return_threshold = 200 # Must move 100px past parking (at 100px)
 
             if server_state.context == ScreenContext.WEST:
-                # West Client: Return when hitting RIGHT edge of server screen
-                should_return = position.x >= screen_geometry.width - 1
+                # West Client (entered from Left): Return when moving RIGHT (x increases)
+                should_return = position.x >= return_threshold
             elif server_state.context == ScreenContext.EAST:
-                # East Client: Return when hitting LEFT edge
-                should_return = position.x <= 0
+                # East Client (entered from Right): Return when moving LEFT (x decreases)
+                should_return = position.x <= (screen_geometry.width - return_threshold)
             elif server_state.context == ScreenContext.NORTH:
-                # North Client: Return when hitting BOTTOM edge
-                should_return = position.y >= screen_geometry.height - 1
+                # North Client (entered from Top): Return when moving DOWN (y increases)
+                should_return = position.y >= return_threshold
             elif server_state.context == ScreenContext.SOUTH:
-                # South Client: Return when hitting TOP edge
-                should_return = position.y <= 0
+                # South Client (entered from Bottom): Return when moving UP (y decreases)
+                should_return = position.y <= (screen_geometry.height - return_threshold)
 
             # Check velocity for return (to prevent accidental triggers)
             # Use lower threshold for return to make it feel natural
