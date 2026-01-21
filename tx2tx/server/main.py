@@ -513,18 +513,22 @@ def _process_polling_loop(
                             return
 
                         # Calculate where cursor should be warped to (opposite edge)
+                        # We use a large offset (100px) to give the user 'runway' to accelerate
+                        # against the return edge. If we park too close (e.g. 2px), the cursor
+                        # hits the edge before velocity can build up, trapping the user.
+                        parking_offset = 100
                         if transition.direction == Direction.LEFT:
                             warp_pos = Position(
-                                x=screen_geometry.width - 3, y=transition.position.y
+                                x=screen_geometry.width - parking_offset, y=transition.position.y
                             )
                         elif transition.direction == Direction.RIGHT:
-                            warp_pos = Position(x=2, y=transition.position.y)
+                            warp_pos = Position(x=parking_offset, y=transition.position.y)
                         elif transition.direction == Direction.TOP:
                             warp_pos = Position(
-                                x=transition.position.x, y=screen_geometry.height - 3
+                                x=transition.position.x, y=screen_geometry.height - parking_offset
                             )
                         else:  # BOTTOM
-                            warp_pos = Position(x=transition.position.x, y=2)
+                            warp_pos = Position(x=transition.position.x, y=parking_offset)
 
                         # Now transition state
                         server_state.context = new_context
