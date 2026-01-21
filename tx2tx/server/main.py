@@ -297,6 +297,11 @@ def state_revertToCenter(
             logger.info(f"[WARP RETURN] Anchoring at entry position ({entry_pos.x}, {entry_pos.y})")
             if not display_manager.cursorPosition_setAndVerify(entry_pos):
                  logger.warning(f"Return warp verification failed for position ({entry_pos.x}, {entry_pos.y})")
+            
+            # Momentum Drain: Hold the grab for a moment (50ms) AFTER the warp.
+            # This ensures that residual physical mouse movement is ignored by the grab
+            # instead of slamming the cursor away the instant we ungrab.
+            time.sleep(0.05)
         except Exception as e:
             logger.error(f"Warp failed during revert: {e}")
 
