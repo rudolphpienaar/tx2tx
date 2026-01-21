@@ -286,29 +286,30 @@ def state_revertToCenter(
         entry_pos = Position(x=position.x, y=screen_geometry.height - offset)
 
     try:
-        # 1. Show cursor FIRST (while still grabbed)
-        # This makes it active for the WM.
-        display_manager.cursor_show()
-        display_manager.connection_sync()
-        time.sleep(0.05)
-
-        # 2. Warp to entry position (while still grabbed)
-        # Using dual-method synchronization to anchor it.
-        try:
-            logger.info(f"[WARP RETURN] Anchoring at entry position ({entry_pos.x}, {entry_pos.y})")
-            display_manager.cursorPosition_set(entry_pos)
-            display_manager.connection_sync()
-            time.sleep(0.05)
-        except Exception as e:
-            logger.error(f"Warp failed during revert: {e}")
-
-        # 3. Ungrab LAST: Hand control back to the OS at the new position.
+        # 1. Ungrab FIRST: Release control back to the OS.
         try:
             display_manager.keyboard_ungrab()
             display_manager.pointer_ungrab()
             display_manager.connection_sync()
+            # Give OS a moment to 'register' the ungrabbed state.
+            time.sleep(0.05)
         except Exception as e:
             logger.warning(f"Ungrab failed: {e}")
+
+        # 2. Show cursor: Ensure it is visible before we move it.
+        # This prevents WMs from ignoring warps on hidden cursors.
+        display_manager.cursor_show()
+        display_manager.connection_sync()
+        time.sleep(0.05)
+
+        # 3. Final Warp: Teleport to the correct edge.
+        # Now that we are ungrabbed and visible, this is guaranteed to work.
+        try:
+            logger.info(f"[WARP RETURN] Teleporting to entry position ({entry_pos.x}, {entry_pos.y})")
+            display_manager.cursorPosition_set(entry_pos)
+            display_manager.connection_sync()
+        except Exception as e:
+            logger.error(f"Warp failed during revert: {e}")
 
         # Reset tracker to prevent velocity spike from triggering immediate re-entry
         pointer_tracker.reset()
@@ -513,20 +514,22 @@ def _process_polling_loop(
                             logger.error(f"No client configured for {new_context.value}")
                             return
 
-                        # Calculate where cursor should be warped to (Shadow Parking)
-                        # We park near the edge we just CROSSED (Same Edge).
-                        # This ensures the cursor is already anchored at the correct 
-                        # return location, eliminating the need for a massive jump
-                        # when reverting to the server.
+                        # Calculate where cursor should be warped to (Opposite Edge)
+                        # We park at the far side so that coordinates sent to the client
+                        # map naturally to its entry edge.
                         parking_offset = 30
                         if transition.direction == Direction.LEFT:
-                            warp_pos = Position(x=parking_offset, y=transition.position.y)
+                            warp_pos = Position(
+                                x=screen_geometry.width - parking_offset, y=transition.position.y
+                            )
                         elif transition.direction == Direction.RIGHT:
-                            warp_pos = Position(x=screen_geometry.width - parking_offset, y=transition.position.y)
+                            warp_pos = Position(x=parking_offset, y=transition.position.y)
                         elif transition.direction == Direction.TOP:
-                            warp_pos = Position(x=transition.position.x, y=parking_offset)
+                            warp_pos = Position(
+                                x=transition.position.x, y=screen_geometry.height - parking_offset
+                            )
                         else:  # BOTTOM
-                            warp_pos = Position(x=transition.position.x, y=screen_geometry.height - parking_offset)
+                            warp_pos = Position(x=transition.position.x, y=parking_offset)
 
                         # Now transition state
                         server_state.context = new_context
