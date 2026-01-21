@@ -284,19 +284,25 @@ def state_revert_to_center(
         entry_pos = Position(x=position.x, y=screen_geometry.height - 2)
 
     try:
-        # Ungrab to restore desktop control
+        # 1. Warp to entry position FIRST (while still grabbed)
+        # This prevents the OS from snapping the cursor back to the physical position
+        # immediately after ungrab due to momentum/pending events.
+        try:
+            logger.info(f"[WARP RETURN] Warping to entry position ({entry_pos.x}, {entry_pos.y})")
+            if not display_manager.cursorPosition_setAndVerify(entry_pos):
+                 logger.warning(f"Return warp verification failed for position ({entry_pos.x}, {entry_pos.y})")
+        except Exception as e:
+            logger.error(f"Warp failed during revert: {e}")
+            # Continue to ungrab/show ensures we don't lock the user out
+
+        # 2. Ungrab to restore desktop control
         try:
             display_manager.keyboard_ungrab()
             display_manager.pointer_ungrab()
         except Exception as e:
             logger.warning(f"Ungrab failed: {e}")
 
-        # Warp to entry position AFTER ungrab (so physical mouse position is set)
-        logger.info(f"[WARP RETURN] Warping to entry position ({entry_pos.x}, {entry_pos.y})")
-        if not display_manager.cursorPosition_setAndVerify(entry_pos):
-             logger.warning(f"Return warp verification failed for position ({entry_pos.x}, {entry_pos.y})")
-
-        # Show cursor
+        # 3. Show cursor
         display_manager.cursor_show()
 
         # Reset tracker to prevent velocity spike from triggering immediate re-entry
@@ -305,6 +311,13 @@ def state_revert_to_center(
         logger.info(f"[STATE] → CENTER (revert) - Cursor at ({entry_pos.x}, {entry_pos.y})")
     except Exception as e:
         logger.error(f"Emergency revert failed: {e}")
+        # Last ditch effort to unlock
+        try:
+            display_manager.keyboard_ungrab()
+            display_manager.pointer_ungrab()
+            display_manager.cursor_show()
+        except Exception:
+            pass
 
 
 def arguments_parse() -> argparse.Namespace:
