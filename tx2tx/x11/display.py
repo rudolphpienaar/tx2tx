@@ -318,21 +318,26 @@ class DisplayManager:
     def cursorPosition_set(self, position: Position) -> None:
         """
         Move cursor to absolute position (environment-aware implementation).
-
-        Uses native warp_pointer on X11, XTest fake_input on Wayland/Crostini.
-
-        Args:
-            position: Target position
-
-        Raises:
-            RuntimeError: If not connected to display
+        
+        Uses a 'Belt and Suspenders' approach:
+        1. Try standard X11 WarpPointer (fast, correct)
+        2. Always follow up with XTest Fake Input (robust, forces WM compliance)
+        
+        This ensures the cursor moves even if the Window Manager ignores WarpPointer.
         """
-        # Use native warp_pointer on native X11 for proper cursor control
-        if self._x11native or is_native_x11():
+        # 1. Attempt Native Warp (Best for standard X11)
+        try:
             self.cursorPosition_setViaWarpPointer(position)
-        else:
-            # Fall back to XTest for Crostini/Wayland where warp_pointer is blocked
+        except Exception as e:
+            logger.debug(f"WarpPointer failed (harmless if XTest succeeds): {e}")
+
+        # 2. Force with XTest (Simulated Hardware Input)
+        # This is the "Nuclear Option" that works on stubborn WMs/Compositors
+        # that ignore WarpPointer (e.g., Termux-X11, some Wayland bridges).
+        try:
             self.cursorPosition_setViaXTest(position)
+        except Exception as e:
+            logger.warning(f"XTest cursor move failed: {e}")
 
     def cursorPosition_setViaWarpPointer(self, position: Position) -> None:
         """
