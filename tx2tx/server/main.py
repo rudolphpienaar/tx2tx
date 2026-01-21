@@ -284,15 +284,15 @@ def state_revert_to_center(
         entry_pos = Position(x=position.x, y=screen_geometry.height - 2)
 
     try:
-        # Ungrab first to restore desktop control
+        # Warp to entry position BEFORE ungrab (prevents physical mouse from overriding)
+        display_manager.cursorPosition_set(entry_pos)
+
+        # Ungrab to restore desktop control
         try:
             display_manager.keyboard_ungrab()
             display_manager.pointer_ungrab()
         except Exception as e:
             logger.warning(f"Ungrab failed: {e}")
-
-        # Warp to entry position (uses warp_pointer on native X11, XTest on Crostini)
-        display_manager.cursorPosition_set(entry_pos)
 
         # Show cursor
         display_manager.cursor_show()
