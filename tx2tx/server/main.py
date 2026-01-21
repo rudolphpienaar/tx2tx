@@ -285,7 +285,11 @@ def state_revert_to_center(
 
     try:
         # Warp to entry position BEFORE ungrab (prevents physical mouse from overriding)
+        logger.info(f"[WARP RETURN] Warping to entry position ({entry_pos.x}, {entry_pos.y})")
         display_manager.cursorPosition_set(entry_pos)
+
+        # Small delay to ensure warp takes effect before ungrab
+        time.sleep(0.02)
 
         # Ungrab to restore desktop control
         try:
@@ -578,7 +582,8 @@ def _process_polling_loop(
                         display_manager.cursorPosition_set(target_pos)
                         # Skip return check this iteration to allow warp to take effect
                         time.sleep(0.01)
-            
+                        continue  # Skip rest of loop, don't check return yet
+
             # 1. Check for Return Condition
             # Determine which edge triggers return based on current context
             should_return = False
