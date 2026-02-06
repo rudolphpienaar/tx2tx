@@ -25,11 +25,12 @@ def _keysym_from_evdev(keycode: int) -> Optional[int]:
     except Exception:
         return None
 
-    key_name = None
-    for name, value in ecodes.KEY.items():
-        if value == keycode or (isinstance(value, (list, tuple)) and keycode in value):
-            key_name = name
-            break
+    key_name = ecodes.KEY.get(keycode)
+    if isinstance(key_name, (list, tuple)):
+        key_name = next(
+            (name for name in key_name if isinstance(name, str) and name.startswith("KEY_")),
+            None,
+        )
 
     if not key_name or not key_name.startswith("KEY_"):
         return None
@@ -41,6 +42,17 @@ def _keysym_from_evdev(keycode: int) -> Optional[int]:
         "SPACE": "space",
         "TAB": "Tab",
         "BACKSPACE": "BackSpace",
+        "MINUS": "minus",
+        "EQUAL": "equal",
+        "LEFTBRACE": "bracketleft",
+        "RIGHTBRACE": "bracketright",
+        "SEMICOLON": "semicolon",
+        "APOSTROPHE": "apostrophe",
+        "GRAVE": "grave",
+        "BACKSLASH": "backslash",
+        "COMMA": "comma",
+        "DOT": "period",
+        "SLASH": "slash",
         "LEFTSHIFT": "Shift_L",
         "RIGHTSHIFT": "Shift_R",
         "LEFTCTRL": "Control_L",
