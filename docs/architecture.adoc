@@ -61,8 +61,6 @@ Wayland requires a privileged helper process because direct input capture and in
 - Event injection uses uinput (`/dev/uinput`)
 - The helper exposes a JSON line protocol over stdin/stdout
 - Keyboard events are transmitted using Linux evdev keycodes mapped to X11 keycodes with the standard +8 offset.
-- On GNOME, a Shell extension can expose global pointer position over DBus; set `TX2TX_GNOME_POINTER=1` to enable it.
-- When running with `sudo`, preserve the session bus environment so the helper can access DBus.
 - Initial cursor state can be calibrated by warping the cursor to center on startup.
 
 Helper commands include `screen_geometry_get`, `pointer_position_get`, `cursor_position_set`, `input_events_read`, `inject_mouse`, `inject_key`, `pointer_grab`, and `keyboard_grab`.
