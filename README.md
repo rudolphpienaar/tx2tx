@@ -41,6 +41,7 @@ tx2tx --server <server-ip>:24800 --backend x11 --name <client-name>
 Notes:
 - `screen-width` and `screen-height` must be the compositor's logical desktop size.
 - The Wayland helper needs access to `/dev/input/*` and `/dev/uinput`.
+- `evdev` does not currently publish wheels for Python 3.14. Use Python 3.11 or 3.12 for Wayland support.
 
 Compute logical desktop size on GNOME:
 

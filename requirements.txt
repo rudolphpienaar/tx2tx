@@ -1,7 +1,7 @@
 # Core dependencies
 python-xlib>=0.33
 pyyaml>=6.0
-python-evdev>=1.7.0
+evdev>=1.7.0
 
 # Development dependencies (install with: pip install -e ".[dev]")
 # mypy>=1.0
