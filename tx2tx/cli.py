@@ -74,6 +74,20 @@ def arguments_parse() -> argparse.Namespace:
         help="Wayland screen height override (pixels).",
     )
 
+    parser.add_argument(
+        "--wayland-start-x",
+        type=int,
+        default=None,
+        help="Wayland initial cursor X override (pixels).",
+    )
+
+    parser.add_argument(
+        "--wayland-start-y",
+        type=int,
+        default=None,
+        help="Wayland initial cursor Y override (pixels).",
+    )
+
     # Server-specific options
     parser.add_argument(
         "--host", type=str, default=None, help="[Server] Host address to bind to (overrides config)"

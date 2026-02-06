@@ -340,6 +340,20 @@ def arguments_parse() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--wayland-start-x",
+        type=int,
+        default=None,
+        help="Wayland initial cursor X override (pixels).",
+    )
+
+    parser.add_argument(
+        "--wayland-start-y",
+        type=int,
+        default=None,
+        help="Wayland initial cursor Y override (pixels).",
+    )
+
+    parser.add_argument(
         "--name",
         type=str,
         default=None,
@@ -866,6 +880,8 @@ def server_run(args: argparse.Namespace) -> None:
     wayland_screen_height = (
         getattr(args, "wayland_screen_height", None) or config.backend.wayland.screen_height
     )
+    wayland_start_x = getattr(args, "wayland_start_x", None) or config.backend.wayland.start_x
+    wayland_start_y = getattr(args, "wayland_start_y", None) or config.backend.wayland.start_y
 
     # Initialize backend display and input capture
     display_manager, input_capturer = serverBackend_create(
@@ -876,6 +892,8 @@ def server_run(args: argparse.Namespace) -> None:
         wayland_helper=wayland_helper,
         wayland_screen_width=wayland_screen_width,
         wayland_screen_height=wayland_screen_height,
+        wayland_start_x=wayland_start_x,
+        wayland_start_y=wayland_start_y,
     )
 
     try:

@@ -68,6 +68,20 @@ def arguments_parse() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--wayland-start-x",
+        type=int,
+        default=None,
+        help="Wayland initial cursor X override (pixels).",
+    )
+
+    parser.add_argument(
+        "--wayland-start-y",
+        type=int,
+        default=None,
+        help="Wayland initial cursor Y override (pixels).",
+    )
+
+    parser.add_argument(
         "--name",
         type=str,
         default=None,
@@ -286,12 +300,16 @@ def client_run(args: argparse.Namespace) -> None:
         sys.exit(1)
     logger.info(f"Backend: {backend_name}")
     wayland_helper = getattr(args, "wayland_helper", None) or config.backend.wayland.helper_command
+    wayland_start_x = getattr(args, "wayland_start_x", None) or config.backend.wayland.start_x
+    wayland_start_y = getattr(args, "wayland_start_y", None) or config.backend.wayland.start_y
 
     # Initialize backend display and event injector
     display_manager, event_injector = clientBackend_create(
         backend_name=backend_name,
         display_name=config.client.display,
         wayland_helper=wayland_helper,
+        wayland_start_x=wayland_start_x,
+        wayland_start_y=wayland_start_y,
     )
 
     try:

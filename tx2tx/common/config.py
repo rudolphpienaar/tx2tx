@@ -83,6 +83,8 @@ class WaylandConfig:
     helper_command: Optional[str]
     screen_width: Optional[int]
     screen_height: Optional[int]
+    start_x: Optional[int]
+    start_y: Optional[int]
 
 
 @dataclass
@@ -248,6 +250,8 @@ class ConfigLoader:
             helper_command=wayland_data.get("helper_command"),
             screen_width=wayland_data.get("screen_width"),
             screen_height=wayland_data.get("screen_height"),
+            start_x=wayland_data.get("start_x"),
+            start_y=wayland_data.get("start_y"),
         )
         backend = BackendConfig(name=backend_name, wayland=wayland)
 

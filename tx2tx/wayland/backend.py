@@ -176,6 +176,8 @@ class WaylandDisplayBackend(DisplayBackend):
         helper_command: Optional[str],
         screen_width: Optional[int],
         screen_height: Optional[int],
+        start_x: Optional[int],
+        start_y: Optional[int],
     ) -> None:
         """
         Initialize Wayland display backend.
@@ -197,6 +199,8 @@ class WaylandDisplayBackend(DisplayBackend):
         self._screen_override: Optional[Screen] = None
         if screen_width is not None and screen_height is not None:
             self._screen_override = Screen(width=screen_width, height=screen_height)
+        self._start_x = start_x
+        self._start_y = start_y
 
     def connection_establish(self) -> None:
         """
@@ -210,6 +214,8 @@ class WaylandDisplayBackend(DisplayBackend):
         """
         """Establish connection to the Wayland helper."""
         self._helper.connection_establish()
+        if self._start_x is not None and self._start_y is not None:
+            self._helper.cursorPosition_set(self._start_x, self._start_y)
 
     def connection_close(self) -> None:
         """
