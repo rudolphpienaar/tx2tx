@@ -8,6 +8,8 @@ from tx2tx.common.types import EventType, KeyEvent, MouseEvent, Position, Screen
 from tx2tx.input.backend import DisplayBackend, InputCapturer, InputEvent, InputInjector
 from tx2tx.wayland.helper import WaylandHelperClient
 
+_KEYCODE_TO_KEYNAME: Optional[dict[int, str]] = None
+
 
 def _keysym_from_evdev(keycode: int) -> Optional[int]:
     """
@@ -25,12 +27,21 @@ def _keysym_from_evdev(keycode: int) -> Optional[int]:
     except Exception:
         return None
 
-    key_name = ecodes.KEY.get(keycode)
-    if isinstance(key_name, (list, tuple)):
-        key_name = next(
-            (name for name in key_name if isinstance(name, str) and name.startswith("KEY_")),
-            None,
-        )
+    global _KEYCODE_TO_KEYNAME
+    if _KEYCODE_TO_KEYNAME is None:
+        mapping: dict[int, str] = {}
+        for name, value in ecodes.KEY.items():
+            if not isinstance(name, str) or not name.startswith("KEY_"):
+                continue
+            if isinstance(value, int):
+                mapping.setdefault(value, name)
+            elif isinstance(value, (list, tuple)):
+                for item in value:
+                    if isinstance(item, int):
+                        mapping.setdefault(item, name)
+        _KEYCODE_TO_KEYNAME = mapping
+
+    key_name = _KEYCODE_TO_KEYNAME.get(keycode)
 
     if not key_name or not key_name.startswith("KEY_"):
         return None
