@@ -279,9 +279,12 @@ def client_run(args: argparse.Namespace) -> None:
         logger.info(f"Client name: {args.name}")
     logger.info(f"Connecting to {host}:{port}")
     logger.info(f"Display: {config.client.display or '$DISPLAY'}")
-    logger.info(f"Backend: {backend_name}")
 
     backend_name = getattr(args, "backend", None) or config.backend.name or "x11"
+    if backend_name.lower() not in {"x11", "wayland"}:
+        logger.error(f"Unsupported backend '{backend_name}'. Supported: x11, wayland.")
+        sys.exit(1)
+    logger.info(f"Backend: {backend_name}")
     wayland_helper = getattr(args, "wayland_helper", None) or config.backend.wayland.helper_command
 
     # Initialize backend display and event injector
