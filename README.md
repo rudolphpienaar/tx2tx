@@ -42,6 +42,17 @@ Notes:
 - `screen-width` and `screen-height` must be the compositor's logical desktop size.
 - The Wayland helper needs access to `/dev/input/*` and `/dev/uinput`.
 
+Compute logical desktop size on GNOME:
+
+```bash
+gdbus call --session \
+  --dest org.gnome.Mutter.DisplayConfig \
+  --object-path /org/gnome/Mutter/DisplayConfig \
+  --method org.gnome.Mutter.DisplayConfig.GetCurrentState
+```
+
+Use the monitor layout section of the output to calculate the full bounding width/height.
+
 ### Install
 
 ```bash
