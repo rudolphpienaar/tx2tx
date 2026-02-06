@@ -16,6 +16,7 @@ def serverBackend_create(
     wayland_helper: Optional[str],
     wayland_screen_width: Optional[int],
     wayland_screen_height: Optional[int],
+    wayland_pointer_provider: str = "helper",
 ) -> tuple[DisplayBackend, InputCapturer]:
     """
     Create server-side backend components.
@@ -28,6 +29,7 @@ def serverBackend_create(
         wayland_helper: Helper command for Wayland backend
         wayland_screen_width: Optional screen width override (Wayland)
         wayland_screen_height: Optional screen height override (Wayland)
+        wayland_pointer_provider: Wayland pointer coordinate provider
     
     Returns:
         Tuple of (DisplayBackend, InputCapturer)
@@ -48,6 +50,7 @@ def serverBackend_create(
             helper_command=wayland_helper,
             screen_width=wayland_screen_width,
             screen_height=wayland_screen_height,
+            pointer_provider=wayland_pointer_provider,
         )
         capturer = WaylandInputCapturer(display_backend=display_backend)
         return display_backend, capturer
@@ -85,6 +88,7 @@ def clientBackend_create(
             helper_command=wayland_helper,
             screen_width=None,
             screen_height=None,
+            pointer_provider="helper",
         )
         injector = WaylandInputInjector(display_backend=display_backend)
         return display_backend, injector

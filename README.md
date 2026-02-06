@@ -30,6 +30,7 @@ Example with a Wayland server and an X11 client:
 # Wayland server (requires helper and permissions)
 sudo tx2tx \
   --backend wayland \
+  --wayland-pointer-provider gnome \
   --wayland-helper "tx2tx-wayland-helper --screen-width <W> --screen-height <H>" \
   --host 0.0.0.0 \
   --port 24800
@@ -44,6 +45,7 @@ Notes:
 - `evdev` does not currently publish wheels for Python 3.14. Use Python 3.11 or 3.12 for Wayland support.
 - Wayland keyboard events are mapped from Linux evdev keycodes to X11 keycodes using the standard +8 offset.
 - For Wayland, you can use `--wayland-calibrate` to warp the cursor to center on startup and sync helper state.
+- On GNOME Wayland, use `--wayland-pointer-provider gnome` to read pointer coordinates from GNOME Shell and avoid helper/compositor pointer drift.
 
 Compute logical desktop size on GNOME:
 

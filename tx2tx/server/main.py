@@ -346,6 +346,14 @@ def arguments_parse() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--wayland-pointer-provider",
+        type=str,
+        choices=["helper", "gnome"],
+        default=None,
+        help="Wayland pointer coordinate provider (default: helper).",
+    )
+
+    parser.add_argument(
         "--name",
         type=str,
         default=None,
@@ -873,6 +881,19 @@ def server_run(args: argparse.Namespace) -> None:
         getattr(args, "wayland_screen_height", None) or config.backend.wayland.screen_height
     )
     wayland_calibrate = getattr(args, "wayland_calibrate", False) or config.backend.wayland.calibrate
+    wayland_pointer_provider = (
+        getattr(args, "wayland_pointer_provider", None)
+        or config.backend.wayland.pointer_provider
+        or "helper"
+    ).lower()
+    if wayland_pointer_provider not in {"helper", "gnome"}:
+        logger.error(
+            "Unsupported Wayland pointer provider '%s'. Supported: helper, gnome.",
+            wayland_pointer_provider,
+        )
+        sys.exit(1)
+    if backend_name.lower() == "wayland":
+        logger.info("Wayland pointer provider: %s", wayland_pointer_provider)
 
     # Initialize backend display and input capture
     display_manager, input_capturer = serverBackend_create(
@@ -883,6 +904,7 @@ def server_run(args: argparse.Namespace) -> None:
         wayland_helper=wayland_helper,
         wayland_screen_width=wayland_screen_width,
         wayland_screen_height=wayland_screen_height,
+        wayland_pointer_provider=wayland_pointer_provider,
     )
 
     try:

@@ -6,6 +6,7 @@ from typing import Optional
 
 from tx2tx.common.types import EventType, KeyEvent, MouseEvent, Position, Screen
 from tx2tx.input.backend import DisplayBackend, InputCapturer, InputEvent, InputInjector
+from tx2tx.wayland.gnome_pointer import GnomePointerProvider
 from tx2tx.wayland.helper import WaylandHelperClient
 
 _KEYCODE_TO_KEYNAME: Optional[dict[int, str]] = None
@@ -176,6 +177,7 @@ class WaylandDisplayBackend(DisplayBackend):
         helper_command: Optional[str],
         screen_width: Optional[int],
         screen_height: Optional[int],
+        pointer_provider: str = "helper",
     ) -> None:
         """
         Initialize Wayland display backend.
@@ -184,6 +186,7 @@ class WaylandDisplayBackend(DisplayBackend):
             helper_command: helper_command value.
             screen_width: screen_width value.
             screen_height: screen_height value.
+            pointer_provider: pointer_provider value.
         
         Returns:
             Result value.
@@ -195,6 +198,10 @@ class WaylandDisplayBackend(DisplayBackend):
             )
         self._helper: WaylandHelperClient = WaylandHelperClient(helper_command)
         self._screen_override: Optional[Screen] = None
+        self._pointer_provider: str = pointer_provider
+        self._gnome_pointer_provider: Optional[GnomePointerProvider] = None
+        if pointer_provider == "gnome":
+            self._gnome_pointer_provider = GnomePointerProvider()
         if screen_width is not None and screen_height is not None:
             self._screen_override = Screen(width=screen_width, height=screen_height)
 
@@ -265,6 +272,13 @@ class WaylandDisplayBackend(DisplayBackend):
             Pointer position.
         """
         """Return current pointer position from helper."""
+        if self._gnome_pointer_provider is not None:
+            try:
+                x, y = self._gnome_pointer_provider.pointerPosition_get()
+                return Position(x=x, y=y)
+            except Exception as error:
+                self._gnome_pointer_provider.fallback_log(error)
+
         x, y = self._helper.pointerPosition_get()
         return Position(x=x, y=y)
 

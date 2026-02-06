@@ -80,6 +80,14 @@ def arguments_parse() -> argparse.Namespace:
         help="Wayland screen height override (pixels).",
     )
 
+    parser.add_argument(
+        "--wayland-pointer-provider",
+        type=str,
+        choices=["helper", "gnome"],
+        default=None,
+        help="Wayland pointer coordinate provider (server mode; default: helper).",
+    )
+
     # Server-specific options
     parser.add_argument(
         "--host", type=str, default=None, help="[Server] Host address to bind to (overrides config)"

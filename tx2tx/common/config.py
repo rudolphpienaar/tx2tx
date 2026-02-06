@@ -84,6 +84,7 @@ class WaylandConfig:
     screen_width: Optional[int]
     screen_height: Optional[int]
     calibrate: bool
+    pointer_provider: str
 
 
 @dataclass
@@ -250,6 +251,7 @@ class ConfigLoader:
             screen_width=wayland_data.get("screen_width"),
             screen_height=wayland_data.get("screen_height"),
             calibrate=bool(wayland_data.get("calibrate", False)),
+            pointer_provider=str(wayland_data.get("pointer_provider", "helper")),
         )
         backend = BackendConfig(name=backend_name, wayland=wayland)
 
