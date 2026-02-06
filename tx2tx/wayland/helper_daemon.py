@@ -396,9 +396,26 @@ class UInputManager:
         Returns:
             UInput keyboard device.
         """
-        key_codes = sorted(set(ecodes.keys.values()))
+        key_codes = sorted(self._keycodes_collect())
         capabilities = {ecodes.EV_KEY: key_codes}
         return UInput(capabilities, name="tx2tx-virtual-keyboard")
+
+    def _keycodes_collect(self) -> list[int]:
+        """
+        Collect integer keycodes from evdev mappings.
+
+        Returns:
+            Sorted list of integer key codes.
+        """
+        codes: set[int] = set()
+        for value in ecodes.keys.values():
+            if isinstance(value, int):
+                codes.add(value)
+            elif isinstance(value, (list, tuple)):
+                for item in value:
+                    if isinstance(item, int):
+                        codes.add(item)
+        return sorted(codes)
 
     def _mouse_create(self) -> UInput:
         """
