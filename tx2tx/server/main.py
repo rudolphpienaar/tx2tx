@@ -793,7 +793,6 @@ def server_run(args: argparse.Namespace) -> None:
     logger.info(f"Edge threshold: {config.server.edge_threshold} pixels")
     logger.info(f"Velocity threshold: {config.server.velocity_threshold} px/s (edge resistance)")
     logger.info(f"Display: {config.server.display or '$DISPLAY'}")
-    logger.info(f"Backend: {backend_name}")
     logger.info(f"Max clients: {config.server.max_clients}")
 
     # Log configured clients
@@ -821,6 +820,7 @@ def server_run(args: argparse.Namespace) -> None:
             logger.info("Overlay window enabled (Crostini mode)")
 
     backend_name = getattr(args, "backend", None) or config.backend.name or "x11"
+    logger.info(f"Backend: {backend_name}")
     wayland_helper = getattr(args, "wayland_helper", None) or config.backend.wayland.helper_command
     wayland_screen_width = (
         getattr(args, "wayland_screen_width", None) or config.backend.wayland.screen_width
