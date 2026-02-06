@@ -5,9 +5,7 @@ import logging
 import sys
 import time
 from pathlib import Path
-from typing import NoReturn, Optional, Union
-
-from Xlib import X
+from typing import NoReturn, Optional
 
 from tx2tx import __version__
 from tx2tx.common.config import ConfigLoader
@@ -23,10 +21,11 @@ from tx2tx.common.types import (
     Screen,
     ScreenContext,
 )
+from tx2tx.input.backend import DisplayBackend, InputCapturer, InputEvent
+from tx2tx.input.factory import serverBackend_create
 from tx2tx.protocol.message import Message, MessageBuilder, MessageType
 from tx2tx.server.network import ClientConnection, ServerNetwork
 from tx2tx.server.state import server_state
-from tx2tx.x11.display import DisplayManager, is_native_x11
 from tx2tx.x11.pointer import PointerTracker
 
 logger = logging.getLogger(__name__)
@@ -104,10 +103,10 @@ DEFAULT_PANIC_KEYSYMS = {0xFF14, 0xFF13}  # Scroll_Lock, Pause
 def panicKeyConfig_parse(config) -> tuple[set[int], int]:
     """
     Parse panic key configuration into keysym set and modifier mask.
-
+    
     Args:
         config: The loaded Config object
-
+    
     Returns:
         Tuple of (keysym_set, required_modifier_mask)
     """
@@ -146,23 +145,26 @@ def panicKeyConfig_parse(config) -> tuple[set[int], int]:
 
 
 def panicKey_check(
-    events: list[Union[MouseEvent, KeyEvent]],
+    events: list[InputEvent],
     panic_keysyms: set[int],
     required_modifiers: int,
     current_modifiers: int,
 ) -> bool:
     """
     Check if any event in the list is a panic key press.
-
+    
+    
+    
+    
     The panic key forces immediate return to CENTER context, providing
     an escape hatch if the client dies or the user gets stuck.
-
+    
     Args:
         events: List of input events to check
         panic_keysyms: Set of keysyms that trigger panic
         required_modifiers: Modifier mask that must be active
         current_modifiers: Currently active modifier mask (fallback)
-
+    
     Returns:
         True if a panic key press was detected
     """
@@ -182,83 +184,23 @@ def panicKey_check(
     return False
 
 
-def read_input_events(
-    display_manager: DisplayManager,
-) -> tuple[list[Union[MouseEvent, KeyEvent]], int]:
-    """
-    Read pending X11 input events (buttons and keys)
-
-    Args:
-        display_manager: Display manager instance
-
-    Returns:
-        Tuple of (event_list, modifier_state)
-        - event_list: List of MouseEvent and KeyEvent objects
-        - modifier_state: Current modifier key state (bitmask)
-    """
-    display = display_manager.display_get()
-    events = []
-    modifier_state = 0
-
-    while display.pending_events() > 0:
-        event = display.next_event()
-
-        if event.type == X.ButtonPress:
-            events.append(
-                MouseEvent(
-                    event_type=EventType.MOUSE_BUTTON_PRESS,
-                    position=Position(x=event.root_x, y=event.root_y),
-                    button=event.detail,
-                )
-            )
-            modifier_state = event.state
-        elif event.type == X.ButtonRelease:
-            events.append(
-                MouseEvent(
-                    event_type=EventType.MOUSE_BUTTON_RELEASE,
-                    position=Position(x=event.root_x, y=event.root_y),
-                    button=event.detail,
-                )
-            )
-            modifier_state = event.state
-        elif event.type == X.KeyPress:
-            events.append(
-                KeyEvent(
-                    event_type=EventType.KEY_PRESS,
-                    keycode=event.detail,
-                    keysym=display.keycode_to_keysym(event.detail, 0),
-                    state=event.state,
-                )
-            )
-            modifier_state = event.state
-        elif event.type == X.KeyRelease:
-            events.append(
-                KeyEvent(
-                    event_type=EventType.KEY_RELEASE,
-                    keycode=event.detail,
-                    keysym=display.keycode_to_keysym(event.detail, 0),
-                    state=event.state,
-                )
-            )
-            modifier_state = event.state
-
-    return events, modifier_state
-
-
 def state_revertToCenter(
-    display_manager: DisplayManager,
+    display_manager: DisplayBackend,
     screen_geometry: Screen,
     position: Position,
     pointer_tracker: PointerTracker,
 ) -> None:
     """
     Emergency revert to CENTER context (restore input and cursor)
-
+    
     Args:
-        display_manager: Display manager
-        screen_geometry: Screen geometry
-        position: Current (hidden) cursor position to calculate entry point
-        pointer_tracker: Pointer tracker to reset velocity history
+        display_manager: display_manager value.
+        screen_geometry: screen_geometry value.
+        position: position value.
+        pointer_tracker: pointer_tracker value.
+    
+    Returns:
+        Result value.
     """
     if server_state.context == ScreenContext.CENTER:
         return
@@ -329,9 +271,12 @@ def state_revertToCenter(
 def arguments_parse() -> argparse.Namespace:
     """
     Parse command line arguments
-
+    
+    Args:
+        None.
+    
     Returns:
-        Parsed arguments
+        Parsed CLI arguments.
     """
     parser = argparse.ArgumentParser(
         description="tx2tx server - captures and broadcasts input events"
@@ -367,6 +312,34 @@ def arguments_parse() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--backend",
+        type=str,
+        default=None,
+        help="Input backend to use (e.g., x11, wayland). Defaults to x11.",
+    )
+
+    parser.add_argument(
+        "--wayland-helper",
+        type=str,
+        default=None,
+        help="Wayland helper command for privileged input operations.",
+    )
+
+    parser.add_argument(
+        "--wayland-screen-width",
+        type=int,
+        default=None,
+        help="Wayland screen width override (pixels).",
+    )
+
+    parser.add_argument(
+        "--wayland-screen-height",
+        type=int,
+        default=None,
+        help="Wayland screen height override (pixels).",
+    )
+
+    parser.add_argument(
         "--name",
         type=str,
         default=None,
@@ -379,11 +352,14 @@ def arguments_parse() -> argparse.Namespace:
 def logging_setup(level: str, log_format: str, log_file: Optional[str]) -> None:
     """
     Setup logging configuration with version injection
-
+    
     Args:
-        level: Log level string
-        log_format: Log format string
-        log_file: Optional log file path
+        level: level value.
+        log_format: log_format value.
+        log_file: log_file value.
+    
+    Returns:
+        Result value.
     """
     handlers: list[logging.Handler] = [logging.StreamHandler()]
 
@@ -404,11 +380,14 @@ def clientMessage_handle(
 ) -> None:
     """
     Handle message received from client
-
+    
     Args:
-        client: Client connection
-        message: Received message
-        network: Server network instance (for managing connections)
+        client: client value.
+        message: message value.
+        network: network value.
+    
+    Returns:
+        Result value.
     """
     logger.info(f"Received {message.msg_type.value} from {client.address}")
 
@@ -449,7 +428,7 @@ def clientMessage_handle(
 
 def _process_polling_loop(
     network: ServerNetwork,
-    display_manager: DisplayManager,
+    display_manager: DisplayBackend,
     pointer_tracker: PointerTracker,
     screen_geometry: Screen,
     config, # Config object from ConfigLoader
@@ -457,15 +436,41 @@ def _process_polling_loop(
     panic_keysyms: set[int],
     panic_modifiers: int,
     x11native: bool,
+    input_capturer: InputCapturer,
 ) -> None:
     """
     Processes events in the polling loop (fallback mode).
+    
+    Args:
+        network: network value.
+        display_manager: display_manager value.
+        pointer_tracker: pointer_tracker value.
+        screen_geometry: screen_geometry value.
+        config: config value.
+        context_to_client: context_to_client value.
+        panic_keysyms: panic_keysyms value.
+        panic_modifiers: panic_modifiers value.
+        x11native: x11native value.
+        input_capturer: input_capturer value.
+    
+    Returns:
+        Result value.
     """
     # Accept new connections
     network.connections_accept()
 
     # Receive messages from clients
     def message_handler(client: ClientConnection, message: Message) -> None:
+        """
+        Handle a single client message within the polling loop.
+        
+        Args:
+            client: client value.
+            message: message value.
+        
+        Returns:
+            Result value.
+        """
         clientMessage_handle(client, message, network)
 
     network.clientData_receive(message_handler)
@@ -582,7 +587,7 @@ def _process_polling_loop(
             # 0. WARP ENFORCEMENT (Grace Period)
             # Only needed on Crostini where warp is unreliable
             # On native X11, pointer grab prevents mouse movement (position still updates but cursor doesn't move)
-            if not (x11native or is_native_x11()):
+            if not (x11native or display_manager.session_isNative_check()):
                 if (time.time() - server_state.last_remote_switch_time) < 0.5:
                     # Determine where we SHOULD be
                     target_pos = None
@@ -681,7 +686,7 @@ def _process_polling_loop(
                         server_state.lastSentPosition_update(position)
 
                     # Send Input Events (Buttons & Keys)
-                    input_events, modifier_state = read_input_events(display_manager)
+                    input_events, modifier_state = input_capturer.inputEvents_read()
 
                     # Check for panic key - configurable escape hatch
                     if panicKey_check(
@@ -733,7 +738,7 @@ def _process_polling_loop(
                                 break
                 else:
                     # Drain events if no client connected but in remote mode
-                    _, _ = read_input_events(display_manager)
+                    _, _ = input_capturer.inputEvents_read()
                     logger.error(
                         f"Active context {server_state.context.value} has no connected client, reverting"
                     )
@@ -748,9 +753,12 @@ def _process_polling_loop(
 def server_run(args: argparse.Namespace) -> None:
     """
     Run tx2tx server
-
+    
     Args:
-        args: Parsed command line arguments
+        args: args value.
+    
+    Returns:
+        Result value.
     """
     # Load configuration
     config_path = Path(args.config) if args.config else None
@@ -785,6 +793,7 @@ def server_run(args: argparse.Namespace) -> None:
     logger.info(f"Edge threshold: {config.server.edge_threshold} pixels")
     logger.info(f"Velocity threshold: {config.server.velocity_threshold} px/s (edge resistance)")
     logger.info(f"Display: {config.server.display or '$DISPLAY'}")
+    logger.info(f"Backend: {backend_name}")
     logger.info(f"Max clients: {config.server.max_clients}")
 
     # Log configured clients
@@ -811,11 +820,24 @@ def server_run(args: argparse.Namespace) -> None:
         if overlay_enabled:
             logger.info("Overlay window enabled (Crostini mode)")
 
-    # Initialize X11 display and pointer tracking
-    display_manager = DisplayManager(
+    backend_name = getattr(args, "backend", None) or config.backend.name or "x11"
+    wayland_helper = getattr(args, "wayland_helper", None) or config.backend.wayland.helper_command
+    wayland_screen_width = (
+        getattr(args, "wayland_screen_width", None) or config.backend.wayland.screen_width
+    )
+    wayland_screen_height = (
+        getattr(args, "wayland_screen_height", None) or config.backend.wayland.screen_height
+    )
+
+    # Initialize backend display and input capture
+    display_manager, input_capturer = serverBackend_create(
+        backend_name=backend_name,
         display_name=config.server.display,
         overlay_enabled=overlay_enabled,
         x11native=x11native,
+        wayland_helper=wayland_helper,
+        wayland_screen_width=wayland_screen_width,
+        wayland_screen_height=wayland_screen_height,
     )
 
     try:
@@ -881,6 +903,7 @@ def server_run(args: argparse.Namespace) -> None:
                 panic_keysyms,
                 panic_modifiers,
                 x11native,
+                input_capturer,
             )
     except Exception as e:
         logger.error(f"Server error: {e}", exc_info=True)
@@ -890,6 +913,15 @@ def server_run(args: argparse.Namespace) -> None:
         display_manager.connection_close()
 
 def main() -> NoReturn:
+    """
+    Main entry point
+    
+    Args:
+        None.
+    
+    Returns:
+        Result value.
+    """
     """Main entry point"""
     args = arguments_parse()
 

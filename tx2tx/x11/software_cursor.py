@@ -17,10 +17,13 @@ class SoftwareCursor:
     def __init__(self, display_manager, color: str = "red") -> None:
         """
         Initialize software cursor
-
+        
         Args:
-            display_manager: DisplayManager instance
-            color: Cursor color ("red", "green", "blue", "white")
+            display_manager: display_manager value.
+            color: color value.
+        
+        Returns:
+            Result value.
         """
         self._display_manager = display_manager
         self._window = None
@@ -30,6 +33,15 @@ class SoftwareCursor:
         self._visible = False
 
     def _setup(self) -> None:
+        """
+        Create the cursor window
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Create the cursor window"""
         if self._window:
             return
@@ -124,10 +136,13 @@ class SoftwareCursor:
     def move(self, x: int, y: int) -> None:
         """
         Move cursor to position
-
+        
         Args:
-            x: X coordinate
-            y: Y coordinate
+            x: x value.
+            y: y value.
+        
+        Returns:
+            Result value.
         """
         if not self._window:
             self._setup()
@@ -149,18 +164,45 @@ class SoftwareCursor:
         # No sync() here for performance, rely on periodic event loop sync
 
     def show(self) -> None:
+        """
+        Show the cursor
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Show the cursor"""
         if self._window and not self._visible:
             self._window.map()
             self._visible = True
 
     def hide(self) -> None:
+        """
+        Hide the cursor
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Hide the cursor"""
         if self._window and self._visible:
             self._window.unmap()
             self._visible = False
 
     def destroy(self) -> None:
+        """
+        Destroy the cursor window
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Destroy the cursor window"""
         if self._window:
             self._window.destroy()

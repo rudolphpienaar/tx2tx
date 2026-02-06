@@ -77,6 +77,23 @@ class LoggingConfig:
 
 
 @dataclass
+class WaylandConfig:
+    """Wayland backend settings"""
+
+    helper_command: Optional[str]
+    screen_width: Optional[int]
+    screen_height: Optional[int]
+
+
+@dataclass
+class BackendConfig:
+    """Backend selection and settings"""
+
+    name: str
+    wayland: WaylandConfig
+
+
+@dataclass
 class Config:
     """Complete application configuration"""
 
@@ -85,6 +102,7 @@ class Config:
     client: ClientConnectionConfig
     protocol: ProtocolConfig
     logging: LoggingConfig
+    backend: BackendConfig
 
 
 class ConfigLoader:
@@ -100,9 +118,12 @@ class ConfigLoader:
     def configFile_find() -> Optional[Path]:
         """
         Find configuration file in standard locations
-
+        
+        Args:
+            None.
+        
         Returns:
-            Path to config file, or None if not found
+            Path to config file or None.
         """
         for config_path in ConfigLoader.DEFAULT_CONFIG_PATHS:
             path = Path(config_path).expanduser().resolve()
@@ -114,13 +135,13 @@ class ConfigLoader:
     def yaml_load(file_path: Path) -> Dict[str, Any]:
         """
         Load YAML configuration file
-
+        
         Args:
             file_path: Path to YAML file
-
+        
         Returns:
             Parsed configuration dictionary
-
+        
         Raises:
             FileNotFoundError: If file does not exist
             yaml.YAMLError: If file is not valid YAML
@@ -137,13 +158,13 @@ class ConfigLoader:
     def config_parse(data: Dict[str, Any]) -> Config:
         """
         Parse configuration dictionary into Config object
-
+        
         Args:
             data: Raw configuration dictionary
-
+        
         Returns:
             Parsed Config object
-
+        
         Raises:
             KeyError: If required configuration keys are missing
         """
@@ -219,25 +240,37 @@ class ConfigLoader:
             format=logging_data["format"],
         )
 
+        # Parse backend config (optional)
+        backend_data = data.get("backend", {})
+        backend_name = backend_data.get("name", "x11")
+        wayland_data = backend_data.get("wayland", {})
+        wayland = WaylandConfig(
+            helper_command=wayland_data.get("helper_command"),
+            screen_width=wayland_data.get("screen_width"),
+            screen_height=wayland_data.get("screen_height"),
+        )
+        backend = BackendConfig(name=backend_name, wayland=wayland)
+
         return Config(
             server=server,
             clients=clients,
             client=client,
             protocol=protocol,
             logging=logging,
+            backend=backend,
         )
 
     @staticmethod
     def config_load(file_path: Optional[Path] = None) -> Config:
         """
         Load configuration from file
-
+        
         Args:
             file_path: Optional path to config file. If None, searches standard locations.
-
+        
         Returns:
             Parsed Config object
-
+        
         Raises:
             FileNotFoundError: If config file not found
             ValueError: If config file is invalid
@@ -257,18 +290,18 @@ class ConfigLoader:
     def configWithOverrides_load(file_path: Optional[Path] = None, **overrides: Any) -> Config:
         """
         Load configuration and apply command-line overrides
-
+        
         Args:
             file_path: Optional path to config file
-            **overrides: Key-value pairs to override config values
-
+            overrides: overrides value.
+        
         Returns:
             Config object with overrides applied
-
+        
         Example:
             config = ConfigLoader.configWithOverrides_load(
-                host="127.0.0.1",
-                port=25000
+            host="127.0.0.1",
+            port=25000
             )
         """
         config = ConfigLoader.config_load(file_path)

@@ -44,6 +44,16 @@ class Position:
     y: int
 
     def bounds_check(self, width: int, height: int) -> bool:
+        """
+        Check if position is within given bounds
+        
+        Args:
+            width: width value.
+            height: height value.
+        
+        Returns:
+            Result value.
+        """
         """Check if position is within given bounds"""
         return 0 <= self.x < width and 0 <= self.y < height
 
@@ -63,6 +73,15 @@ class NormalizedPoint:
     y: float  # 0.0-1.0
 
     def __post_init__(self) -> None:
+        """
+        Validate that coordinates are in valid range
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Validate that coordinates are in valid range"""
         # Allow slightly out of bounds for edge cases (like hide signal at -1.0)
         if not (-1.0 <= self.x <= 1.0) or not (-1.0 <= self.y <= 1.0):
@@ -84,18 +103,28 @@ class Screen:
     height: int
 
     def contains(self, pos: Position) -> bool:
+        """
+        Check if pixel position is within screen bounds
+        
+        Args:
+            pos: pos value.
+        
+        Returns:
+            Result value.
+        """
         """Check if pixel position is within screen bounds"""
         return pos.bounds_check(self.width, self.height)
 
     def coordinates_normalize(self, pos: Position) -> NormalizedPoint:
-        """Convert pixel position to normalized point
-
+        """
+        Convert pixel position to normalized point
+        
         Args:
             pos: Absolute pixel position
-
+        
         Returns:
             Normalized point in 0.0-1.0 range
-
+        
         Example:
             screen = Screen(width=1920, height=1080)
             pos = Position(x=960, y=540)  # Center of screen
@@ -104,14 +133,15 @@ class Screen:
         return NormalizedPoint(x=pos.x / self.width, y=pos.y / self.height)
 
     def coordinates_denormalize(self, npt: NormalizedPoint) -> Position:
-        """Convert normalized point to pixel position
-
+        """
+        Convert normalized point to pixel position
+        
         Args:
             npt: Normalized point in 0.0-1.0 range
-
+        
         Returns:
             Absolute pixel position
-
+        
         Example:
             screen = Screen(width=1920, height=1080)
             npt = NormalizedPoint(x=0.5, y=0.5)
@@ -141,11 +171,29 @@ class MouseEvent:
     button: Optional[int] = None  # 1=left, 2=middle, 3=right
 
     def __post_init__(self) -> None:
+        """
+        Validate that at least one position type is provided
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Validate that at least one position type is provided"""
         if self.position is None and self.normalized_point is None:
             raise ValueError("MouseEvent must have either position or normalized_point")
 
     def buttonEvent_check(self) -> bool:
+        """
+        Check if this is a button press/release event
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Check if this is a button press/release event"""
         return self.event_type in (EventType.MOUSE_BUTTON_PRESS, EventType.MOUSE_BUTTON_RELEASE)
 
@@ -160,6 +208,15 @@ class KeyEvent:
     state: Optional[int] = None  # X11 modifier state (server-side use only)
 
     def pressEvent_check(self) -> bool:
+        """
+        Check if this is a key press (vs release)
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Check if this is a key press (vs release)"""
         return self.event_type == EventType.KEY_PRESS
 

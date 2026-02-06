@@ -19,10 +19,13 @@ class ClientConnection:
     def __init__(self, client_socket: socket.socket, address: tuple[str, int]) -> None:
         """
         Initialize client connection
-
+        
         Args:
-            client_socket: Client socket
-            address: Client address (host, port)
+            client_socket: client_socket value.
+            address: address value.
+        
+        Returns:
+            Result value.
         """
         self.socket: socket.socket = client_socket
         self.address: tuple[str, int] = address
@@ -34,9 +37,12 @@ class ClientConnection:
     def message_send(self, message: Message) -> None:
         """
         Send message to client
-
+        
         Args:
-            message: Message to send
+            message: message value.
+        
+        Returns:
+            None.
         """
         data = message.json_serialize() + "\n"
         self.socket.sendall(data.encode("utf-8"))
@@ -45,12 +51,12 @@ class ClientConnection:
     def data_receive(self) -> List[Message]:
         """
         Receive data from client and parse into messages
-
+        
+        Args:
+            None.
+        
         Returns:
-            List of complete messages received
-
-        Raises:
-            ConnectionError: If connection is closed or error occurs
+            Result value.
         """
         try:
             data = self.socket.recv(4096)
@@ -86,6 +92,15 @@ class ClientConnection:
             raise ConnectionError(f"Socket error: {e}")
 
     def connection_close(self) -> None:
+        """
+        Close connection to client
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Close connection to client"""
         try:
             self.socket.close()
@@ -99,11 +114,14 @@ class ServerNetwork:
     def __init__(self, host: str, port: int, max_clients: int = 1) -> None:
         """
         Initialize server network
-
+        
         Args:
-            host: Host address to bind to
-            port: Port to listen on
-            max_clients: Maximum number of concurrent clients
+            host: host value.
+            port: port value.
+            max_clients: max_clients value.
+        
+        Returns:
+            Result value.
         """
         self.host: str = host
         self.port: int = port
@@ -115,9 +133,12 @@ class ServerNetwork:
     def server_start(self) -> None:
         """
         Start TCP server and begin listening for connections
-
-        Raises:
-            OSError: If unable to bind to address
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
         """
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -129,6 +150,15 @@ class ServerNetwork:
         logger.info(f"Server listening on {self.host}:{self.port}")
 
     def server_stop(self) -> None:
+        """
+        Stop server and close all connections
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Stop server and close all connections"""
         self.is_running = False
 
@@ -148,6 +178,15 @@ class ServerNetwork:
         logger.info("Server stopped")
 
     def connections_accept(self) -> None:
+        """
+        Accept pending client connections (non-blocking)
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Accept pending client connections (non-blocking)"""
         if not self.server_socket:
             return
@@ -182,9 +221,12 @@ class ServerNetwork:
     def client_disconnect(self, client: ClientConnection) -> None:
         """
         Disconnect a client
-
+        
         Args:
-            client: Client to disconnect
+            client: client value.
+        
+        Returns:
+            Result value.
         """
         if client in self.clients:
             self.clients.remove(client)
@@ -196,9 +238,12 @@ class ServerNetwork:
     ) -> None:
         """
         Receive data from all connected clients (non-blocking)
-
+        
         Args:
-            message_handler: Callback function for handling received messages
+            message_handler: message_handler value.
+        
+        Returns:
+            Result value.
         """
         for client in self.clients[:]:
             # Check if client has data available
@@ -221,9 +266,12 @@ class ServerNetwork:
     def messageToAll_broadcast(self, message: Message) -> None:
         """
         Broadcast message to all connected clients
-
+        
         Args:
-            message: Message to broadcast
+            message: message value.
+        
+        Returns:
+            Result value.
         """
         for client in self.clients[:]:
             try:
@@ -235,11 +283,11 @@ class ServerNetwork:
     def messageToClient_send(self, client_name: str, message: Message) -> bool:
         """
         Send message to a specific client by name
-
+        
         Args:
             client_name: Name of client to send to
             message: Message to send
-
+        
         Returns:
             True if sent, False if client not found
         """
@@ -257,8 +305,11 @@ class ServerNetwork:
     def clients_count(self) -> int:
         """
         Get number of connected clients
-
+        
+        Args:
+            None.
+        
         Returns:
-            Number of connected clients
+            Result value.
         """
         return len(self.clients)

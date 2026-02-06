@@ -39,9 +39,12 @@ class Message:
     def json_serialize(self) -> str:
         """
         Serialize message to JSON string
-
+        
+        Args:
+            None.
+        
         Returns:
-            JSON string representation
+            Result value.
         """
         data = {"msg_type": self.msg_type.value, "payload": self.payload}
         return json.dumps(data)
@@ -50,10 +53,10 @@ class Message:
     def json_deserialize(data: str) -> "Message":
         """
         Deserialize message from JSON string
-
+        
         Args:
             data: JSON string
-
+        
         Returns:
             Deserialized Message object
         """
@@ -75,12 +78,15 @@ class MessageBuilder:
     ) -> Message:
         """
         Create hello/handshake message
-
+        
         Args:
-            version: Protocol version
-            screen_width: Optional screen width in pixels
-            screen_height: Optional screen height in pixels
-            client_name: Optional client name for identification
+            version: version value.
+            screen_width: screen_width value.
+            screen_height: screen_height value.
+            client_name: client_name value.
+        
+        Returns:
+            Result value.
         """
         payload: dict[str, Any] = {"version": version}
         if screen_width is not None and screen_height is not None:
@@ -93,11 +99,30 @@ class MessageBuilder:
 
     @staticmethod
     def screenInfoMessage_create(width: int, height: int) -> Message:
+        """
+        Create screen info message
+        
+        Args:
+            width: width value.
+            height: height value.
+        
+        Returns:
+            Result value.
+        """
         """Create screen info message"""
         return Message(msg_type=MessageType.SCREEN_INFO, payload={"width": width, "height": height})
 
     @staticmethod
     def screenEnterMessage_create(transition: ScreenTransition) -> Message:
+        """
+        Create screen enter message
+        
+        Args:
+            transition: transition value.
+        
+        Returns:
+            Result value.
+        """
         """Create screen enter message"""
         return Message(
             msg_type=MessageType.SCREEN_ENTER,
@@ -110,6 +135,15 @@ class MessageBuilder:
 
     @staticmethod
     def screenLeaveMessage_create(transition: ScreenTransition) -> Message:
+        """
+        Create screen leave message
+        
+        Args:
+            transition: transition value.
+        
+        Returns:
+            Result value.
+        """
         """Create screen leave message"""
         return Message(
             msg_type=MessageType.SCREEN_LEAVE,
@@ -122,11 +156,14 @@ class MessageBuilder:
 
     @staticmethod
     def mouseEventMessage_create(event: MouseEvent) -> Message:
-        """Create mouse event message
-
-        Serializes mouse event for protocol transmission. Uses normalized_point
-        if available (for MOUSE_MOVE across different resolutions), otherwise
-        uses position (for button events with pixel coordinates).
+        """
+        Create mouse event message
+        
+        Args:
+            event: event value.
+        
+        Returns:
+            Result value.
         """
         payload: Dict[str, Any] = {
             "event_type": event.event_type.value,
@@ -150,6 +187,15 @@ class MessageBuilder:
 
     @staticmethod
     def keyEventMessage_create(event: KeyEvent) -> Message:
+        """
+        Create keyboard event message
+        
+        Args:
+            event: event value.
+        
+        Returns:
+            Result value.
+        """
         """Create keyboard event message"""
         payload: Dict[str, Any] = {"event_type": event.event_type.value, "keycode": event.keycode}
         if event.keysym is not None:
@@ -159,11 +205,29 @@ class MessageBuilder:
 
     @staticmethod
     def keepaliveMessage_create() -> Message:
+        """
+        Create keepalive message
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Create keepalive message"""
         return Message(msg_type=MessageType.KEEPALIVE, payload={})
 
     @staticmethod
     def errorMessage_create(error: str) -> Message:
+        """
+        Create error message
+        
+        Args:
+            error: error value.
+        
+        Returns:
+            Result value.
+        """
         """Create error message"""
         return Message(msg_type=MessageType.ERROR, payload={"error": error})
 
@@ -175,13 +239,16 @@ class MessageParser:
     def mouseEvent_parse(msg: Message) -> MouseEvent:
         """
         Parse mouse event from message
-
+        
+        
+        
+        
         Deserializes mouse event from protocol. Handles both normalized coordinates
         (norm_x, norm_y) and pixel coordinates (x, y).
-
+        
         Args:
             msg: Protocol message
-
+        
         Returns:
             MouseEvent object
         """
@@ -209,10 +276,10 @@ class MessageParser:
     def keyEvent_parse(msg: Message) -> KeyEvent:
         """
         Parse key event from message
-
+        
         Args:
             msg: Protocol message
-
+        
         Returns:
             KeyEvent object
         """
@@ -227,10 +294,10 @@ class MessageParser:
     def screenTransition_parse(msg: Message) -> ScreenTransition:
         """
         Parse screen transition from message
-
+        
         Args:
             msg: Protocol message
-
+        
         Returns:
             ScreenTransition object
         """

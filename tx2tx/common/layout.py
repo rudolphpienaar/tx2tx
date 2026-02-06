@@ -32,24 +32,36 @@ class ScreenLayout:
     def __init__(self, client_position: ClientPosition) -> None:
         """
         Initialize screen layout
-
+        
         Args:
-            client_position: Position of the (single) client relative to server
+            client_position: client_position value.
+        
+        Returns:
+            Result value.
         """
         self._client_position = client_position
 
     @property
     def client_position(self) -> ClientPosition:
+        """
+        Get configured client position
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Get configured client position"""
         return self._client_position
 
     def clientTransition_check(self, server_edge: Direction) -> bool:
         """
         Determine if crossing this server edge should trigger transition to client
-
+        
         Args:
             server_edge: Which edge of server screen was crossed
-
+        
         Returns:
             True if this edge leads to the configured client position
         """
@@ -68,9 +80,12 @@ class ScreenLayout:
     def clientEntryEdge_get(self) -> Direction:
         """
         Get which edge the client should enter from based on client position
-
+        
+        Args:
+            None.
+        
         Returns:
-            Client entry edge (opposite of server exit edge)
+            Result value.
         """
         # Client at WEST enters from RIGHT edge
         # Client at EAST enters from LEFT edge, etc.
@@ -90,9 +105,12 @@ class ScreenLayout:
     def serverReentryEdge_get(self) -> Direction:
         """
         Get which edge the server should be re-entered from when client exits
-
+        
+        Args:
+            None.
+        
         Returns:
-            Server re-entry edge (same as original server exit edge)
+            Result value.
         """
         # Client at WEST → server re-enters from LEFT
         # Client at EAST → server re-enters from RIGHT, etc.
@@ -117,15 +135,15 @@ class ScreenLayout:
     ) -> ScreenTransition:
         """
         Transform server exit coordinates to client entry coordinates
-
+        
         Args:
             server_transition: Server boundary crossing details
             server_geometry: Server screen dimensions
             client_geometry: Client screen dimensions
-
+        
         Returns:
             Transformed transition for client entry
-
+        
         Raises:
             ValueError: If screen geometries are invalid (zero or negative dimensions)
         """
@@ -218,15 +236,15 @@ class ScreenLayout:
     ) -> ScreenTransition:
         """
         Transform client exit coordinates to server re-entry coordinates
-
+        
         Args:
             client_transition: Client boundary crossing details
             client_geometry: Client screen dimensions
             server_geometry: Server screen dimensions
-
+        
         Returns:
             Transformed transition for server re-entry
-
+        
         Raises:
             ValueError: If screen geometries are invalid (zero or negative dimensions)
         """

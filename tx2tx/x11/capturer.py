@@ -12,9 +12,12 @@ class EventCapturer:
     def __init__(self, display_manager: DisplayManager) -> None:
         """
         Initialize event capturer
-
+        
         Args:
-            display_manager: X11 display manager
+            display_manager: display_manager value.
+        
+        Returns:
+            Result value.
         """
         self._display_manager: DisplayManager = display_manager
         self._keyboard_grabbed: bool = False
@@ -23,9 +26,12 @@ class EventCapturer:
     def keyboard_grab(self) -> bool:
         """
         Grab keyboard to receive all keyboard events
-
+        
+        Args:
+            None.
+        
         Returns:
-            True if successful, False otherwise
+            Result value.
         """
         if self._keyboard_grabbed:
             return True
@@ -45,6 +51,15 @@ class EventCapturer:
         return False
 
     def keyboard_release(self) -> None:
+        """
+        Release keyboard grab
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Release keyboard grab"""
         if not self._keyboard_grabbed:
             return
@@ -57,9 +72,12 @@ class EventCapturer:
     def events_poll(self) -> list[MouseEvent | KeyEvent]:
         """
         Poll for pending events and convert to typed events
-
+        
+        Args:
+            None.
+        
         Returns:
-            List of MouseEvent and KeyEvent objects
+            Result value.
         """
         display = self._display_manager.display_get()
         events: list[MouseEvent | KeyEvent] = []
@@ -115,9 +133,27 @@ class EventCapturer:
         return events
 
     def isKeyboardGrabbed_check(self) -> bool:
+        """
+        Check if keyboard is currently grabbed
+        
+        Args:
+            None.
+        
+        Returns:
+            True if keyboard is grabbed.
+        """
         """Check if keyboard is currently grabbed"""
         return self._keyboard_grabbed
 
     def positionLast_get(self) -> Position:
+        """
+        Get last captured pointer position
+        
+        Args:
+            None.
+        
+        Returns:
+            Last tracked pointer position, if any.
+        """
         """Get last captured pointer position"""
         return self._last_pointer_position

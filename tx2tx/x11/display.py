@@ -34,13 +34,16 @@ except OSError as e:
 def xfixes_hide_cursor_native(display: Display, window_id: int) -> bool:
     """
     Hide cursor using native XFixes library via ctypes.
-
+    
+    
+    
+    
     Uses a persistent Display connection so hide/show work correctly.
-
+    
     Args:
         display: Python-xlib Display object
         window_id: X11 Window ID (unused - we get root from ctypes Display)
-
+    
     Returns:
         True if successful, False otherwise
     """
@@ -77,13 +80,16 @@ def xfixes_hide_cursor_native(display: Display, window_id: int) -> bool:
 def xfixes_show_cursor_native(display: Display, window_id: int) -> bool:
     """
     Show cursor using native XFixes library via ctypes.
-
+    
+    
+    
+    
     Uses the same persistent Display connection as hide.
-
+    
     Args:
         display: Python-xlib Display object
         window_id: X11 Window ID (unused - we get root from ctypes Display)
-
+    
     Returns:
         True if successful, False otherwise
     """
@@ -106,9 +112,12 @@ def xfixes_show_cursor_native(display: Display, window_id: int) -> bool:
 def is_native_x11() -> bool:
     """
     Detect if running on native X11 vs Wayland/Crostini compositor.
-
+    
+    Args:
+        None.
+    
     Returns:
-        True if native X11 (XFCE4, KDE, GNOME on X11), False for Wayland/Crostini
+        Result value.
     """
     # Check session type environment variable
     session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
@@ -151,11 +160,14 @@ class DisplayManager:
     ) -> None:
         """
         Initialize display manager
-
+        
         Args:
-            display_name: X11 display name (e.g., ':0'), None for default
-            overlay_enabled: Whether to use fullscreen overlay window (Crostini workaround)
-            x11native: Whether to optimize for native X11 (disables Crostini workarounds)
+            display_name: display_name value.
+            overlay_enabled: overlay_enabled value.
+            x11native: x11native value.
+        
+        Returns:
+            Result value.
         """
         self._display: Optional[Display] = None
         self._display_name: Optional[str] = display_name
@@ -169,6 +181,15 @@ class DisplayManager:
         self._cursor_overlay_window = None  # Fullscreen overlay for cursor display
 
     def connection_establish(self) -> None:
+        """
+        Establish connection to X11 display
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Establish connection to X11 display"""
         # Termux workaround: Monkey-patch python-xlib to find X11 socket in PREFIX/tmp
         # PyPI's python-xlib hardcodes /tmp/.X11-unix/, but termux has it at $PREFIX/tmp/.X11-unix/
@@ -183,6 +204,18 @@ class DisplayManager:
                 def _termux_get_socket(
                     dname: str, protocol: object, host: object, dno: int
                 ) -> object:
+                    """
+                    Termux-specific socket locator that checks PREFIX/tmp before /tmp
+                    
+                    Args:
+                        dname: dname value.
+                        protocol: protocol value.
+                        host: host value.
+                        dno: dno value.
+                    
+                    Returns:
+                        Result value.
+                    """
                     """Termux-specific socket locator that checks PREFIX/tmp before /tmp"""
                     # For unix sockets, check termux location first
                     if protocol == "unix" or (not protocol and (not host or host == "unix")):
@@ -204,6 +237,15 @@ class DisplayManager:
         self._display = xdisplay.Display(self._display_name)
 
     def connection_close(self) -> None:
+        """
+        Close X11 display connection
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Close X11 display connection"""
         if self._display is not None:
             self._display.close()
@@ -212,12 +254,12 @@ class DisplayManager:
     def display_get(self) -> Display:
         """
         Get X11 display object
-
+        
+        Args:
+            None.
+        
         Returns:
-            X11 Display object
-
-        Raises:
-            RuntimeError: If not connected to display
+            Result value.
         """
         if self._display is None:
             raise RuntimeError("Not connected to X11 display")
@@ -226,12 +268,12 @@ class DisplayManager:
     def screenGeometry_get(self) -> ScreenGeometry:
         """
         Get screen geometry (dimensions)
-
+        
+        Args:
+            None.
+        
         Returns:
-            Screen geometry with width and height
-
-        Raises:
-            RuntimeError: If not connected to display
+            Screen geometry.
         """
         display = self.display_get()
         screen = display.screen()
@@ -241,24 +283,47 @@ class DisplayManager:
         return ScreenGeometry(width=geom.width, height=geom.height)
 
     def __enter__(self) -> "DisplayManager":
+        """
+        Context manager entry
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Context manager entry"""
         self.connection_establish()
         return self
 
     def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
+        """
+        Context manager exit
+        
+        Args:
+            exc_type: exc_type value.
+            exc_val: exc_val value.
+            exc_tb: exc_tb value.
+        
+        Returns:
+            Result value.
+        """
         """Context manager exit"""
         self.connection_close()
 
     def cursor_confine(self, position: Position) -> None:
         """
         Confine cursor to a 1x1 pixel area at given position
+        
+        
+        
         This effectively freezes the cursor in place
-
+        
         Args:
-            position: Position to confine cursor to
-
-        Raises:
-            RuntimeError: If not connected to display
+            position: position value.
+        
+        Returns:
+            Result value.
         """
         if self._cursor_confined:
             return  # Already confined
@@ -295,9 +360,12 @@ class DisplayManager:
     def cursor_release(self) -> None:
         """
         Release cursor confinement and restore original position
-
-        Raises:
-            RuntimeError: If not connected to display
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
         """
         if not self._cursor_confined:
             return  # Not confined
@@ -318,10 +386,17 @@ class DisplayManager:
     def cursorPosition_set(self, position: Position) -> None:
         """
         Move cursor to absolute position using dual-method enforcement.
+        
+        
+        
         1. Native WarpPointer (Software layer)
         2. XTest Fake Input (Hardware layer)
         
-        This ensures compliance in Wayland/Termux-X11 environments.
+        Args:
+            position: position value.
+        
+        Returns:
+            Result value.
         """
         try:
             self.cursorPosition_setViaWarpPointer(position)
@@ -338,7 +413,16 @@ class DisplayManager:
     def connection_sync(self) -> None:
         """
         Force synchronization on both the Python-xlib and native libX11 connections.
+        
+        
+        
         This ensures all pending commands are fully processed by the X server.
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
         """
         # 1. Sync Python-xlib connection
         if self._display:
@@ -355,16 +439,12 @@ class DisplayManager:
     def cursorPosition_setViaWarpPointer(self, position: Position) -> None:
         """
         Move cursor using native X11 warp_pointer (works on native X11 only).
-
-        This is the proper X11 API for cursor positioning and works perfectly
-        on native X11 desktops (XFCE4, KDE, GNOME on X11). Wayland compositors
-        may block or ignore this method.
-
+        
         Args:
-            position: Target position
-
-        Raises:
-            RuntimeError: If not connected to display
+            position: position value.
+        
+        Returns:
+            Result value.
         """
         display = self.display_get()
         screen = display.screen()
@@ -383,15 +463,12 @@ class DisplayManager:
     def cursorPosition_setViaXTest(self, position: Position) -> None:
         """
         Move cursor using XTest fake_input (Crostini/Wayland workaround).
-
-        XTest was designed for testing/automation, not cursor control, but
-        it works in environments where warp_pointer is blocked by compositors.
-
+        
         Args:
-            position: Target position
-
-        Raises:
-            RuntimeError: If not connected to display
+            position: position value.
+        
+        Returns:
+            Result value.
         """
         display = self.display_get()
 
@@ -412,16 +489,19 @@ class DisplayManager:
     ) -> bool:
         """
         Move cursor to absolute position and verify it actually moved there.
+        
+        
+        
         This prevents race conditions where we query position before warp takes effect.
-
+        
         Args:
             position: Target position
             timeout_ms: Maximum time to wait for verification (milliseconds)
             tolerance: Maximum pixel difference to consider position correct
-
+        
         Returns:
             True if cursor successfully moved to position, False on timeout
-
+        
         Raises:
             RuntimeError: If not connected to display
         """
@@ -458,6 +538,15 @@ class DisplayManager:
         return False
 
     def _ensure_blank_cursor(self) -> int:
+        """
+        Create a blank cursor if one doesn't exist
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Create a blank cursor if one doesn't exist"""
         if self._blank_cursor is not None:
             return self._blank_cursor
@@ -496,10 +585,16 @@ class DisplayManager:
     def _remoteCursor_create(self) -> int:
         """
         Create a gray X cursor to indicate remote control mode.
+        
+        
+        
         Uses the standard X11 cursor font which is universally supported.
-
+        
+        Args:
+            None.
+        
         Returns:
-            Cursor ID, or 0 on failure
+            Result value.
         """
         if self._remote_cursor is not None:
             return self._remote_cursor
@@ -534,17 +629,12 @@ class DisplayManager:
     def _cursorOverlay_create(self) -> bool:
         """
         Create a fullscreen overlay window with the remote-mode cursor.
-
-        In Crostini/Wayland, changing the root window cursor doesn't work
-        because the compositor ignores root window cursor settings. However,
-        it DOES respect cursor settings on actual X11 windows.
-
-        This creates a fullscreen, input-transparent overlay window with
-        the gray X cursor. When mapped, the cursor appears over the entire
-        screen.
-
+        
+        Args:
+            None.
+        
         Returns:
-            True if overlay created successfully, False otherwise
+            Result value.
         """
         if self._cursor_overlay_window is not None:
             return True  # Already exists
@@ -592,6 +682,15 @@ class DisplayManager:
             return False
 
     def _cursorOverlay_show(self) -> bool:
+        """
+        Map (show) the cursor overlay window.
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Map (show) the cursor overlay window."""
         if self._cursor_overlay_window is None:
             if not self._cursorOverlay_create():
@@ -610,6 +709,15 @@ class DisplayManager:
             return False
 
     def _cursorOverlay_hide(self) -> None:
+        """
+        Unmap (hide) the cursor overlay window.
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Unmap (hide) the cursor overlay window."""
         if self._cursor_overlay_window is None:
             return
@@ -625,13 +733,12 @@ class DisplayManager:
     def cursor_hide(self) -> None:
         """
         Hide cursor or change to remote-mode indicator.
-
-        Strategy depends on environment:
-        - Native X11 (--x11native or auto-detected): Use XFixes/root cursor (optimal)
-        - Crostini/Wayland: Use overlay window (workaround for compositor issues)
-
-        Raises:
-            RuntimeError: If not connected to display
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
         """
         if self._cursor_hidden:
             return
@@ -719,9 +826,12 @@ class DisplayManager:
     def cursor_show(self) -> None:
         """
         Show cursor (restore normal cursor appearance)
-
-        Raises:
-            RuntimeError: If not connected to display
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
         """
         if not self._cursor_hidden:
             return
@@ -751,9 +861,12 @@ class DisplayManager:
     def pointer_grab(self) -> None:
         """
         Grab pointer to capture all mouse events (prevents desktop from seeing them)
-
-        Raises:
-            RuntimeError: If not connected to display or grab fails
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
         """
         display = self.display_get()
         screen = display.screen()
@@ -781,9 +894,12 @@ class DisplayManager:
     def pointer_ungrab(self) -> None:
         """
         Release pointer grab (return mouse events to desktop)
-
-        Raises:
-            RuntimeError: If not connected to display
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
         """
         display = self.display_get()
         display.ungrab_pointer(X.CurrentTime)
@@ -793,9 +909,12 @@ class DisplayManager:
     def keyboard_grab(self) -> None:
         """
         Grab keyboard to capture all keyboard events (prevents desktop from seeing them)
-
-        Raises:
-            RuntimeError: If not connected to display or grab fails
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
         """
         display = self.display_get()
         screen = display.screen()
@@ -817,9 +936,12 @@ class DisplayManager:
     def keyboard_ungrab(self) -> None:
         """
         Release keyboard grab (return keyboard events to desktop)
-
-        Raises:
-            RuntimeError: If not connected to display
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
         """
         display = self.display_get()
         display.ungrab_keyboard(X.CurrentTime)
@@ -829,16 +951,25 @@ class DisplayManager:
     def connection_fileno(self) -> int:
         """
         Get file descriptor for X11 connection
-
+        
+        Args:
+            None.
+        
         Returns:
-            File descriptor number
-
-        Raises:
-            RuntimeError: If not connected to display
+            File descriptor for the connection.
         """
         return self.display_get().fileno()
 
     def events_process(self) -> None:
+        """
+        Process all pending X11 events.
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Process all pending X11 events."""
         display = self.display_get()
         while display.pending_events() > 0:

@@ -13,18 +13,24 @@ class EventInjector:
     def __init__(self, display_manager: DisplayManager) -> None:
         """
         Initialize event injector
-
+        
         Args:
-            display_manager: X11 display manager
+            display_manager: display_manager value.
+        
+        Returns:
+            Result value.
         """
         self._display_manager: DisplayManager = display_manager
 
     def xtestExtension_verify(self) -> bool:
         """
         Verify XTest extension is available
-
+        
+        Args:
+            None.
+        
         Returns:
-            True if XTest is available, False otherwise
+            Result value.
         """
         display = self._display_manager.display_get()
         ext_info = display.query_extension("XTEST")
@@ -33,9 +39,12 @@ class EventInjector:
     def mousePointer_move(self, position: Position) -> None:
         """
         Move mouse pointer to absolute position
-
+        
         Args:
-            position: Target position
+            position: position value.
+        
+        Returns:
+            Result value.
         """
         display = self._display_manager.display_get()
         xtest.fake_input(display, X.MotionNotify, detail=0, x=position.x, y=position.y)
@@ -44,9 +53,12 @@ class EventInjector:
     def mouseButton_press(self, button: int) -> None:
         """
         Press mouse button
-
+        
         Args:
-            button: Button number (1=left, 2=middle, 3=right)
+            button: button value.
+        
+        Returns:
+            Result value.
         """
         display = self._display_manager.display_get()
         xtest.fake_input(display, X.ButtonPress, detail=button)
@@ -54,9 +66,12 @@ class EventInjector:
     def mouseButton_release(self, button: int) -> None:
         """
         Release mouse button
-
+        
         Args:
-            button: Button number (1=left, 2=middle, 3=right)
+            button: button value.
+        
+        Returns:
+            Result value.
         """
         display = self._display_manager.display_get()
         xtest.fake_input(display, X.ButtonRelease, detail=button)
@@ -64,9 +79,12 @@ class EventInjector:
     def mouseEvent_inject(self, event: MouseEvent) -> None:
         """
         Inject complete mouse event
-
+        
         Args:
-            event: Mouse event to inject
+            event: event value.
+        
+        Returns:
+            Result value.
         """
         from tx2tx.common.types import EventType
 
@@ -89,9 +107,12 @@ class EventInjector:
     def key_press(self, keycode: int) -> None:
         """
         Press keyboard key
-
+        
         Args:
-            keycode: X11 keycode
+            keycode: keycode value.
+        
+        Returns:
+            Result value.
         """
         display = self._display_manager.display_get()
         xtest.fake_input(display, X.KeyPress, detail=keycode)
@@ -99,9 +120,12 @@ class EventInjector:
     def key_release(self, keycode: int) -> None:
         """
         Release keyboard key
-
+        
         Args:
-            keycode: X11 keycode
+            keycode: keycode value.
+        
+        Returns:
+            Result value.
         """
         display = self._display_manager.display_get()
         xtest.fake_input(display, X.KeyRelease, detail=keycode)
@@ -109,9 +133,12 @@ class EventInjector:
     def keyEvent_inject(self, event: KeyEvent) -> None:
         """
         Inject complete keyboard event
-
+        
         Args:
-            event: Key event to inject
+            event: event value.
+        
+        Returns:
+            Result value.
         """
         from tx2tx.common.types import EventType
 

@@ -16,6 +16,15 @@ class ServerState:
     _instance: Optional["ServerState"] = None
 
     def __new__(cls) -> "ServerState":
+        """
+        Ensure only one instance exists (singleton pattern)
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Ensure only one instance exists (singleton pattern)"""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
@@ -23,6 +32,15 @@ class ServerState:
         return cls._instance
 
     def __init__(self) -> None:
+        """
+        Initialize state variables (only once)
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Initialize state variables (only once)"""
         if self._initialized:
             return
@@ -46,6 +64,15 @@ class ServerState:
         self._initialized = True
 
     def reset(self) -> None:
+        """
+        Reset state to initial values
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Reset state to initial values"""
         self.context = ScreenContext.CENTER
         self.last_center_switch_time = 0.0
@@ -57,14 +84,26 @@ class ServerState:
     def boundaryCrossed_set(self, target_position: Position) -> None:
         """
         Mark that a boundary has been crossed and cursor needs warping
-
+        
         Args:
-            target_position: Position cursor should be warped to
+            target_position: target_position value.
+        
+        Returns:
+            Result value.
         """
         self.boundary_crossed = True
         self.target_warp_position = target_position
 
     def boundaryCrossed_clear(self) -> None:
+        """
+        Clear boundary crossing state after successful warp
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Clear boundary crossing state after successful warp"""
         self.boundary_crossed = False
         self.target_warp_position = None
@@ -72,10 +111,10 @@ class ServerState:
     def positionChanged_check(self, current_position: Position) -> bool:
         """
         Check if position has changed since last sent
-
+        
         Args:
             current_position: Current cursor position
-
+        
         Returns:
             True if position changed, False if same as last sent
         """
@@ -91,14 +130,26 @@ class ServerState:
     def lastSentPosition_update(self, position: Position) -> None:
         """
         Update last sent position after sending coordinates
-
+        
         Args:
-            position: Position that was just sent to client
+            position: position value.
+        
+        Returns:
+            Result value.
         """
         self.last_sent_position = position
 
     @classmethod
     def instance_get(cls) -> "ServerState":
+        """
+        Get the singleton instance
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Get the singleton instance"""
         if cls._instance is None:
             cls._instance = cls()

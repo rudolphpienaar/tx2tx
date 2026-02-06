@@ -27,13 +27,16 @@ class ClientNetwork:
     ) -> None:
         """
         Initialize client network
-
+        
         Args:
-            host: Server host address
-            port: Server port
-            reconnect_enabled: Enable automatic reconnection
-            reconnect_max_attempts: Maximum reconnection attempts
-            reconnect_delay: Delay between reconnection attempts (seconds)
+            host: host value.
+            port: port value.
+            reconnect_enabled: reconnect_enabled value.
+            reconnect_max_attempts: reconnect_max_attempts value.
+            reconnect_delay: reconnect_delay value.
+        
+        Returns:
+            Result value.
         """
         self.host: str = host
         self.port: int = port
@@ -54,14 +57,14 @@ class ClientNetwork:
     ) -> None:
         """
         Connect to server
-
+        
         Args:
-            screen_width: Optional screen width to send in handshake
-            screen_height: Optional screen height to send in handshake
-            client_name: Optional client name for identification
-
-        Raises:
-            ConnectionError: If unable to connect after max attempts
+            screen_width: screen_width value.
+            screen_height: screen_height value.
+            client_name: client_name value.
+        
+        Returns:
+            Result value.
         """
         while self.reconnect_attempts < self.reconnect_max_attempts:
             try:
@@ -107,6 +110,15 @@ class ClientNetwork:
         )
 
     def connection_close(self) -> None:
+        """
+        Close connection to server
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Close connection to server"""
         self.is_connected = False
 
@@ -123,12 +135,12 @@ class ClientNetwork:
     def message_send(self, message: Message) -> None:
         """
         Send message to server
-
+        
         Args:
-            message: Message to send
-
-        Raises:
-            ConnectionError: If not connected or send fails
+            message: message value.
+        
+        Returns:
+            None.
         """
         if not self.is_connected or not self.socket:
             raise ConnectionError("Not connected to server")
@@ -145,12 +157,12 @@ class ClientNetwork:
     def messages_receive(self) -> List[Message]:
         """
         Receive messages from server (non-blocking)
-
+        
+        Args:
+            None.
+        
         Returns:
-            List of complete messages received
-
-        Raises:
-            ConnectionError: If connection is closed or error occurs
+            List of received protocol messages.
         """
         if not self.is_connected or not self.socket:
             raise ConnectionError("Not connected to server")
@@ -197,9 +209,12 @@ class ClientNetwork:
     def reconnection_attempt(self) -> bool:
         """
         Attempt to reconnect to server
-
+        
+        Args:
+            None.
+        
         Returns:
-            True if reconnection successful, False otherwise
+            Result value.
         """
         if not self.reconnect_enabled:
             return False
@@ -219,8 +234,11 @@ class ClientNetwork:
     def connectionStatus_check(self) -> bool:
         """
         Check if connected to server
-
+        
+        Args:
+            None.
+        
         Returns:
-            True if connected, False otherwise
+            True if connection is active.
         """
         return self.is_connected

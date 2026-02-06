@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tx2tx"
-version = "2.3.42"
+version = "3.0.0"
 description = "X11 KVM for termux-x11: seamless mouse/keyboard sharing between X11 desktops"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -37,9 +37,13 @@ dev = [
     "ruff>=0.1.0",
     "pytest>=7.0",
 ]
+wayland = [
+    "python-evdev>=1.7.0",
+]
 
 [project.scripts]
 tx2tx = "tx2tx.cli:main"
+tx2tx-wayland-helper = "tx2tx.wayland.helper_daemon:main"
 
 [project.urls]
 Homepage = "https://github.com/yourusername/tx2tx"

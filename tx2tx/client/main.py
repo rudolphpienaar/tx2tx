@@ -5,16 +5,17 @@ import logging
 import sys
 import time
 from pathlib import Path
-from typing import NoReturn, Optional
+from typing import NoReturn, Optional, cast
 
 from tx2tx import __version__
 from tx2tx.client.network import ClientNetwork
 from tx2tx.common.config import ConfigLoader
 from tx2tx.common.settings import settings
 from tx2tx.common.types import EventType, MouseEvent
+from tx2tx.input.backend import DisplayBackend, InputInjector
+from tx2tx.input.factory import clientBackend_create
 from tx2tx.protocol.message import Message, MessageParser, MessageType
-from tx2tx.x11.display import DisplayManager
-from tx2tx.x11.injector import EventInjector
+from tx2tx.x11.backend import X11DisplayBackend
 from tx2tx.x11.software_cursor import SoftwareCursor
 
 logger = logging.getLogger(__name__)
@@ -23,9 +24,12 @@ logger = logging.getLogger(__name__)
 def arguments_parse() -> argparse.Namespace:
     """
     Parse command line arguments
-
+    
+    Args:
+        None.
+    
     Returns:
-        Parsed arguments
+        Parsed CLI arguments.
     """
     parser = argparse.ArgumentParser(description="tx2tx client - receives and injects input events")
 
@@ -50,6 +54,20 @@ def arguments_parse() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--backend",
+        type=str,
+        default=None,
+        help="Input backend to use (e.g., x11, wayland). Defaults to x11.",
+    )
+
+    parser.add_argument(
+        "--wayland-helper",
+        type=str,
+        default=None,
+        help="Wayland helper command for privileged input operations.",
+    )
+
+    parser.add_argument(
         "--name",
         type=str,
         default=None,
@@ -68,13 +86,13 @@ def arguments_parse() -> argparse.Namespace:
 def serverAddress_parse(server: str) -> tuple[str, int]:
     """
     Parse server address into host and port
-
+    
     Args:
         server: Server address string (host:port)
-
+    
     Returns:
         Tuple of (host, port)
-
+    
     Raises:
         ValueError: If address format is invalid
     """
@@ -93,11 +111,14 @@ def serverAddress_parse(server: str) -> tuple[str, int]:
 def logging_setup(level: str, log_format: str, log_file: Optional[str]) -> None:
     """
     Setup logging configuration with version injection
-
+    
     Args:
-        level: Log level string
-        log_format: Log format string
-        log_file: Optional log file path
+        level: level value.
+        log_format: log_format value.
+        log_file: log_file value.
+    
+    Returns:
+        Result value.
     """
     handlers: list[logging.Handler] = [logging.StreamHandler()]
 
@@ -115,17 +136,21 @@ def logging_setup(level: str, log_format: str, log_file: Optional[str]) -> None:
 
 def serverMessage_handle(
     message: Message,
-    injector: Optional[EventInjector] = None,
-    display_manager: Optional[DisplayManager] = None,
+    injector: Optional[InputInjector] = None,
+    display_manager: Optional[DisplayBackend] = None,
     software_cursor: Optional[SoftwareCursor] = None,
 ) -> None:
     """
     Handle message received from server
-
+    
     Args:
-        message: Received message
-        injector: Optional event injector for handling input events
-        display_manager: Optional display manager for cursor positioning
+        message: message value.
+        injector: injector value.
+        display_manager: display_manager value.
+        software_cursor: software_cursor value.
+    
+    Returns:
+        Result value.
     """
     logger.info(f"Received {message.msg_type.value} from server")
 
@@ -214,9 +239,12 @@ def serverMessage_handle(
 def client_run(args: argparse.Namespace) -> None:
     """
     Run tx2tx client
-
+    
     Args:
-        args: Parsed command line arguments
+        args: args value.
+    
+    Returns:
+        Result value.
     """
     # Load configuration
     config_path = Path(args.config) if args.config else None
@@ -251,9 +279,17 @@ def client_run(args: argparse.Namespace) -> None:
         logger.info(f"Client name: {args.name}")
     logger.info(f"Connecting to {host}:{port}")
     logger.info(f"Display: {config.client.display or '$DISPLAY'}")
+    logger.info(f"Backend: {backend_name}")
 
-    # Initialize X11 display and event injector
-    display_manager = DisplayManager(display_name=config.client.display)
+    backend_name = getattr(args, "backend", None) or config.backend.name or "x11"
+    wayland_helper = getattr(args, "wayland_helper", None) or config.backend.wayland.helper_command
+
+    # Initialize backend display and event injector
+    display_manager, event_injector = clientBackend_create(
+        backend_name=backend_name,
+        display_name=config.client.display,
+        wayland_helper=wayland_helper,
+    )
 
     try:
         display_manager.connection_establish()
@@ -263,21 +299,23 @@ def client_run(args: argparse.Namespace) -> None:
         logger.error(f"Failed to connect to X11 display: {e}")
         sys.exit(1)
 
-    event_injector = EventInjector(display_manager=display_manager)
-
-    # Verify XTest extension is available
-    if not event_injector.xtestExtension_verify():
-        logger.error("XTest extension not available, cannot inject events")
+    # Verify injection capability is available
+    if not event_injector.injectionReady_check():
+        logger.error("Input injection not available for selected backend")
         display_manager.connection_close()
         sys.exit(1)
 
-    logger.info("XTest extension verified, event injection ready")
+    logger.info("Input injection ready")
 
     # Initialize software cursor if requested
     software_cursor = None
     if args.software_cursor:
-        software_cursor = SoftwareCursor(display_manager)
-        logger.info("Software cursor enabled")
+        if backend_name.lower() == "x11":
+            x11_display = cast(X11DisplayBackend, display_manager)
+            software_cursor = SoftwareCursor(x11_display.displayManager_get())
+            logger.info("Software cursor enabled")
+        else:
+            logger.warning("Software cursor is only supported on X11 backends")
 
     # Initialize network client
     network = ClientNetwork(
@@ -333,6 +371,15 @@ def client_run(args: argparse.Namespace) -> None:
 
 
 def main() -> NoReturn:
+    """
+    Main entry point
+    
+    Args:
+        None.
+    
+    Returns:
+        Result value.
+    """
     """Main entry point"""
     args = arguments_parse()
 

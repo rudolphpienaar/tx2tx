@@ -10,9 +10,12 @@ from tx2tx import __version__
 def arguments_parse() -> argparse.Namespace:
     """
     Parse command line arguments
-
+    
+    Args:
+        None.
+    
     Returns:
-        Parsed arguments
+        Parsed CLI arguments.
     """
     parser = argparse.ArgumentParser(
         prog="tx2tx",
@@ -41,6 +44,34 @@ def arguments_parse() -> argparse.Namespace:
 
     parser.add_argument(
         "--display", type=str, default=None, help="X11 display name (overrides config)"
+    )
+
+    parser.add_argument(
+        "--backend",
+        type=str,
+        default=None,
+        help="Input backend to use (e.g., x11, wayland). Defaults to x11.",
+    )
+
+    parser.add_argument(
+        "--wayland-helper",
+        type=str,
+        default=None,
+        help="Wayland helper command for privileged input operations.",
+    )
+
+    parser.add_argument(
+        "--wayland-screen-width",
+        type=int,
+        default=None,
+        help="Wayland screen width override (pixels).",
+    )
+
+    parser.add_argument(
+        "--wayland-screen-height",
+        type=int,
+        default=None,
+        help="Wayland screen height override (pixels).",
     )
 
     # Server-specific options
@@ -90,6 +121,15 @@ def arguments_parse() -> argparse.Namespace:
 
 
 def main() -> NoReturn:
+    """
+    Main entry point for unified tx2tx command
+    
+    Args:
+        None.
+    
+    Returns:
+        Result value.
+    """
     """Main entry point for unified tx2tx command"""
     args = arguments_parse()
 

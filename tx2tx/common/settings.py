@@ -38,12 +38,30 @@ class Settings:
     _instance: Optional["Settings"] = None
 
     def __new__(cls) -> "Settings":
+        """
+        Ensure only one Settings instance exists
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Ensure only one Settings instance exists"""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
     def __init__(self) -> None:
+        """
+        Initialize settings singleton (only runs once)
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Initialize settings singleton (only runs once)"""
         if hasattr(self, "_initialized"):
             return
@@ -51,10 +69,14 @@ class Settings:
         self._config: Optional[Config] = None
 
     def initialize(self, config: Config) -> None:
-        """Initialize with loaded configuration
-
+        """
+        Initialize with loaded configuration
+        
         Args:
-            config: Loaded configuration object from ConfigLoader
+            config: config value.
+        
+        Returns:
+            Result value.
         """
         self._config = config
 
@@ -130,13 +152,14 @@ class Settings:
 
     @property
     def config(self) -> Config:
-        """Get loaded configuration object
-
+        """
+        Get loaded configuration object
+        
+        Args:
+            None.
+        
         Returns:
-            Loaded Config object
-
-        Raises:
-            RuntimeError: If settings not initialized with config
+            Result value.
         """
         if self._config is None:
             raise RuntimeError("Settings not initialized. Call settings.initialize(config) first.")

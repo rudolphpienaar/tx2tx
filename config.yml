@@ -90,3 +90,14 @@ logging:
 
   # Log format
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Backend configuration (optional)
+backend:
+  # Backend name: x11 (default) or wayland
+  name: "x11"
+  wayland:
+    # Command to run privileged Wayland helper (required for wayland backend)
+    helper_command: null
+    # Optional screen size override for Wayland backend
+    screen_width: null
+    screen_height: null

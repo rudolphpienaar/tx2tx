@@ -23,12 +23,12 @@ class XRecordCapturer:
     def __init__(self, display_manager: DisplayManager):
         """
         Initializes the XRecord capturer.
-
+        
         Args:
-            display_manager: The X11 display manager.
-
-        Raises:
-            Exception: If the RECORD extension is not available.
+            display_manager: display_manager value.
+        
+        Returns:
+            None.
         """
         self._display_manager: DisplayManager = display_manager
         self._display: Display = self._display_manager.display_get()
@@ -41,6 +41,15 @@ class XRecordCapturer:
         self._record_ext = self._display.record_extension()
 
     def capturing_start(self) -> None:
+        """
+        Starts capturing events by creating and enabling a RECORD context.
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Starts capturing events by creating and enabling a RECORD context."""
         if self._record_context:
             self.capturing_stop()
@@ -66,6 +75,15 @@ class XRecordCapturer:
         self._record_ext.enable_context(self._record_context, self._recordEvents_process)
 
     def capturing_stop(self) -> None:
+        """
+        Stops capturing events.
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
+        """
         """Stops capturing events."""
         if self._record_context:
             self._record_ext.free_context(self._record_context)
@@ -73,12 +91,28 @@ class XRecordCapturer:
             self._display.sync()
 
     def connection_fileno(self) -> int:
+        """
+        Returns the file descriptor of the X11 connection.
+        
+        Args:
+            None.
+        
+        Returns:
+            File descriptor for the connection.
+        """
         """Returns the file descriptor of the X11 connection."""
         return self._display_manager.fileno()
 
     def event_get(self, block: bool = True, timeout: Optional[float] = None) -> MouseEvent | KeyEvent | None:
         """
         Retrieves an event from the queue.
+        
+        Args:
+            block: block value.
+            timeout: timeout value.
+        
+        Returns:
+            Result value.
         """
         try:
             return self._event_queue.get(block=block, timeout=timeout)
@@ -88,6 +122,12 @@ class XRecordCapturer:
     def _recordEvents_process(self, reply) -> None:
         """
         Callback function to process raw data from the RECORD extension.
+        
+        Args:
+            reply: reply value.
+        
+        Returns:
+            Result value.
         """
         if not reply.client_swapped:
             data = reply.data
@@ -106,6 +146,12 @@ class XRecordCapturer:
     def _xEvent_parse(self, xev) -> MouseEvent | KeyEvent | None:
         """
         Parses a raw Xlib event into a MouseEvent or KeyEvent.
+        
+        Args:
+            xev: xev value.
+        
+        Returns:
+            Result value.
         """
         if xev.type == X.ButtonPress:
             position = Position(x=xev.root_x, y=xev.root_y)

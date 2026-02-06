@@ -1,4 +1,4 @@
-"""X11 pointer tracking and boundary detection"""
+"""Pointer tracking and boundary detection"""
 
 import logging
 import time
@@ -7,7 +7,7 @@ from typing import Optional
 
 from tx2tx.common.settings import settings
 from tx2tx.common.types import Direction, Position, ScreenGeometry, ScreenTransition
-from tx2tx.x11.display import DisplayManager
+from tx2tx.input.backend import DisplayBackend
 
 logger = logging.getLogger(__name__)
 
@@ -17,19 +17,22 @@ class PointerTracker:
 
     def __init__(
         self,
-        display_manager: DisplayManager,
+        display_manager: DisplayBackend,
         edge_threshold: int = 0,
         velocity_threshold: float | None = None,
     ) -> None:
         """
         Initialize pointer tracker
-
+        
         Args:
-            display_manager: X11 display manager
-            edge_threshold: Distance from edge (in pixels) to trigger transition
-            velocity_threshold: Minimum velocity (px/s) required to cross boundary
+            display_manager: display_manager value.
+            edge_threshold: edge_threshold value.
+            velocity_threshold: velocity_threshold value.
+        
+        Returns:
+            Result value.
         """
-        self._display_manager: DisplayManager = display_manager
+        self._display_manager: DisplayBackend = display_manager
         self._edge_threshold: int = edge_threshold
         self._velocity_threshold: float = (
             velocity_threshold
@@ -45,16 +48,14 @@ class PointerTracker:
     def position_query(self) -> Position:
         """
         Query current pointer position
-
+        
+        Args:
+            None.
+        
         Returns:
-            Current pointer position
+            Current pointer position.
         """
-        display = self._display_manager.display_get()
-        screen = display.screen()
-        root = screen.root
-        pointer_data = root.query_pointer()
-
-        position = Position(x=pointer_data.root_x, y=pointer_data.root_y)
+        position = self._display_manager.pointerPosition_get()
         self._last_position = position
 
         # Store in history with timestamp for velocity calculation
@@ -65,9 +66,12 @@ class PointerTracker:
     def velocity_calculate(self) -> float:
         """
         Calculate current pointer velocity based on recent position history
-
+        
+        Args:
+            None.
+        
         Returns:
-            Velocity in pixels per second (Manhattan distance)
+            Pointer velocity in pixels per second.
         """
         if len(self._position_history) < settings.MIN_SAMPLES_FOR_VELOCITY:
             return 0.0
@@ -90,11 +94,11 @@ class PointerTracker:
     ) -> Optional[ScreenTransition]:
         """
         Detect if position is at screen boundary with sufficient velocity
-
+        
         Args:
             position: Current pointer position
             geometry: Screen geometry
-
+        
         Returns:
             ScreenTransition if at boundary with sufficient velocity, None otherwise
         """
@@ -137,11 +141,29 @@ class PointerTracker:
     def reset(self) -> None:
         """
         Reset tracker state (clear history)
+        
+        
+        
         Useful after forced cursor moves (warps) to prevent false velocity spikes
+        
+        Args:
+            None.
+        
+        Returns:
+            Result value.
         """
         self._position_history.clear()
         self._last_position = None
 
     def positionLast_get(self) -> Optional[Position]:
+        """
+        Get last queried position
+        
+        Args:
+            None.
+        
+        Returns:
+            Last tracked pointer position, if any.
+        """
         """Get last queried position"""
         return self._last_position
