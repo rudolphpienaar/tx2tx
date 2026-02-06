@@ -480,6 +480,18 @@ def _process_polling_loop(
         # Poll pointer position
         position = pointer_tracker.position_query()
         velocity = pointer_tracker.velocity_calculate()
+        if (
+            position.x >= screen_geometry.width - 5
+            or position.x <= 4
+            or position.y >= screen_geometry.height - 5
+            or position.y <= 4
+        ):
+            logger.debug(
+                "[EDGE] pos=(%s,%s) vel=%.1f",
+                position.x,
+                position.y,
+                velocity,
+            )
 
         if server_state.context == ScreenContext.CENTER:
 
@@ -513,6 +525,7 @@ def _process_polling_loop(
                     )
 
                     try:
+                        t0 = time.time()
                         # Get target client name
                         target_client_name = context_to_client.get(new_context)
                         if not target_client_name:
@@ -545,6 +558,8 @@ def _process_polling_loop(
                             f"[WARP] Parking cursor at ({warp_pos.x}, {warp_pos.y}) near {transition.direction.value} edge"
                         )
                         display_manager.cursorPosition_set(warp_pos)
+                        logger.info("[TIMING] cursorPosition_set: %.3f sec", time.time() - t0)
+                        t0 = time.time()
                         
                         # Grab input (may fail - handle gracefully)
                         try:
@@ -552,9 +567,12 @@ def _process_polling_loop(
                             display_manager.keyboard_grab()
                         except RuntimeError as e:
                             logger.warning(f"Input grab failed: {e}, continuing anyway")
+                        logger.info("[TIMING] input_grab: %.3f sec", time.time() - t0)
+                        t0 = time.time()
 
                         # Hide cursor
                         display_manager.cursor_hide()
+                        logger.info("[TIMING] cursor_hide: %.3f sec", time.time() - t0)
 
                         # Reset velocity tracker and last sent position
                         pointer_tracker.reset()
