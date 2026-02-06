@@ -433,14 +433,14 @@ class WaylandInputCapturer(InputCapturer):
                     )
                 )
             elif event_type == EventType.KEY_PRESS.value:
+                linux_keycode = int(event["keycode"])
+                x11_keycode = linux_keycode + 8
                 events.append(
                     KeyEvent(
                         event_type=EventType.KEY_PRESS,
-                        keycode=int(event["keycode"]),
+                        keycode=x11_keycode,
                         keysym=(
-                            int(event["keysym"])
-                            if event.get("keysym") is not None
-                            else _keysym_from_evdev(int(event["keycode"]))
+                            int(event["keysym"]) if event.get("keysym") is not None else None
                         ),
                         state=(
                             int(event["state"]) if event.get("state") is not None else None
@@ -448,14 +448,14 @@ class WaylandInputCapturer(InputCapturer):
                     )
                 )
             elif event_type == EventType.KEY_RELEASE.value:
+                linux_keycode = int(event["keycode"])
+                x11_keycode = linux_keycode + 8
                 events.append(
                     KeyEvent(
                         event_type=EventType.KEY_RELEASE,
-                        keycode=int(event["keycode"]),
+                        keycode=x11_keycode,
                         keysym=(
-                            int(event["keysym"])
-                            if event.get("keysym") is not None
-                            else _keysym_from_evdev(int(event["keycode"]))
+                            int(event["keysym"]) if event.get("keysym") is not None else None
                         ),
                         state=(
                             int(event["state"]) if event.get("state") is not None else None
