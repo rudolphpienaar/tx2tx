@@ -1,10 +1,14 @@
 """X11 event injection using XTest extension"""
 
+import logging
+
 from Xlib import X
 from Xlib.ext import xtest
 
 from tx2tx.common.types import KeyEvent, MouseEvent, Position
 from tx2tx.x11.display import DisplayManager
+
+logger = logging.getLogger(__name__)
 
 
 class EventInjector:
@@ -102,7 +106,10 @@ class EventInjector:
         elif event.event_type == EventType.MOUSE_BUTTON_RELEASE and event.button:
             self.mouseButton_release(event.button)
 
-        display.sync()
+        try:
+            display.sync()
+        except Exception as exc:
+            logger.warning("X11 sync failed after key injection: %r", exc)
 
     def key_press(self, keycode: int) -> None:
         """
