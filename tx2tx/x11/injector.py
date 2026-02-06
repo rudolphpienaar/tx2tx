@@ -151,9 +151,15 @@ class EventInjector:
 
         display = self._display_manager.display_get()
 
+        keycode = event.keycode
+        if event.keysym is not None:
+            mapped = display.keysym_to_keycode(event.keysym)
+            if mapped:
+                keycode = mapped
+
         if event.event_type == EventType.KEY_PRESS:
-            self.key_press(event.keycode)
+            self.key_press(keycode)
         elif event.event_type == EventType.KEY_RELEASE:
-            self.key_release(event.keycode)
+            self.key_release(keycode)
 
         display.sync()

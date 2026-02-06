@@ -253,11 +253,11 @@ class InputDeviceManager:
             for dev in rlist:
                 try:
                     for event in dev.read():
-                        self._event_handle(event)
+                        self._event_handle(dev, event)
                 except Exception:
                     continue
 
-    def _event_handle(self, event) -> None:
+    def _event_handle(self, device: InputDevice, event) -> None:
         """
         Handle a single evdev event.
 
@@ -269,6 +269,10 @@ class InputDeviceManager:
                 self._pointer_state.update_rel(event.value, 0)
             elif event.code == ecodes.REL_Y:
                 self._pointer_state.update_rel(0, event.value)
+            return
+
+        if event.type == ecodes.EV_ABS:
+            self._abs_event_handle(device, event)
             return
 
         if event.type == ecodes.EV_KEY:
@@ -293,6 +297,35 @@ class InputDeviceManager:
                     "state": self._modifier_state.mask_get(),
                 }
                 self._event_record(payload)
+
+    def _abs_event_handle(self, device: InputDevice, event) -> None:
+        """
+        Handle absolute pointer events (touchpads/tablets).
+
+        Args:
+            device: Input device emitting the event
+            event: evdev input event
+        """
+        if event.code not in (ecodes.ABS_X, ecodes.ABS_Y):
+            return
+
+        width = self._pointer_state._width
+        height = self._pointer_state._height
+        if width is None or height is None:
+            return
+
+        absinfo = device.absinfo(event.code)
+        if absinfo is None or absinfo.max == absinfo.min:
+            return
+
+        if event.code == ecodes.ABS_X:
+            x = int((event.value - absinfo.min) * (width - 1) / (absinfo.max - absinfo.min))
+            _, y = self._pointer_state.position_get()
+            self._pointer_state.position_set(x, y)
+        else:
+            y = int((event.value - absinfo.min) * (height - 1) / (absinfo.max - absinfo.min))
+            x, _ = self._pointer_state.position_get()
+            self._pointer_state.position_set(x, y)
 
     def _event_record(self, payload: dict[str, Any]) -> None:
         """

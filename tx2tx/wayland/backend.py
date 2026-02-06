@@ -9,6 +9,76 @@ from tx2tx.input.backend import DisplayBackend, InputCapturer, InputEvent, Input
 from tx2tx.wayland.helper import WaylandHelperClient
 
 
+def _keysym_from_evdev(keycode: int) -> Optional[int]:
+    """
+    Best-effort mapping from evdev keycode to X11 keysym.
+
+    Args:
+        keycode: evdev keycode
+
+    Returns:
+        X11 keysym integer or None if unknown.
+    """
+    try:
+        from evdev import ecodes
+        from Xlib import XK
+    except Exception:
+        return None
+
+    key_name = None
+    for name, value in ecodes.KEY.items():
+        if value == keycode or (isinstance(value, (list, tuple)) and keycode in value):
+            key_name = name
+            break
+
+    if not key_name or not key_name.startswith("KEY_"):
+        return None
+
+    base = key_name[4:]
+    special = {
+        "ENTER": "Return",
+        "ESC": "Escape",
+        "SPACE": "space",
+        "TAB": "Tab",
+        "BACKSPACE": "BackSpace",
+        "LEFTSHIFT": "Shift_L",
+        "RIGHTSHIFT": "Shift_R",
+        "LEFTCTRL": "Control_L",
+        "RIGHTCTRL": "Control_R",
+        "LEFTALT": "Alt_L",
+        "RIGHTALT": "Alt_R",
+        "LEFTMETA": "Super_L",
+        "RIGHTMETA": "Super_R",
+        "CAPSLOCK": "Caps_Lock",
+        "DELETE": "Delete",
+        "INSERT": "Insert",
+        "HOME": "Home",
+        "END": "End",
+        "PAGEUP": "Page_Up",
+        "PAGEDOWN": "Page_Down",
+        "UP": "Up",
+        "DOWN": "Down",
+        "LEFT": "Left",
+        "RIGHT": "Right",
+        "PRINT": "Print",
+        "PAUSE": "Pause",
+    }
+
+    if base in special:
+        keysym_name = special[base]
+    elif len(base) == 1 and base.isalpha():
+        keysym_name = base.lower()
+    elif base.isdigit():
+        keysym_name = base
+    elif base.startswith("F") and base[1:].isdigit():
+        keysym_name = base
+    else:
+        return None
+
+    keysym = XK.string_to_keysym(keysym_name)
+    return keysym if keysym != 0 else None
+
+
 class WaylandDisplayBackend(DisplayBackend):
     """Display backend backed by a privileged Wayland helper."""
 
@@ -279,7 +349,9 @@ class WaylandInputCapturer(InputCapturer):
                         event_type=EventType.KEY_PRESS,
                         keycode=int(event["keycode"]),
                         keysym=(
-                            int(event["keysym"]) if event.get("keysym") is not None else None
+                            int(event["keysym"])
+                            if event.get("keysym") is not None
+                            else _keysym_from_evdev(int(event["keycode"]))
                         ),
                         state=(
                             int(event["state"]) if event.get("state") is not None else None
@@ -292,7 +364,9 @@ class WaylandInputCapturer(InputCapturer):
                         event_type=EventType.KEY_RELEASE,
                         keycode=int(event["keycode"]),
                         keysym=(
-                            int(event["keysym"]) if event.get("keysym") is not None else None
+                            int(event["keysym"])
+                            if event.get("keysym") is not None
+                            else _keysym_from_evdev(int(event["keycode"]))
                         ),
                         state=(
                             int(event["state"]) if event.get("state") is not None else None
