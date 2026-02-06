@@ -1,0 +1,21 @@
+= tx2tx Overview
+
+== Purpose
+
+tx2tx is a cross-platform input sharing tool that provides a lightweight, backend-specific alternative to solutions like Synergy or Barrier. It started as termux-x11 to termux-x11 input sharing, and has evolved into a practical bridge between environments where existing tools do not work well, including mixed X11 and Wayland setups.
+
+== What It Solves
+
+- Reliable keyboard and mouse sharing across machines on the same network
+- Backend-specific implementations that avoid blocked APIs on some platforms
+- A minimal protocol and architecture that is easy to debug and extend
+
+== Core Ideas
+
+- A server owns the physical keyboard and mouse and forwards events to a client
+- A client becomes active only when the pointer crosses a configured boundary
+- Backends handle display geometry, pointer capture, and event injection
+
+== Scope
+
+tx2tx focuses on correctness and portability rather than feature parity with large KVM suites. It deliberately avoids complex GUI configuration and heavyweight dependencies, favoring direct X11 APIs or a small Wayland helper with explicit permissions.

@@ -1,0 +1,78 @@
+= tx2tx Architecture
+
+== High-Level Design
+
+tx2tx is a client-server system. The server captures local input events and forwards them to the active client over a TCP connection. Each side uses a backend abstraction to handle display geometry, pointer capture, and event injection.
+
+== Components
+
+- CLI entry point: `tx2tx.cli:main`
+- Server: `tx2tx.server.main` and `tx2tx.server.network`
+- Client: `tx2tx.client.main` and `tx2tx.client.network`
+- Protocol: `tx2tx.protocol.message`
+- Common types and settings: `tx2tx.common.*`
+- Backend interface and factory: `tx2tx.input.*`
+- X11 backend: `tx2tx.x11.*`
+- Wayland backend and helper: `tx2tx.wayland.*`
+
+== Runtime Flow
+
+=== Server
+
+1. Load configuration and initialize settings
+2. Create a display backend and input capturer
+3. Track pointer position and boundary crossings
+4. When the pointer crosses the configured edge, send a `screen_leave` message and begin forwarding input events
+5. When a `screen_enter` message returns from a client, release local grabs and restore local control
+
+=== Client
+
+1. Connect to the server and advertise screen geometry
+2. When active, inject incoming mouse and keyboard events
+3. When the pointer hits the configured edge, send `screen_enter` back to the server
+
+== Protocol
+
+Messages are JSON frames over TCP. Core message types include `hello`, `screen_leave`, `screen_enter`, `mouse_event`, `key_event`, and `keepalive`.
+
+== Screen Layout and Coordinate Mapping
+
+The server uses `tx2tx.common.layout.ScreenLayout` to determine which edge triggers a transition and to transform coordinates between server and client screens. Horizontal and vertical transitions scale the appropriate axis and place the cursor inside the destination screen with an entry margin to avoid immediate bounce-backs.
+
+Configuration supports named clients with a position (north, south, east, west, and diagonals). Current transition logic is implemented for cardinal directions.
+
+== Backend Abstraction
+
+The backend interface is defined in `tx2tx.input.backend`. The factory in `tx2tx.input.factory` chooses a backend based on the configured name.
+
+=== X11 Backend
+
+- Uses python-xlib and XTest for capture and injection
+- Reads pointer position with XQueryPointer
+- Captures keyboard and mouse via X11 grabs and XRecord/XTest facilities
+- Supports overlay and cursor hiding behavior for non-native X11 environments
+
+=== Wayland Backend
+
+Wayland requires a privileged helper process because direct input capture and injection are restricted in Wayland compositors.
+
+- The client and server use `tx2tx.wayland.helper.WaylandHelperClient`
+- The helper daemon (`tx2tx-wayland-helper`) reads `/dev/input/*` via evdev
+- Event injection uses uinput (`/dev/uinput`)
+- The helper exposes a JSON line protocol over stdin/stdout
+
+Helper commands include `screen_geometry_get`, `pointer_position_get`, `cursor_position_set`, `input_events_read`, `inject_mouse`, `inject_key`, `pointer_grab`, and `keyboard_grab`.
+
+== Configuration
+
+Configuration is loaded from `config.yml` or standard paths and merged with CLI overrides in `tx2tx.common.config`. Backend selection is driven by `backend.name`, with Wayland-specific options under `backend.wayland`.
+
+== Permissions and Security
+
+The Wayland helper needs access to `/dev/input/*` and `/dev/uinput`. This usually requires running the helper with elevated privileges or configuring udev rules to grant device access.
+
+== Known Limitations and Gaps
+
+- Wayland cursor hide and session detection are currently minimal in the helper implementation
+- Wayland screen geometry must be provided by the compositor or manual overrides
+- Diagonal layout transitions are not fully implemented
