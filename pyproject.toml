@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tx2tx"
-version = "3.1.0"
+version = "3.1.1"
 description = "X11 KVM for termux-x11: seamless mouse/keyboard sharing between X11 desktops"
 readme = "README.md"
 requires-python = ">=3.9"

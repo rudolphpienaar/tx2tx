@@ -820,8 +820,17 @@ def server_run(args: argparse.Namespace) -> None:
             logger.info("Overlay window enabled (Crostini mode)")
 
     backend_name = getattr(args, "backend", None) or config.backend.name or "x11"
+    if backend_name.lower() not in {"x11", "wayland"}:
+        logger.error(f"Unsupported backend '{backend_name}'. Supported: x11, wayland.")
+        sys.exit(1)
     logger.info(f"Backend: {backend_name}")
     wayland_helper = getattr(args, "wayland_helper", None) or config.backend.wayland.helper_command
+    if backend_name.lower() == "wayland" and not wayland_helper:
+        logger.error(
+            "Wayland backend requires a helper command. "
+            "Provide --wayland-helper or set backend.wayland.helper_command in config."
+        )
+        sys.exit(1)
     wayland_screen_width = (
         getattr(args, "wayland_screen_width", None) or config.backend.wayland.screen_width
     )
