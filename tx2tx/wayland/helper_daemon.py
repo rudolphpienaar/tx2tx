@@ -350,7 +350,7 @@ class UInputManager:
             dx: Relative x delta
             dy: Relative y delta
         """
-        if x is not None and y is not None and self._mouse.has_ecodes(ecodes.EV_ABS):
+        if x is not None and y is not None and self._mouse_supports_abs:
             self._mouse.write(ecodes.EV_ABS, ecodes.ABS_X, x)
             self._mouse.write(ecodes.EV_ABS, ecodes.ABS_Y, y)
         else:
@@ -435,6 +435,7 @@ class UInputManager:
                 (ecodes.ABS_Y, AbsInfo(value=0, min=0, max=self._height - 1, fuzz=0, flat=0, resolution=0)),
             ]
             capabilities[ecodes.EV_ABS] = abs_caps
+        self._mouse_supports_abs = abs_caps is not None
         return UInput(capabilities, name="tx2tx-virtual-mouse")
 
 
