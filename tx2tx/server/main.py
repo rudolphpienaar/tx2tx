@@ -480,6 +480,17 @@ def _process_polling_loop(
         # Poll pointer position
         position = pointer_tracker.position_query()
         velocity = pointer_tracker.velocity_calculate()
+        now = time.time()
+        last_pos_log = getattr(_process_polling_loop, "_last_pos_log_time", 0.0)
+        if (now - last_pos_log) >= 0.5:
+            logger.debug(
+                "[POS] x=%s/%s y=%s/%s",
+                position.x,
+                screen_geometry.width - 1,
+                position.y,
+                screen_geometry.height - 1,
+            )
+            _process_polling_loop._last_pos_log_time = now
         if (
             position.x >= screen_geometry.width - 5
             or position.x <= 4
