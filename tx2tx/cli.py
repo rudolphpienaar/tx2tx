@@ -61,6 +61,12 @@ def arguments_parse() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--wayland-calibrate",
+        action="store_true",
+        help="Wayland: warp cursor to center on startup to sync helper state.",
+    )
+
+    parser.add_argument(
         "--wayland-screen-width",
         type=int,
         default=None,
@@ -72,20 +78,6 @@ def arguments_parse() -> argparse.Namespace:
         type=int,
         default=None,
         help="Wayland screen height override (pixels).",
-    )
-
-    parser.add_argument(
-        "--wayland-start-x",
-        type=int,
-        default=None,
-        help="Wayland initial cursor X override (pixels).",
-    )
-
-    parser.add_argument(
-        "--wayland-start-y",
-        type=int,
-        default=None,
-        help="Wayland initial cursor Y override (pixels).",
     )
 
     # Server-specific options

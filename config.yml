@@ -101,6 +101,5 @@ backend:
     # Optional screen size override for Wayland backend
     screen_width: null
     screen_height: null
-    # Optional initial cursor position override for Wayland backend
-    start_x: null
-    start_y: null
+    # Optional calibration: warp cursor to center on startup
+    calibrate: false

@@ -16,8 +16,6 @@ def serverBackend_create(
     wayland_helper: Optional[str],
     wayland_screen_width: Optional[int],
     wayland_screen_height: Optional[int],
-    wayland_start_x: Optional[int],
-    wayland_start_y: Optional[int],
 ) -> tuple[DisplayBackend, InputCapturer]:
     """
     Create server-side backend components.
@@ -30,8 +28,6 @@ def serverBackend_create(
         wayland_helper: Helper command for Wayland backend
         wayland_screen_width: Optional screen width override (Wayland)
         wayland_screen_height: Optional screen height override (Wayland)
-        wayland_start_x: Optional initial cursor X override (Wayland)
-        wayland_start_y: Optional initial cursor Y override (Wayland)
     
     Returns:
         Tuple of (DisplayBackend, InputCapturer)
@@ -52,8 +48,6 @@ def serverBackend_create(
             helper_command=wayland_helper,
             screen_width=wayland_screen_width,
             screen_height=wayland_screen_height,
-            start_x=wayland_start_x,
-            start_y=wayland_start_y,
         )
         capturer = WaylandInputCapturer(display_backend=display_backend)
         return display_backend, capturer
@@ -65,8 +59,6 @@ def clientBackend_create(
     backend_name: str,
     display_name: Optional[str],
     wayland_helper: Optional[str],
-    wayland_start_x: Optional[int],
-    wayland_start_y: Optional[int],
 ) -> tuple[DisplayBackend, InputInjector]:
     """
     Create client-side backend components.
@@ -75,8 +67,6 @@ def clientBackend_create(
         backend_name: Backend identifier (e.g., "x11", "wayland")
         display_name: Display name (backend-specific)
         wayland_helper: Helper command for Wayland backend
-        wayland_start_x: Optional initial cursor X override (Wayland)
-        wayland_start_y: Optional initial cursor Y override (Wayland)
     
     Returns:
         Tuple of (DisplayBackend, InputInjector)
@@ -95,8 +85,6 @@ def clientBackend_create(
             helper_command=wayland_helper,
             screen_width=None,
             screen_height=None,
-            start_x=wayland_start_x,
-            start_y=wayland_start_y,
         )
         injector = WaylandInputInjector(display_backend=display_backend)
         return display_backend, injector
