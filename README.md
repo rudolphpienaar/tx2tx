@@ -22,6 +22,26 @@ Wayland requires a helper command and appropriate permissions for `/dev/input/*`
 
 ## Quick Start
 
+### Wayland Server + X11 Client
+
+Example with a Wayland server and an X11 client:
+
+```bash
+# Wayland server (requires helper and permissions)
+sudo tx2tx \
+  --backend wayland \
+  --wayland-helper "tx2tx-wayland-helper --screen-width <W> --screen-height <H>" \
+  --host 0.0.0.0 \
+  --port 24800
+
+# X11 client
+tx2tx --server <server-ip>:24800 --backend x11 --name <client-name>
+```
+
+Notes:
+- `screen-width` and `screen-height` must be the compositor's logical desktop size.
+- The Wayland helper needs access to `/dev/input/*` and `/dev/uinput`.
+
 ### Install
 
 ```bash
