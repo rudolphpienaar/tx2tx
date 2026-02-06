@@ -1,4 +1,5 @@
-const Gio = imports.gi.Gio;
+import Gio from 'gi://Gio';
+import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 const DBUS_XML = `
 <node>
@@ -17,7 +18,7 @@ class PointerProvider {
     }
 }
 
-class Tx2txPointerExtension {
+export default class Tx2txPointerExtension extends Extension {
     enable() {
         if (this._dbusExport)
             return;
@@ -45,8 +46,4 @@ class Tx2txPointerExtension {
             this._nameId = 0;
         }
     }
-}
-
-function init() {
-    return new Tx2txPointerExtension();
 }
