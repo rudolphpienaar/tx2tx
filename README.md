@@ -43,7 +43,36 @@ Notes:
 - The Wayland helper needs access to `/dev/input/*` and `/dev/uinput`.
 - `evdev` does not currently publish wheels for Python 3.14. Use Python 3.11 or 3.12 for Wayland support.
 - Wayland keyboard events are mapped from Linux evdev keycodes to X11 keycodes using the standard +8 offset.
+- For Wayland on GNOME, use the GNOME Shell extension in `gnome-extension/` and set `TX2TX_GNOME_POINTER=1` to enable accurate pointer tracking.
 - For Wayland, you can use `--wayland-calibrate` to warp the cursor to center on startup and sync helper state.
+
+### GNOME Pointer Provider (Wayland)
+
+On GNOME Wayland, accurate global pointer position is only available via GNOME Shell.
+Install the included extension and enable the DBus provider:
+
+```bash
+mkdir -p ~/.local/share/gnome-shell/extensions
+cp -r gnome-extension/tx2tx-pointer@tx2tx ~/.local/share/gnome-shell/extensions/
+gnome-extensions enable tx2tx-pointer@tx2tx
+```
+
+Then run the server with:
+
+```bash
+TX2TX_GNOME_POINTER=1 sudo -E .venv/bin/tx2tx \\
+  --backend wayland \\
+  --wayland-helper "/home/rudolph/src/tx2tx/.venv/bin/tx2tx-wayland-helper --screen-width <W> --screen-height <H>" \\
+  --host 0.0.0.0 \\
+  --port 24800
+```
+
+`sudo -E` preserves `DBUS_SESSION_BUS_ADDRESS` and `XDG_RUNTIME_DIR` so the helper can reach the GNOME session bus.
+For the DBus provider, ensure `python3-gi` is available to the helper. Easiest path is to create the venv with system site packages:
+
+```bash
+python3.12 -m venv --system-site-packages .venv
+```
 
 Compute logical desktop size on GNOME:
 

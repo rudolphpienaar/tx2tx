@@ -15,6 +15,56 @@ from evdev import AbsInfo, InputDevice, UInput, ecodes
 from tx2tx.common.types import EventType
 
 
+class _PointerProvider:
+    """Optional GNOME pointer provider via DBus."""
+
+    def position_get(self) -> Optional[tuple[int, int]]:
+        raise NotImplementedError
+
+    @staticmethod
+    def create() -> Optional["_PointerProvider"]:
+        """
+        Create a pointer provider if GNOME DBus is available and enabled.
+
+        Returns:
+            Provider instance or None.
+        """
+        if os.environ.get("TX2TX_GNOME_POINTER", "").lower() not in {"1", "true", "yes"}:
+            return None
+        try:
+            from gi.repository import Gio
+        except Exception:
+            return None
+
+        class _GNOMEProvider(_PointerProvider):
+            def __init__(self) -> None:
+                self._proxy = Gio.DBusProxy.new_for_bus_sync(
+                    Gio.BusType.SESSION,
+                    Gio.DBusProxyFlags.NONE,
+                    None,
+                    "org.tx2tx.Pointer",
+                    "/org/tx2tx/Pointer",
+                    "org.tx2tx.Pointer",
+                    None,
+                )
+
+            def position_get(self) -> Optional[tuple[int, int]]:
+                try:
+                    result = self._proxy.call_sync(
+                        "GetPointer",
+                        None,
+                        Gio.DBusCallFlags.NONE,
+                        100,
+                        None,
+                    )
+                    x, y = result.unpack()
+                    return int(x), int(y)
+                except Exception:
+                    return None
+
+        return _GNOMEProvider()
+
+
 @dataclass
 class InputEventRecord:
     """Captured input event record."""
@@ -488,6 +538,7 @@ class WaylandHelperDaemon:
         self._height = height
         self._device_manager = InputDeviceManager(device_paths=devices, width=width, height=height)
         self._uinput = UInputManager(width=width, height=height)
+        self._pointer_provider = _PointerProvider.create()
 
     def run(self) -> None:
         """
@@ -526,7 +577,7 @@ class WaylandHelperDaemon:
             width, height = self._screen_geometry_get()
             return {"width": width, "height": height}
         if cmd == "pointer_position_get":
-            x, y = self._device_manager.pointerPosition_get()
+            x, y = self._pointer_position_get()
             return {"x": x, "y": y}
         if cmd == "cursor_position_set":
             x = int(payload["x"])
@@ -566,6 +617,20 @@ class WaylandHelperDaemon:
         if cmd == "shutdown":
             sys.exit(0)
         raise ValueError(f"Unknown command: {cmd}")
+
+    def _pointer_position_get(self) -> tuple[int, int]:
+        """
+        Get current pointer position, preferring GNOME provider when available.
+
+        Returns:
+            Tuple of (x, y).
+        """
+        if self._pointer_provider is not None:
+            provider_pos = self._pointer_provider.position_get()
+            if provider_pos is not None:
+                self._device_manager.pointerPosition_set(*provider_pos)
+                return provider_pos
+        return self._device_manager.pointerPosition_get()
 
     def _screen_geometry_get(self) -> tuple[int, int]:
         """

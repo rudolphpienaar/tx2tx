@@ -1,0 +1,7 @@
+{
+  "uuid": "tx2tx-pointer@tx2tx",
+  "name": "tx2tx Pointer Provider",
+  "description": "Expose GNOME pointer position over DBus for tx2tx Wayland backend",
+  "version": 1,
+  "shell-version": ["49"]
+}
