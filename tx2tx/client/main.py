@@ -279,7 +279,8 @@ def client_run(args: argparse.Namespace) -> None:
     settings.initialize(config)
 
     # Setup logging
-    logging_setup(config.logging.level, config.logging.format, config.logging.file)
+    log_level = getattr(args, "log_level", None) or config.logging.level
+    logging_setup(log_level, config.logging.format, config.logging.file)
 
     # Parse server address
     try:

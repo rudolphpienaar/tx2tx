@@ -703,7 +703,7 @@ def _process_polling_loop(
                 if target_client_name:
                     # Not returning - Send events to active client ONLY if position changed
                     if server_state.positionChanged_check(position):
-                        logger.info(
+                        logger.debug(
                             f"[MOUSE] Sending pos ({position.x}, {position.y}) to {target_client_name}"
                         )
                         normalized_point = screen_geometry.coordinates_normalize(position)
@@ -828,7 +828,8 @@ def server_run(args: argparse.Namespace) -> None:
     settings.initialize(config)
 
     # Setup logging
-    logging_setup(config.logging.level, config.logging.format, config.logging.file)
+    log_level = getattr(args, "log_level", None) or config.logging.level
+    logging_setup(log_level, config.logging.format, config.logging.file)
 
     logger.info(f"tx2tx server v{__version__}")
     logger.info(f"Server name: {config.server.name}")

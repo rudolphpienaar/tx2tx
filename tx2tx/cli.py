@@ -131,6 +131,26 @@ def arguments_parse() -> argparse.Namespace:
         "--client", type=str, default=None, help="[Client] Client name from config (e.g., 'phomux')"
     )
 
+    parser.add_argument(
+        "--debug", action="store_true", help="Enable debug logging (overrides config)"
+    )
+
+    parser.add_argument(
+        "--info", action="store_true", help="Enable info logging (overrides config)"
+    )
+
+    parser.add_argument(
+        "--warning", action="store_true", help="Enable warning logging (overrides config)"
+    )
+
+    parser.add_argument(
+        "--error", action="store_true", help="Enable error logging (overrides config)"
+    )
+
+    parser.add_argument(
+        "--critical", action="store_true", help="Enable critical logging (overrides config)"
+    )
+
     return parser.parse_args()
 
 
@@ -147,6 +167,19 @@ def main() -> NoReturn:
     """Main entry point for unified tx2tx command"""
     args = arguments_parse()
 
+    # Determine logging level override
+    log_level_override = None
+    if args.debug:
+        log_level_override = "DEBUG"
+    elif args.info:
+        log_level_override = "INFO"
+    elif args.warning:
+        log_level_override = "WARNING"
+    elif args.error:
+        log_level_override = "ERROR"
+    elif args.critical:
+        log_level_override = "CRITICAL"
+
     try:
         if args.server or args.client or args.software_cursor:
             # --server, --client, or --software-cursor specified: run as client
@@ -155,11 +188,17 @@ def main() -> NoReturn:
                 args.name = args.client
 
             from tx2tx.client.main import client_run
+            
+            if log_level_override:
+                setattr(args, "log_level", log_level_override)
 
             client_run(args)
         else:
             # No client-related flags: run as server
             from tx2tx.server.main import server_run
+
+            if log_level_override:
+                setattr(args, "log_level", log_level_override)
 
             # Handle overlay flag
             if args.overlay:
