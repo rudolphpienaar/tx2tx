@@ -132,6 +132,12 @@ def arguments_parse() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--die-on-disconnect",
+        action="store_true",
+        help="[Server] Exit server immediately if a client disconnects",
+    )
+
+    parser.add_argument(
         "--debug", action="store_true", help="Enable debug logging (overrides config)"
     )
 

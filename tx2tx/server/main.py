@@ -451,6 +451,7 @@ def _process_polling_loop(
     panic_modifiers: int,
     x11native: bool,
     input_capturer: InputCapturer,
+    die_on_disconnect: bool = False,
 ) -> None:
     """
     Processes events in the polling loop (fallback mode).
@@ -466,12 +467,16 @@ def _process_polling_loop(
         panic_modifiers: panic_modifiers value.
         x11native: x11native value.
         input_capturer: input_capturer value.
+        die_on_disconnect: die_on_disconnect value.
     
     Returns:
         Result value.
     """
     # Accept new connections
     network.connections_accept()
+
+    # Track client count for --die-on-disconnect
+    initial_client_count = network.clients_count()
 
     # Receive messages from clients
     def message_handler(client: ClientConnection, message: Message) -> None:
@@ -488,6 +493,14 @@ def _process_polling_loop(
         clientMessage_handle(client, message, network)
 
     network.clientData_receive(message_handler)
+
+    # If --die-on-disconnect is set and a client disconnected, shut down
+    if die_on_disconnect and network.clients_count() < initial_client_count:
+        logger.warning(
+            "[NETWORK] Client disconnected and --die-on-disconnect is set. Shutting down."
+        )
+        network.is_running = False
+        return
 
     # Track pointer when we have clients
     if network.clients_count() > 0:
@@ -967,6 +980,8 @@ def server_run(args: argparse.Namespace) -> None:
     # Reset server state singleton to initial values
     server_state.reset()
 
+    die_on_disconnect = getattr(args, "die_on_disconnect", False)
+
     try:
         network.server_start()
         logger.info("Server running. Press Ctrl+C to stop.")
@@ -983,6 +998,7 @@ def server_run(args: argparse.Namespace) -> None:
                 panic_modifiers,
                 x11native,
                 input_capturer,
+                die_on_disconnect,
             )
     except Exception as e:
         logger.error(f"Server error: {e}", exc_info=True)

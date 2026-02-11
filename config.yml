@@ -40,7 +40,7 @@ server:
   #                 Page_Up, Page_Down, BackSpace, Tab, Return, Space, arrows
   # Available modifiers: Ctrl, Shift, Alt, Mod4 (Super/Windows key)
   # For Chromebooks without Scroll Lock, try: "Ctrl+Shift+Escape" or "F12"
-  panic_key: "Scroll_Lock"
+  panic_key: "F12"
 
   # DEPRECATED: client_position (use clients list below instead)
   # Position of client screen relative to server
