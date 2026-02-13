@@ -202,6 +202,7 @@ class WaylandDisplayBackend(DisplayBackend):
         self._screen_override: Optional[Screen] = None
         self._pointer_provider: str = pointer_provider
         self._gnome_pointer_provider: Optional[GnomePointerProvider] = None
+        self._cursor_hide_unsupported_warned: bool = False
         if pointer_provider == "gnome":
             self._gnome_pointer_provider = GnomePointerProvider()
         if screen_width is not None and screen_height is not None:
@@ -360,7 +361,13 @@ class WaylandDisplayBackend(DisplayBackend):
             Result value.
         """
         """Hide cursor via helper."""
-        self._helper.cursor_hide()
+        supported: bool = self._helper.cursor_hide()
+        if not supported and not self._cursor_hide_unsupported_warned:
+            logger.warning(
+                "Wayland helper does not implement cursor hide/show; "
+                "server-side ghost cursor may remain visible in REMOTE mode."
+            )
+            self._cursor_hide_unsupported_warned = True
 
     def cursor_show(self) -> None:
         """
@@ -373,7 +380,7 @@ class WaylandDisplayBackend(DisplayBackend):
             Result value.
         """
         """Show cursor via helper."""
-        self._helper.cursor_show()
+        _ = self._helper.cursor_show()
 
     def session_isNative_check(self) -> bool:
         """

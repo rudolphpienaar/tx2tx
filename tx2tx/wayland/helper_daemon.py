@@ -228,7 +228,19 @@ class InputDeviceManager:
             True if device looks like a keyboard.
         """
         caps = device.capabilities().get(ecodes.EV_KEY, [])
-        return ecodes.KEY_A in caps or ecodes.KEY_Q in caps
+        key_codes: set[int] = set()
+        for item in caps:
+            if isinstance(item, int):
+                key_codes.add(item)
+            elif isinstance(item, (list, tuple)):
+                for nested in item:
+                    if isinstance(nested, int):
+                        key_codes.add(nested)
+
+        # KEY_* scancodes occupy values below BTN_MISC (0x100 / 256),
+        # while BTN_* pointer buttons start at BTN_MISC and above.
+        # Treat any device with at least one KEY_* code as keyboard-capable.
+        return any(code < ecodes.BTN_MISC for code in key_codes)
 
     def _device_is_mouse(self, device: InputDevice) -> bool:
         """
@@ -577,9 +589,15 @@ class WaylandHelperDaemon:
             self._device_manager.keyboard_ungrab()
             return {}
         if cmd == "cursor_hide":
-            return {}
+            return {
+                "supported": False,
+                "reason": "cursor hide/show is not implemented by this helper",
+            }
         if cmd == "cursor_show":
-            return {}
+            return {
+                "supported": False,
+                "reason": "cursor hide/show is not implemented by this helper",
+            }
         if cmd == "input_events_read":
             events, modifier_state = self._device_manager.inputEvents_read()
             return {"events": events, "modifier_state": modifier_state}

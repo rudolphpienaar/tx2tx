@@ -203,7 +203,7 @@ class WaylandHelperClient:
         """Release keyboard grab via helper."""
         self._request("keyboard_ungrab", {})
 
-    def cursor_hide(self) -> None:
+    def cursor_hide(self) -> bool:
         """
         Hide cursor via helper.
         
@@ -211,12 +211,13 @@ class WaylandHelperClient:
             None.
         
         Returns:
-            Result value.
+            True if helper supports cursor hide/show operations, else False.
         """
         """Hide cursor via helper."""
-        self._request("cursor_hide", {})
+        result = self._request("cursor_hide", {})
+        return bool(result.get("supported", True))
 
-    def cursor_show(self) -> None:
+    def cursor_show(self) -> bool:
         """
         Show cursor via helper.
         
@@ -224,10 +225,11 @@ class WaylandHelperClient:
             None.
         
         Returns:
-            Result value.
+            True if helper supports cursor hide/show operations, else False.
         """
         """Show cursor via helper."""
-        self._request("cursor_show", {})
+        result = self._request("cursor_show", {})
+        return bool(result.get("supported", True))
 
     def inputEvents_read(self) -> tuple[list[dict[str, Any]], int]:
         """
