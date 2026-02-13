@@ -177,25 +177,73 @@ class InputDeviceManager:
             self._events.clear()
         return events, self._modifier_state.mask_get()
 
-    def pointer_grab(self) -> None:
-        """Grab pointer devices to capture mouse input exclusively."""
+    def pointer_grab(self) -> dict[str, int]:
+        """
+        Grab pointer devices to capture mouse input exclusively.
+
+        Returns:
+            Dictionary containing `grabbed` and `failed` counts.
+        """
+        grabbed: int = 0
+        failed: int = 0
         for dev in self._mouse_devices:
-            dev.grab()
+            try:
+                dev.grab()
+                grabbed += 1
+            except Exception:
+                failed += 1
+        return {"grabbed": grabbed, "failed": failed}
 
-    def pointer_ungrab(self) -> None:
-        """Release pointer device grabs."""
+    def pointer_ungrab(self) -> dict[str, int]:
+        """
+        Release pointer device grabs.
+
+        Returns:
+            Dictionary containing `released` and `failed` counts.
+        """
+        released: int = 0
+        failed: int = 0
         for dev in self._mouse_devices:
-            dev.ungrab()
+            try:
+                dev.ungrab()
+                released += 1
+            except Exception:
+                failed += 1
+        return {"released": released, "failed": failed}
 
-    def keyboard_grab(self) -> None:
-        """Grab keyboard devices to capture keyboard input exclusively."""
-        for dev in self._keyboard_devices:
-            dev.grab()
+    def keyboard_grab(self) -> dict[str, int]:
+        """
+        Grab keyboard devices to capture keyboard input exclusively.
 
-    def keyboard_ungrab(self) -> None:
-        """Release keyboard device grabs."""
+        Returns:
+            Dictionary containing `grabbed` and `failed` counts.
+        """
+        grabbed: int = 0
+        failed: int = 0
         for dev in self._keyboard_devices:
-            dev.ungrab()
+            try:
+                dev.grab()
+                grabbed += 1
+            except Exception:
+                failed += 1
+        return {"grabbed": grabbed, "failed": failed}
+
+    def keyboard_ungrab(self) -> dict[str, int]:
+        """
+        Release keyboard device grabs.
+
+        Returns:
+            Dictionary containing `released` and `failed` counts.
+        """
+        released: int = 0
+        failed: int = 0
+        for dev in self._keyboard_devices:
+            try:
+                dev.ungrab()
+                released += 1
+            except Exception:
+                failed += 1
+        return {"released": released, "failed": failed}
 
     def _devices_open(self, device_paths: Optional[list[str]]) -> list[InputDevice]:
         """
@@ -577,17 +625,13 @@ class WaylandHelperDaemon:
             self._uinput.mouse_move(x=x, y=y)
             return {}
         if cmd == "pointer_grab":
-            self._device_manager.pointer_grab()
-            return {}
+            return self._device_manager.pointer_grab()
         if cmd == "pointer_ungrab":
-            self._device_manager.pointer_ungrab()
-            return {}
+            return self._device_manager.pointer_ungrab()
         if cmd == "keyboard_grab":
-            self._device_manager.keyboard_grab()
-            return {}
+            return self._device_manager.keyboard_grab()
         if cmd == "keyboard_ungrab":
-            self._device_manager.keyboard_ungrab()
-            return {}
+            return self._device_manager.keyboard_ungrab()
         if cmd == "cursor_hide":
             return {
                 "supported": False,

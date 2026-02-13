@@ -309,7 +309,12 @@ class WaylandDisplayBackend(DisplayBackend):
             Result value.
         """
         """Grab pointer via helper."""
-        self._helper.pointer_grab()
+        result: dict[str, int] = self._helper.pointer_grab()
+        if result.get("grabbed", 0) == 0:
+            logger.warning(
+                "Wayland pointer grab did not capture any devices (failed=%s).",
+                result.get("failed", 0),
+            )
 
     def pointer_ungrab(self) -> None:
         """
@@ -322,7 +327,7 @@ class WaylandDisplayBackend(DisplayBackend):
             Result value.
         """
         """Release pointer grab via helper."""
-        self._helper.pointer_ungrab()
+        _ = self._helper.pointer_ungrab()
 
     def keyboard_grab(self) -> None:
         """
@@ -335,7 +340,13 @@ class WaylandDisplayBackend(DisplayBackend):
             Result value.
         """
         """Grab keyboard via helper."""
-        self._helper.keyboard_grab()
+        result: dict[str, int] = self._helper.keyboard_grab()
+        if result.get("grabbed", 0) == 0:
+            logger.warning(
+                "Wayland keyboard grab did not capture any devices (failed=%s). "
+                "Keystrokes may still execute on the server.",
+                result.get("failed", 0),
+            )
 
     def keyboard_ungrab(self) -> None:
         """
@@ -348,7 +359,7 @@ class WaylandDisplayBackend(DisplayBackend):
             Result value.
         """
         """Release keyboard grab via helper."""
-        self._helper.keyboard_ungrab()
+        _ = self._helper.keyboard_ungrab()
 
     def cursor_hide(self) -> None:
         """

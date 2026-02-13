@@ -151,7 +151,7 @@ class WaylandHelperClient:
         """Set cursor position via helper."""
         self._request("cursor_position_set", {"x": x, "y": y})
 
-    def pointer_grab(self) -> None:
+    def pointer_grab(self) -> dict[str, int]:
         """
         Grab pointer via helper.
         
@@ -159,12 +159,16 @@ class WaylandHelperClient:
             None.
         
         Returns:
-            Result value.
+            Dictionary containing `grabbed` and `failed` counts.
         """
         """Grab pointer via helper."""
-        self._request("pointer_grab", {})
+        result = self._request("pointer_grab", {})
+        return {
+            "grabbed": int(result.get("grabbed", 0)),
+            "failed": int(result.get("failed", 0)),
+        }
 
-    def pointer_ungrab(self) -> None:
+    def pointer_ungrab(self) -> dict[str, int]:
         """
         Release pointer grab via helper.
         
@@ -172,12 +176,16 @@ class WaylandHelperClient:
             None.
         
         Returns:
-            Result value.
+            Dictionary containing `released` and `failed` counts.
         """
         """Release pointer grab via helper."""
-        self._request("pointer_ungrab", {})
+        result = self._request("pointer_ungrab", {})
+        return {
+            "released": int(result.get("released", 0)),
+            "failed": int(result.get("failed", 0)),
+        }
 
-    def keyboard_grab(self) -> None:
+    def keyboard_grab(self) -> dict[str, int]:
         """
         Grab keyboard via helper.
         
@@ -185,12 +193,16 @@ class WaylandHelperClient:
             None.
         
         Returns:
-            Result value.
+            Dictionary containing `grabbed` and `failed` counts.
         """
         """Grab keyboard via helper."""
-        self._request("keyboard_grab", {})
+        result = self._request("keyboard_grab", {})
+        return {
+            "grabbed": int(result.get("grabbed", 0)),
+            "failed": int(result.get("failed", 0)),
+        }
 
-    def keyboard_ungrab(self) -> None:
+    def keyboard_ungrab(self) -> dict[str, int]:
         """
         Release keyboard grab via helper.
         
@@ -198,10 +210,14 @@ class WaylandHelperClient:
             None.
         
         Returns:
-            Result value.
+            Dictionary containing `released` and `failed` counts.
         """
         """Release keyboard grab via helper."""
-        self._request("keyboard_ungrab", {})
+        result = self._request("keyboard_ungrab", {})
+        return {
+            "released": int(result.get("released", 0)),
+            "failed": int(result.get("failed", 0)),
+        }
 
     def cursor_hide(self) -> bool:
         """
