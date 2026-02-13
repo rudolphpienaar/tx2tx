@@ -295,7 +295,6 @@ class InputDeviceManager:
             y: int
             x, y = self._pointer_state.position_get()
             is_mouse_device: bool = device.fd in self._mouse_fds
-            is_keyboard_device: bool = device.fd in self._keyboard_fds
             is_mouse_button: bool = event.code in (
                 ecodes.BTN_LEFT,
                 ecodes.BTN_RIGHT,
@@ -320,8 +319,9 @@ class InputDeviceManager:
                 self._event_record(payload)
                 return
 
-            # Keyboard keys: only from keyboard-class devices.
-            if not is_keyboard_device:
+            # Treat KEY_* codes (< BTN_MISC) as keyboard events even if device
+            # classification is imperfect (common on mixed/virtual devices).
+            if event.code >= ecodes.BTN_MISC:
                 return
 
             # Ignore auto-repeat notifications (value=2) to prevent phantom
