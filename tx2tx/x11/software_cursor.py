@@ -1,10 +1,8 @@
 """Software cursor implementation using X11 Overlay Window"""
 
 import logging
-from typing import Optional
-from Xlib import X, display
+from Xlib import X
 from Xlib.ext import shape
-from Xlib.protocol import request
 
 logger = logging.getLogger(__name__)
 
@@ -152,8 +150,6 @@ class SoftwareCursor:
         win_x = x + 5
         win_y = y + 5
 
-        display = self._display_manager.display_get()
-        
         # Use configure to move
         # stack_mode=X.Above ensures it stays on top of other windows
         self._window.configure(

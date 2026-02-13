@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from tx2tx.common.types import EventType, KeyEvent, MouseEvent, Position, Screen
@@ -11,6 +12,7 @@ from tx2tx.wayland.helper import WaylandHelperClient
 
 _KEYCODE_TO_KEYNAME: Optional[dict[int, str]] = None
 _KEYCODE_TO_KEYSYM: Optional[dict[int, int]] = None
+logger = logging.getLogger(__name__)
 
 
 def _keysym_from_evdev(keycode: int) -> Optional[int]:
@@ -429,7 +431,7 @@ class WaylandInputCapturer(InputCapturer):
         events: list[InputEvent] = []
 
         for event in raw_events:
-            event_type = event.get("event_type")
+            event_type: Optional[str] = event.get("event_type")
             if event_type == EventType.MOUSE_BUTTON_PRESS.value:
                 events.append(
                     MouseEvent(
@@ -447,30 +449,50 @@ class WaylandInputCapturer(InputCapturer):
                     )
                 )
             elif event_type == EventType.KEY_PRESS.value:
-                linux_keycode = int(event["keycode"])
-                x11_keycode = linux_keycode + 8
+                linux_keycode: int = int(event["keycode"])
+                x11_keycode: int = linux_keycode + 8
+                keysym: Optional[int] = (
+                    int(event["keysym"]) if event.get("keysym") is not None else None
+                )
+                if keysym is None:
+                    keysym = _keysym_from_evdev(linux_keycode)
+                if keysym is None and not (8 <= x11_keycode <= 255):
+                    logger.debug(
+                        "Skipping unsupported Wayland key press: linux_keycode=%s x11_keycode=%s",
+                        linux_keycode,
+                        x11_keycode,
+                    )
+                    continue
                 events.append(
                     KeyEvent(
                         event_type=EventType.KEY_PRESS,
                         keycode=x11_keycode,
-                        keysym=(
-                            int(event["keysym"]) if event.get("keysym") is not None else None
-                        ),
+                        keysym=keysym,
                         state=(
                             int(event["state"]) if event.get("state") is not None else None
                         ),
                     )
                 )
             elif event_type == EventType.KEY_RELEASE.value:
-                linux_keycode = int(event["keycode"])
-                x11_keycode = linux_keycode + 8
+                linux_keycode: int = int(event["keycode"])
+                x11_keycode: int = linux_keycode + 8
+                keysym: Optional[int] = (
+                    int(event["keysym"]) if event.get("keysym") is not None else None
+                )
+                if keysym is None:
+                    keysym = _keysym_from_evdev(linux_keycode)
+                if keysym is None and not (8 <= x11_keycode <= 255):
+                    logger.debug(
+                        "Skipping unsupported Wayland key release: linux_keycode=%s x11_keycode=%s",
+                        linux_keycode,
+                        x11_keycode,
+                    )
+                    continue
                 events.append(
                     KeyEvent(
                         event_type=EventType.KEY_RELEASE,
                         keycode=x11_keycode,
-                        keysym=(
-                            int(event["keysym"]) if event.get("keysym") is not None else None
-                        ),
+                        keysym=keysym,
                         state=(
                             int(event["state"]) if event.get("state") is not None else None
                         ),

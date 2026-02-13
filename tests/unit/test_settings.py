@@ -70,6 +70,7 @@ class TestSettingsInitialization:
             client=sample_config.client,
             protocol=sample_config.protocol,
             logging=sample_config.logging,
+            backend=sample_config.backend,
         )
 
         settings.initialize(different_config)

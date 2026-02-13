@@ -6,7 +6,6 @@ transparent overlay that STILL changes the cursor.
 
 import time
 import sys
-import struct
 from Xlib import display as xdisplay, X, Xatom
 
 # Standard cursor shapes
@@ -65,8 +64,6 @@ def main():
         # Opacity is 0 to 0xFFFFFFFF
         val = int(opacity_float * 0xFFFFFFFF)
         atom = d.get_atom("_NET_WM_WINDOW_OPACITY")
-        # Data is 32-bit unsigned int
-        data = struct.pack("I", val)
         win.change_property(atom, Xatom.CARDINAL, 32, [val])
         d.sync()
 

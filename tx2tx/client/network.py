@@ -94,7 +94,7 @@ class ClientNetwork:
                 if self.socket:
                     try:
                         self.socket.close()
-                    except:
+                    except Exception:
                         pass
                     self.socket = None
 

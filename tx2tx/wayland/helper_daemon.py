@@ -140,6 +140,8 @@ class InputDeviceManager:
         self._devices = self._devices_open(device_paths)
         self._mouse_devices = [d for d in self._devices if self._device_is_mouse(d)]
         self._keyboard_devices = [d for d in self._devices if self._device_is_keyboard(d)]
+        self._mouse_fds = {d.fd for d in self._mouse_devices}
+        self._keyboard_fds = {d.fd for d in self._keyboard_devices}
 
         self._reader = threading.Thread(target=self._events_loop, daemon=True)
         self._reader.start()
@@ -262,6 +264,7 @@ class InputDeviceManager:
         Handle a single evdev event.
 
         Args:
+            device: evdev input device emitting the event.
             event: evdev input event
         """
         if event.type == ecodes.EV_REL:
@@ -276,27 +279,54 @@ class InputDeviceManager:
             return
 
         if event.type == ecodes.EV_KEY:
+            x: int
+            y: int
             x, y = self._pointer_state.position_get()
-            if event.code in (ecodes.BTN_LEFT, ecodes.BTN_RIGHT, ecodes.BTN_MIDDLE, ecodes.BTN_SIDE, ecodes.BTN_EXTRA):
-                event_type = EventType.MOUSE_BUTTON_PRESS.value if event.value else EventType.MOUSE_BUTTON_RELEASE.value
-                payload = {
+            is_mouse_device: bool = device.fd in self._mouse_fds
+            is_keyboard_device: bool = device.fd in self._keyboard_fds
+            is_mouse_button: bool = event.code in (
+                ecodes.BTN_LEFT,
+                ecodes.BTN_RIGHT,
+                ecodes.BTN_MIDDLE,
+                ecodes.BTN_SIDE,
+                ecodes.BTN_EXTRA,
+            )
+
+            # Mouse buttons: only from pointer-class devices.
+            if is_mouse_button and is_mouse_device:
+                event_type: str = (
+                    EventType.MOUSE_BUTTON_PRESS.value
+                    if event.value
+                    else EventType.MOUSE_BUTTON_RELEASE.value
+                )
+                payload: dict[str, Any] = {
                     "event_type": event_type,
                     "x": x,
                     "y": y,
                     "button": self._button_map(event.code),
                 }
                 self._event_record(payload)
-            else:
-                pressed = event.value == 1
-                self._modifier_state.update(event.code, pressed)
-                event_type = EventType.KEY_PRESS.value if pressed else EventType.KEY_RELEASE.value
-                payload = {
-                    "event_type": event_type,
-                    "keycode": event.code,
-                    "keysym": None,
-                    "state": self._modifier_state.mask_get(),
-                }
-                self._event_record(payload)
+                return
+
+            # Keyboard keys: only from keyboard-class devices.
+            if not is_keyboard_device:
+                return
+
+            # Ignore auto-repeat notifications (value=2) to prevent phantom
+            # repeat bursts on transition into REMOTE mode.
+            if event.value == 2:
+                return
+
+            pressed: bool = event.value == 1
+            self._modifier_state.update(event.code, pressed)
+            event_type: str = EventType.KEY_PRESS.value if pressed else EventType.KEY_RELEASE.value
+            payload: dict[str, Any] = {
+                "event_type": event_type,
+                "keycode": event.code,
+                "keysym": None,
+                "state": self._modifier_state.mask_get(),
+            }
+            self._event_record(payload)
 
     def _abs_event_handle(self, device: InputDevice, event) -> None:
         """

@@ -9,19 +9,29 @@ tests/
 ├── __init__.py
 ├── conftest.py              # Shared pytest fixtures and configuration
 ├── README.md                # This file
+├── config_multi.yml         # Multi-client integration config fixture
 ├── unit/                    # Unit tests for individual modules
 │   ├── __init__.py
-│   └── test_feasibility.py  # Environment/capability tests
+│   ├── test_config.py
+│   ├── test_pointer.py
+│   ├── test_protocol.py
+│   ├── test_settings.py
+│   ├── test_types.py
+│   └── test_zombie_client.py
 ├── integration/             # Integration tests
 │   ├── __init__.py
-│   ├── test_cursor_ops.py   # Cursor operation tests
-│   ├── test_detailed.py     # Detailed system tests
-│   ├── test_phase7.py       # Phase 7 validation tests
-│   ├── test_simple.py       # Simple transition tests
-│   └── test_with_client.py  # Client-server integration tests
+│   ├── test_cursor_ops.py
+│   ├── test_detailed.py
+│   ├── test_multi_client.py
+│   ├── test_phase7.py
+│   ├── test_simple.py
+│   └── test_with_client.py
+├── manual/                  # Manual/interactive experiments and scripts
+│   ├── check_feasibility.py
+│   └── test_*.py
 └── tools/                   # Testing and analysis utilities
     ├── __init__.py
-    └── analyze.py           # Static code analysis tool
+    └── analyze.py
 ```
 
 ## Running Tests
@@ -37,6 +47,11 @@ pytest tests/unit/              # Unit tests only
 pytest tests/integration/       # Integration tests only
 ```
 
+### Manual scripts (not part of normal pytest run)
+```bash
+python tests/manual/check_feasibility.py
+```
+
 ### By marker
 ```bash
 pytest -m unit                  # Tests marked as unit tests
@@ -47,7 +62,7 @@ pytest -m x11                   # Only X11-dependent tests
 
 ### Specific test file
 ```bash
-pytest tests/unit/test_feasibility.py
+pytest tests/unit/test_protocol.py
 pytest tests/integration/test_cursor_ops.py
 ```
 
@@ -65,7 +80,8 @@ Tests for individual modules in isolation:
 - Configuration loading and validation
 - Settings singleton behavior
 - Type classes and data structures
-- Individual X11 operations
+- Protocol serialization/parsing
+- Zombie-client/name-collision behavior
 
 ### Integration Tests (`tests/integration/`)
 Tests that verify component interaction:
@@ -77,6 +93,9 @@ Tests that verify component interaction:
 ### Tools (`tests/tools/`)
 Utilities for code quality and analysis:
 - `analyze.py` - Static code analyzer for convergence analysis
+
+### Manual (`tests/manual/`)
+Ad-hoc and interactive checks for local environments. These may require a real display/session and are not treated as deterministic CI tests.
 
 ## Writing New Tests
 

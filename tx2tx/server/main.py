@@ -9,7 +9,7 @@ from typing import NoReturn, Optional
 
 from tx2tx import __version__
 from tx2tx.common.config import ConfigLoader
-from tx2tx.common.layout import ClientPosition, ScreenLayout
+from tx2tx.common.layout import ClientPosition
 from tx2tx.common.settings import settings
 from tx2tx.common.types import (
     Direction,
@@ -950,10 +950,9 @@ def server_run(args: argparse.Namespace) -> None:
         f"Pointer tracker initialized (velocity_threshold={config.server.velocity_threshold})"
     )
 
-    # Initialize screen layout for coordinate transformations
+    # Validate configured client position
     try:
         client_position = ClientPosition(config.server.client_position)
-        screen_layout = ScreenLayout(client_position=client_position)
         logger.info(f"Client position: {client_position.value}")
     except ValueError:
         logger.error(f"Invalid client_position in config: {config.server.client_position}")

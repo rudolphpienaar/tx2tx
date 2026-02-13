@@ -10,7 +10,7 @@ Tests if we can:
 import sys
 
 try:
-    from Xlib import X, XK, display, ext
+    from Xlib import X, display
     from Xlib.ext import xtest
 except ImportError:
     print("❌ ERROR: python-xlib not installed")
@@ -71,7 +71,7 @@ def test_xtest_extension(d):
         try:
             version = d.xtest_query_version()
             print(f"   Version: {version.major_version}.{version.minor_version}")
-        except:
+        except Exception:
             print("   (version query not supported, but extension exists)")
 
         # Test if we can fake a tiny mouse movement (won't be noticeable)
@@ -143,7 +143,7 @@ def main():
     # Test 4: XInput2 (optional)
     print("Test 4: XInput2 Extension (optional)")
     print("-" * 40)
-    xinput_ok = test_xinput2_extension(d)
+    test_xinput2_extension(d)
     print()
 
     # Summary

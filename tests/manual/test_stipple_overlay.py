@@ -43,9 +43,7 @@ def main():
     # 1 0
     # 0 1
     # This is a standard 50% checkerboard
-    bitmap_data = bytes([0x02, 0x01])  # Binary: 10, 01 ? No, rows are byte-aligned usually.
-    # Actually, XCreateBitmapFromData expects data in specific format.
-    # Let's create a pixmap and draw points manually to be safe.
+    # Build stipple via pixmap drawing for predictable server behavior.
 
     stipple = root.create_pixmap(2, 2, 1)  # 2x2, depth 1
     gc = stipple.create_gc(foreground=0, background=0)

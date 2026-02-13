@@ -54,6 +54,6 @@ def setup_logging(caplog):
 
 
 # Markers for test organization
-pytest_configure = lambda config: config.addinivalue_line(
-    "markers", "requires_x11: mark test as requiring X11 display"
-)
+def pytest_configure(config) -> None:
+    """Register custom pytest markers used by this test suite."""
+    config.addinivalue_line("markers", "requires_x11: mark test as requiring X11 display")

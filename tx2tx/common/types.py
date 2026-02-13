@@ -57,6 +57,19 @@ class Position:
         """Check if position is within given bounds"""
         return 0 <= self.x < width and 0 <= self.y < height
 
+    def isWithinBounds(self, width: int, height: int) -> bool:
+        """
+        Backward-compatible alias for `bounds_check`.
+
+        Args:
+            width: Screen width in pixels.
+            height: Screen height in pixels.
+
+        Returns:
+            True if the position is within `[0, width)` and `[0, height)`.
+        """
+        return self.bounds_check(width, height)
+
 
 @dataclass(frozen=True)
 class NormalizedPoint:
@@ -132,6 +145,18 @@ class Screen:
         """
         return NormalizedPoint(x=pos.x / self.width, y=pos.y / self.height)
 
+    def normalize(self, pos: Position) -> NormalizedPoint:
+        """
+        Backward-compatible alias for `coordinates_normalize`.
+
+        Args:
+            pos: Absolute pixel position.
+
+        Returns:
+            Normalized coordinate point.
+        """
+        return self.coordinates_normalize(pos)
+
     def coordinates_denormalize(self, npt: NormalizedPoint) -> Position:
         """
         Convert normalized point to pixel position
@@ -148,6 +173,18 @@ class Screen:
             pos = screen.coordinates_denormalize(npt)  # Position(x=960, y=540)
         """
         return Position(x=int(npt.x * self.width), y=int(npt.y * self.height))
+
+    def denormalize(self, npt: NormalizedPoint) -> Position:
+        """
+        Backward-compatible alias for `coordinates_denormalize`.
+
+        Args:
+            npt: Normalized coordinate point.
+
+        Returns:
+            Absolute pixel position.
+        """
+        return self.coordinates_denormalize(npt)
 
 
 # Backward compatibility alias

@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """Test XInput2 Raw Motion events"""
 
-import sys
 import time
 from Xlib import X, display
-from Xlib.ext import xinput
 
 def main():
     try:
