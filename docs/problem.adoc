@@ -1,0 +1,71 @@
+= Problem Statement
+
+== Summary
+
+`tx2tx` exists to share keyboard and mouse input between machines in environments where traditional software KVM tools are unreliable or blocked by platform constraints.
+
+The project targets practical interoperability between:
+
+- X11 to X11
+- Wayland (capture side) to X11 (injection side)
+- Mixed desktop/containerized Linux setups (for example, host Linux + Crostini/container sessions)
+
+== Why Existing Tools Often Fail Here
+
+Many input-sharing tools assume one or more of the following:
+
+- unrestricted global input hooks
+- compositor APIs that permit pointer warps and injection
+- stable behavior across X11 and Wayland
+- easy privilege model for device access
+
+In real-world Linux setups, these assumptions fail:
+
+- Wayland intentionally restricts global input capture/injection.
+- Cursor hide/warp semantics vary by compositor/session.
+- Containerized environments can distort display/input behavior.
+- Security policies around `/dev/input/*` and `/dev/uinput` complicate deployment.
+
+== What `tx2tx` Solves
+
+=== 1. Explicit transition model instead of implicit focus hacks
+
+The server owns a state machine (`CENTER` vs remote context like `EAST/WEST/NORTH/SOUTH`) driven by pointer boundary crossing and velocity checks.
+
+This avoids fragile assumptions about window focus events.
+
+=== 2. Backend-specific implementations
+
+`tx2tx` does not pretend X11 and Wayland are equivalent:
+
+- X11 path uses X11 APIs/XTest for capture/injection.
+- Wayland path uses a helper process with explicit evdev/uinput operations.
+
+=== 3. Narrow protocol and controllable runtime behavior
+
+Network exchange is simple JSON message framing with explicit message types (`hello`, `mouse_event`, `key_event`, etc.), making runtime debugging practical.
+
+=== 4. Operational diagnostics for hard problems
+
+The repo includes tooling and logs for diagnosing capture/injection path failures (for example, keyboard probe and detailed helper grab diagnostics).
+
+== Design Goals
+
+- Reliability over flashy features
+- Debuggability over hidden automation
+- Explicit state over implicit side effects
+- Practical portability across imperfect Linux display environments
+
+== Non-Goals
+
+`tx2tx` is not trying to be:
+
+- a full-featured enterprise KVM suite
+- a GUI-first configuration product
+- a compositor-agnostic abstraction that hides all platform differences
+
+== Why This Matters
+
+For users running mixed Linux stacks, the core pain is not “how to move a cursor,” but “how to do it *reliably* under restrictive and inconsistent input/display rules.”
+
+`tx2tx` addresses that by treating capture, transition, transport, and injection as explicit engineering problems, not best-effort convenience behavior.

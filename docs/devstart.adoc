@@ -1,0 +1,133 @@
+= tx2tx Developer Start
+
+== Audience
+
+This guide is for developers onboarding to the `tx2tx` codebase and making code changes (not just running the binary).
+
+== What This Repo Is
+
+`tx2tx` is a network input-sharing system:
+
+- Server captures local input and controls transition state.
+- Client injects remote events into its local display/session.
+- Backend abstraction supports `x11` and `wayland`.
+- Wayland uses a privileged helper process for capture/injection.
+
+== Fast Setup
+
+From repo root:
+
+[source,bash]
+----
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -U pip
+pip install -e .
+----
+
+For Wayland development:
+
+[source,bash]
+----
+pip install -e ".[wayland]"
+----
+
+== Verify Baseline
+
+[source,bash]
+----
+./.venv/bin/ruff check tx2tx
+./.venv/bin/pytest -q tests/unit
+----
+
+Expected: all checks pass.
+
+== Entry Points and Module Map
+
+Thin CLI entry modules:
+
+- `tx2tx/cli.py`
+- `tx2tx/server/main.py`
+- `tx2tx/client/main.py`
+
+Runtime logic modules:
+
+- `tx2tx/server/runtime.py`
+- `tx2tx/server/bootstrap.py`
+- `tx2tx/client/runtime.py`
+- `tx2tx/client/bootstrap.py`
+
+Core supporting modules:
+
+- Network: `tx2tx/server/network.py`, `tx2tx/client/network.py`
+- Protocol: `tx2tx/protocol/message.py`
+- Shared config/types: `tx2tx/common/config.py`, `tx2tx/common/types.py`, `tx2tx/common/runtime_models.py`
+- Backend abstractions: `tx2tx/input/backend.py`, `tx2tx/input/factory.py`
+- X11 backend: `tx2tx/x11/*`
+- Wayland backend/helper: `tx2tx/wayland/*`
+
+== Typical Development Loops
+
+=== 1. Unit-test-only loop
+
+[source,bash]
+----
+./.venv/bin/ruff check tx2tx
+./.venv/bin/pytest -q tests/unit
+----
+
+=== 2. Server/client manual loop
+
+Terminal A (server):
+
+[source,bash]
+----
+tx2tx --backend x11
+----
+
+Terminal B (client):
+
+[source,bash]
+----
+tx2tx --server <server-ip>:24800 --backend x11 --name <client-name>
+----
+
+=== 3. Wayland input capture diagnostics
+
+Use this before debugging end-to-end transitions:
+
+[source,bash]
+----
+sudo ./.venv/bin/python -m tx2tx.wayland.keyboard_probe \
+  --helper "./.venv/bin/tx2tx-wayland-helper" \
+  --timeout 10
+----
+
+This confirms real keyboard event capture path and shows source device nodes.
+
+== Architecture Notes for New Changes
+
+- Keep `main.py` files thin. Put behavior in `runtime`/`bootstrap` modules.
+- Prefer typed runtime contracts (`tx2tx/common/runtime_models.py`) over untyped `dict[str, Any]`.
+- Keep server state transitions explicit and testable.
+- For Wayland helper work, preserve strict separation:
+  - device discovery/classification (`device_components.py`)
+  - grab tracking/refcount
+  - event transport protocol
+
+== Code Review Expectations
+
+Before proposing changes:
+
+- `ruff check` is clean.
+- `pytest -q tests/unit` passes.
+- Behavior changes are traceable in docs or tests.
+- New runtime options are typed and documented.
+
+== Related Docs
+
+- `docs/overview.adoc`
+- `docs/architecture.adoc`
+- `docs/problem.adoc`
+- `docs/limitations.adoc`
+- `docs/REFACTOR_MAP.md`

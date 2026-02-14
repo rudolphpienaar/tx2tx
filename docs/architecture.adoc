@@ -1,81 +1,379 @@
 = tx2tx Architecture
 
-== High-Level Design
+== 1. Scope
 
-tx2tx is a client-server system. The server captures local input events and forwards them to the active client over a TCP connection. Each side uses a backend abstraction to handle display geometry, pointer capture, and event injection.
+This document describes the runtime architecture of `tx2tx` as currently implemented.
 
-== Components
+It covers:
 
-- CLI entry point: `tx2tx.cli:main`
-- Server: `tx2tx.server.main` and `tx2tx.server.network`
-- Client: `tx2tx.client.main` and `tx2tx.client.network`
-- Protocol: `tx2tx.protocol.message`
-- Common types and settings: `tx2tx.common.*`
-- Backend interface and factory: `tx2tx.input.*`
-- X11 backend: `tx2tx.x11.*`
-- Wayland backend and helper: `tx2tx.wayland.*`
+- system boundaries
+- core components and module ownership
+- control/data flow
+- transition state model
+- Wayland helper internals
+- failure and recovery behavior
 
-== Runtime Flow
+== 2. System Context
 
-=== Server
+`tx2tx` is a networked input-sharing system.
 
-1. Load configuration and initialize settings
-2. Create a display backend and input capturer
-3. Track pointer position and boundary crossings
-4. When the pointer crosses the configured edge, send a `screen_leave` message and begin forwarding input events
-5. When a `screen_enter` message returns from a client, release local grabs and restore local control
+- The *server* captures local input and decides when control transitions to a remote client.
+- The *client* receives events and injects them into its local session.
+- Input and display behavior is backend-specific (`x11` vs `wayland`).
 
-=== Client
+[source,text]
+----
+┌──────────────────────────────────────────────────────────────────┐
+│                          Local Network                           │
+└──────────────────────────────────────────────────────────────────┘
 
-1. Connect to the server and advertise screen geometry
-2. When active, inject incoming mouse and keyboard events
-3. When the pointer hits the configured edge, send `screen_enter` back to the server
+     Server Machine                                      Client Machine
+┌──────────────────────┐                             ┌──────────────────────┐
+│ tx2tx server         │   JSON lines over TCP       │ tx2tx client         │
+│ - capture input      │ ==========================> │ - inject input       │
+│ - transition state   │ <========================== │ - render cursor      │
+│ - route events       │      hello/keepalive        │ - reconnect logic    │
+└──────────────────────┘                             └──────────────────────┘
+----
 
-== Protocol
+== 3. Runtime Entrypoints and Layering
 
-Messages are JSON frames over TCP. Core message types include `hello`, `screen_leave`, `screen_enter`, `mouse_event`, `key_event`, and `keepalive`.
+Top-level entry modules are intentionally thin.
 
-== Screen Layout and Coordinate Mapping
+[source,text]
+----
+CLI Entrypoints (thin)
+  tx2tx/cli.py
+  tx2tx/server/main.py
+  tx2tx/client/main.py
 
-The server uses `tx2tx.common.layout.ScreenLayout` to determine which edge triggers a transition and to transform coordinates between server and client screens. Horizontal and vertical transitions scale the appropriate axis and place the cursor inside the destination screen with an entry margin to avoid immediate bounce-backs.
+Runtime/Bootstrap (behavior)
+  tx2tx/server/runtime.py
+  tx2tx/server/bootstrap.py
+  tx2tx/client/runtime.py
+  tx2tx/client/bootstrap.py
+----
 
-Configuration supports named clients with a position (north, south, east, west, and diagonals). Current transition logic is implemented for cardinal directions.
+[source,text]
+----
+┌────────────────────────────┐
+│ main.py (server/client)    │
+│ - parse args               │
+│ - call runtime             │
+│ - top-level error handling │
+└──────────────┬─────────────┘
+               │
+               v
+┌────────────────────────────┐
+│ runtime.py                 │
+│ - orchestration loops      │
+│ - state transitions        │
+│ - event forwarding         │
+└──────────────┬─────────────┘
+               │
+               v
+┌────────────────────────────┐
+│ bootstrap.py               │
+│ - config/load overrides    │
+│ - backend option resolve   │
+│ - component wiring         │
+└────────────────────────────┘
+----
 
-== Backend Abstraction
+== 4. Module Ownership Map
 
-The backend interface is defined in `tx2tx.input.backend`. The factory in `tx2tx.input.factory` chooses a backend based on the configured name.
+[source,text]
+----
+tx2tx/common/
+  config.py            -> YAML parse + config dataclasses
+  types.py             -> shared event/screen/domain types
+  runtime_models.py    -> typed runtime option contracts
+  settings.py          -> runtime constants and config-backed settings
 
-=== X11 Backend
+tx2tx/protocol/
+  message.py           -> message framing, builders, parsers
 
-- Uses python-xlib and XTest for capture and injection
-- Reads pointer position with XQueryPointer
-- Captures keyboard and mouse via X11 grabs and XRecord/XTest facilities
-- Supports overlay and cursor hiding behavior for non-native X11 environments
+tx2tx/server/
+  main.py              -> thin entrypoint
+  runtime.py           -> server event loop and state-machine handling
+  bootstrap.py         -> server startup wiring/policy resolution
+  network.py           -> TCP accept/read/write and client routing
+  state.py             -> singleton server context state
 
-=== Wayland Backend
+tx2tx/client/
+  main.py              -> thin entrypoint
+  runtime.py           -> message receive/inject loop
+  bootstrap.py         -> client startup wiring/policy resolution
+  network.py           -> client transport/reconnect
 
-Wayland requires a privileged helper process because direct input capture and injection are restricted in Wayland compositors.
+tx2tx/input/
+  backend.py           -> abstract display/capture/inject interfaces
+  factory.py           -> backend selection and construction
 
-- The client and server use `tx2tx.wayland.helper.WaylandHelperClient`
-- The helper daemon (`tx2tx-wayland-helper`) reads `/dev/input/*` via evdev
-- Event injection uses uinput (`/dev/uinput`)
-- The helper exposes a JSON line protocol over stdin/stdout
-- Keyboard events are transmitted using Linux evdev keycodes mapped to X11 keycodes with the standard +8 offset.
-- Initial cursor state can be calibrated by warping the cursor to center on startup.
-- Pointer coordinates can be sourced from either the helper (`helper`) or GNOME Shell (`gnome`) via `--wayland-pointer-provider` / `backend.wayland.pointer_provider`.
+tx2tx/x11/
+  display.py           -> display ops, cursor/grab behavior
+  capturer.py          -> X11 event capture
+  injector.py          -> XTest injection
+  backend.py           -> X11 backend adapters
 
-Helper commands include `screen_geometry_get`, `pointer_position_get`, `cursor_position_set`, `input_events_read`, `inject_mouse`, `inject_key`, `pointer_grab`, and `keyboard_grab`.
+tx2tx/wayland/
+  backend.py           -> Wayland backend adapters
+  helper.py            -> helper client protocol (stdin/stdout JSON)
+  helper_daemon.py     -> privileged helper daemon
+  device_components.py -> device registry/grab tracking/event queue components
+  keysym_mapping.py    -> evdev -> X11 keysym mapping utilities
+----
 
-== Configuration
+== 5. Data Plane and Control Plane
 
-Configuration is loaded from `config.yml` or standard paths and merged with CLI overrides in `tx2tx.common.config`. Backend selection is driven by `backend.name`, with Wayland-specific options under `backend.wayland`.
+=== 5.1 Data Plane (input payloads)
 
-== Permissions and Security
+[source,text]
+----
+Server capturer -> InputEvent list -> protocol MessageBuilder -> network send
+Client network receive -> MessageParser -> injector -> target display/session
+----
 
-The Wayland helper needs access to `/dev/input/*` and `/dev/uinput`. This usually requires running the helper with elevated privileges or configuring udev rules to grant device access.
+=== 5.2 Control Plane (session/transition)
 
-== Known Limitations and Gaps
+[source,text]
+----
+Server context state:
+  CENTER <-> (WEST|EAST|NORTH|SOUTH)
 
-- Wayland cursor hide and session detection are currently minimal in the helper implementation
-- Wayland screen geometry must be provided by the compositor or manual overrides
-- Diagonal layout transitions are not fully implemented
+Driven by:
+  pointer boundary crossing
+  velocity thresholds
+  panic key
+  transport send failures
+----
+
+== 6. Server Runtime Architecture
+
+[source,text]
+----
+_process_polling_loop()
+  ├─ network.connections_accept()
+  ├─ network.clientData_receive(clientMessage_handle)
+  ├─ pointer query + velocity
+  ├─ if context == CENTER:
+  │    centerContext_process(...)
+  └─ else:
+       remoteContext_process(...)
+----
+
+=== 6.1 Center -> Remote transition pipeline
+
+[source,text]
+----
+centerContext_process
+  ├─ boundary detect + hysteresis check
+  ├─ resolve target context (direction -> context)
+  ├─ resolve target client connection
+  ├─ compute parking position
+  ├─ set server_state context + active remote client name
+  ├─ pointer_grab + keyboard_grab
+  ├─ cursor_hide
+  └─ reset tracker state
+----
+
+=== 6.2 Remote forwarding pipeline
+
+[source,text]
+----
+remoteContext_process
+  ├─ optional warp enforcement (early transition window)
+  ├─ return-boundary check
+  │    └─ remoteReturn_process() if crossed
+  ├─ remoteMotionPosition_send()
+  ├─ inputEvents_read()
+  ├─ panicKey_check()
+  └─ remoteInputEvents_send()
+----
+
+== 7. Client Runtime Architecture
+
+[source,text]
+----
+client_run
+  ├─ bootstrap/config/logging/backend selection
+  ├─ connect to server (hello with screen geometry + name)
+  └─ messageLoop_run
+       ├─ messages_receive()
+       ├─ serverMessage_handle()
+       │    ├─ mouseMessage_handle()
+       │    └─ keyMessage_handle()
+       └─ reconnect policy on ConnectionError
+----
+
+== 8. Wayland Helper Architecture
+
+Wayland requires privileged input access. `tx2tx` isolates this in a helper process.
+
+=== 8.1 Helper process split
+
+[source,text]
+----
+WaylandHelperDaemon
+  ├─ DeviceRegistry      (discover/classify /dev/input/event*)
+  ├─ GrabRefCounter      (refcounted grab/ungrab semantics)
+  ├─ InputEventQueue     (thread-safe event queue)
+  ├─ InputDeviceManager  (event loop + event translation)
+  └─ UInputManager       (injection via /dev/uinput)
+----
+
+=== 8.2 Helper protocol
+
+[source,text]
+----
+Client (WaylandHelperClient) <-> Helper daemon (JSON line protocol)
+
+Commands:
+  hello
+  screen_geometry_get
+  pointer_position_get
+  cursor_position_set
+  pointer_grab / pointer_ungrab
+  keyboard_grab / keyboard_ungrab
+  input_events_read
+  inject_mouse / inject_key
+  session_is_native
+  sync
+  shutdown
+----
+
+== 9. Sequence Diagrams
+
+=== 9.1 Startup and handshake
+
+[source,text]
+----
+Client                         Server
+  |                              |
+  |------ TCP connect ---------->|
+  |<----- hello request ---------|
+  |------ hello response -------->  (version, screen, client_name)
+  |                              |
+----
+
+=== 9.2 Transition CENTER -> EAST (example)
+
+[source,text]
+----
+Server loop                    Client
+  |                              |
+  | boundary crossed             |
+  | context: CENTER->EAST        |
+  | grab pointer+keyboard        |
+  | cursor hide                  |
+  |------ mouse_event(norm) ---->|
+  |------ key_event -----------> |
+  |------ button_event --------> |
+  |                              |
+----
+
+=== 9.3 Return EAST -> CENTER (example)
+
+[source,text]
+----
+Server loop                    Client
+  |                              |
+  | return boundary reached      |
+  |------ hide-signal ---------> | (mouse_event norm=-1,-1)
+  | ungrab pointer+keyboard      |
+  | cursor show                  |
+  | context: EAST->CENTER        |
+  |                              |
+----
+
+== 10. State Machine
+
+[source,text]
+----
+                   ┌───────────────┐
+                   │     NORTH     │
+                   └───────┬───────┘
+                    (2) ↑  │  ↓ (6)
+                           │
+┌───────────────┐   (1) ← ┌┴┐ → (3)   ┌───────────────┐
+│     WEST      │─────────│C│─────────│     EAST      │
+└───────────────┘   (5) → └┬┘ ← (7)   └───────────────┘
+                           │
+                    (8) ↑  │  ↓ (4)
+                   ┌───────┴───────┐
+                   │     SOUTH     │
+                   └───────────────┘
+----
+
+Transition semantics:
+
+- Outbound transition (`CENTER -> direction`): pointer crosses that screen boundary.
+- Inbound transition (`direction -> CENTER`): return boundary crossing in remote context.
+- Forced inbound (`direction -> CENTER`): panic key, remote disconnect, or send failure.
+- Forbidden transition: no direct `WEST|EAST|NORTH|SOUTH -> WEST|EAST|NORTH|SOUTH`.
+
+[source,text]
+----
+Transition table (authoritative)
+
+ID  FROM    EVENT                              TO
+1   CENTER  boundary_left_crossed              WEST
+2   CENTER  boundary_top_crossed               NORTH
+3   CENTER  boundary_right_crossed             EAST
+4   CENTER  boundary_bottom_crossed            SOUTH
+5   WEST    return_crossed | panic | fault     CENTER
+6   NORTH   return_crossed | panic | fault     CENTER
+7   EAST    return_crossed | panic | fault     CENTER
+8   SOUTH   return_crossed | panic | fault     CENTER
+----
+
+== 11. Deployment Views
+
+=== 11.1 X11-only deployment
+
+[source,text]
+----
+Server (x11 backend) ---------------- TCP ---------------- Client (x11 backend)
+----
+
+=== 11.2 Wayland capture -> X11 injection
+
+[source,text]
+----
+Server machine:
+  tx2tx server (wayland backend)
+      |
+      +--> tx2tx-wayland-helper (privileged)
+             |- reads /dev/input/event*
+             '- injects via /dev/uinput
+
+Network:
+  TCP JSON messages
+
+Client machine:
+  tx2tx client (x11 backend using XTest injection)
+----
+
+== 12. Reliability and Recovery Strategy
+
+Key recovery mechanisms:
+
+- configurable panic key path (`panicKey_check`)
+- send-failure driven revert to `CENTER`
+- disconnect checks (`die_on_disconnect` option)
+- helper diagnostics (grab counts and device lists)
+- keyboard probe utility for isolated capture validation
+
+== 13. Constraints and Tradeoffs
+
+- Wayland security model requires privileged helper design.
+- Cursor hide/warp semantics differ by compositor and environment.
+- Runtime prioritizes explicit control and diagnostics over opaque automation.
+
+== 14. Related Documents
+
+- `docs/overview.adoc`
+- `docs/problem.adoc`
+- `docs/limitations.adoc`
+- `docs/devstart.adoc`
+- `docs/REFACTOR_MAP.md`

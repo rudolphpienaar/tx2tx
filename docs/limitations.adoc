@@ -1,0 +1,115 @@
+= Current Limitations
+
+This document tracks known limitations in `tx2tx` as of the current architecture and runtime model.
+
+== 1. Platform and Backend Limitations
+
+=== Wayland helper privilege requirements
+
+Wayland capture/injection depends on helper access to:
+
+- `/dev/input/*`
+- `/dev/uinput`
+
+In many environments, this requires elevated privileges or explicit udev/device policy configuration.
+
+Impact:
+
+- Setup complexity is higher than X11.
+- Misconfigured permissions can produce partial functionality (for example, mouse works but keyboard does not).
+
+=== Compositor-dependent cursor behavior
+
+Cursor hide/warp behavior differs by compositor/session. Some environments ignore or reinterpret operations that work in others.
+
+Impact:
+
+- Ghost cursor visibility can occur.
+- Transition feel can vary by desktop stack.
+
+=== Pointer provider variance on Wayland
+
+Different pointer-coordinate providers (`helper`, `gnome`) can behave differently under load or specific session topologies.
+
+Impact:
+
+- Boundary detection stability can differ across setups.
+
+== 2. Functional Limitations
+
+=== Layout support is strongest for cardinal directions
+
+Core transition logic is centered on `west/east/north/south`.
+
+Impact:
+
+- Diagonal or complex layouts are not first-class behavior.
+
+=== Multi-client orchestration remains basic
+
+Configuration supports named clients, but operational complexity rises quickly with more than a simple topology.
+
+Impact:
+
+- Most robust path is still “single active remote target” workflows.
+
+== 3. Reliability and Runtime Limitations
+
+=== Device-model complexity in Wayland environments
+
+Input devices can present mixed capabilities and dynamic behavior. A single physical keyboard may appear in ways that overlap with pointer-class devices.
+
+Impact:
+
+- Runtime diagnostics may be required to identify effective device nodes.
+- Behavior can differ after reconnect, session change, or privilege boundary changes.
+
+=== Timing-sensitive transitions
+
+Transition handling includes hysteresis, velocity checks, and temporary enforcement windows. These are necessary but can be sensitive to machine load and compositor behavior.
+
+Impact:
+
+- Rare edge regressions remain possible in unusual timing conditions.
+
+== 4. Test Coverage Limitations
+
+=== Unit tests are strong; environment contracts are harder
+
+Unit tests cover core protocol/config/types and selected runtime behavior. However, full fidelity tests for compositor-specific Wayland behavior are inherently difficult in CI.
+
+Impact:
+
+- Some issues only reproduce on target machines/sessions.
+
+== 5. Security and Operational Limitations
+
+=== Network transport is plain TCP
+
+The current protocol is lightweight and local-network oriented; it is not a hardened secure transport layer by default.
+
+Impact:
+
+- Deployment should assume trusted local networks unless additional transport controls are used externally.
+
+=== Error handling still process-centric in some bootstrap paths
+
+Some startup helpers still terminate process flow directly on fatal errors.
+
+Impact:
+
+- This is practical for CLI execution but less ideal for embedding/reuse.
+
+== Mitigations and Best Practices
+
+- Validate capture path first using `tx2tx.wayland.keyboard_probe`.
+- Keep a known-good, minimal topology while debugging.
+- Use typed runtime options and explicit config values.
+- Run `ruff` and unit tests before and after runtime-path changes.
+- Treat Wayland permissions and device ownership as first-class deployment prerequisites.
+
+== Planned Improvement Themes
+
+- Broader topology support and clearer multi-client behavior contracts.
+- Additional integration/contract tests around transition invariants.
+- Continued separation of runtime policy from platform-specific I/O mechanics.
