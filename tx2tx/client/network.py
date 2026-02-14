@@ -48,6 +48,9 @@ class ClientNetwork:
         self.buffer: str = ""
         self.is_connected: bool = False
         self.reconnect_attempts: int = 0
+        self._hello_screen_width: int | None = None
+        self._hello_screen_height: int | None = None
+        self._hello_client_name: str | None = None
 
     def connection_establish(
         self,
@@ -66,6 +69,17 @@ class ClientNetwork:
         Returns:
             Result value.
         """
+        if screen_width is not None:
+            self._hello_screen_width = screen_width
+        if screen_height is not None:
+            self._hello_screen_height = screen_height
+        if client_name is not None:
+            self._hello_client_name = client_name
+
+        hello_screen_width: int | None = self._hello_screen_width
+        hello_screen_height: int | None = self._hello_screen_height
+        hello_client_name: str | None = self._hello_client_name
+
         while self.reconnect_attempts < self.reconnect_max_attempts:
             try:
                 self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -78,7 +92,9 @@ class ClientNetwork:
 
                 # Send hello message with optional screen geometry
                 hello_msg = MessageBuilder.helloMessage_create(
-                    screen_width=screen_width, screen_height=screen_height, client_name=client_name
+                    screen_width=hello_screen_width,
+                    screen_height=hello_screen_height,
+                    client_name=hello_client_name,
                 )
                 self.message_send(hello_msg)
 
@@ -225,7 +241,11 @@ class ClientNetwork:
         self.reconnect_attempts = 0
 
         try:
-            self.connection_establish()
+            self.connection_establish(
+                screen_width=self._hello_screen_width,
+                screen_height=self._hello_screen_height,
+                client_name=self._hello_client_name,
+            )
             return True
         except ConnectionError as e:
             logger.error(f"Reconnection failed: {e}")
