@@ -310,14 +310,19 @@ class WaylandDisplayBackend(DisplayBackend):
         """
         """Grab pointer via helper."""
         result: dict[str, Any] = self._helper.pointer_grab()
+        effective_grabbed: int = int(result.get("grabbed", 0)) + int(
+            result.get("already_grabbed", 0)
+        )
         logger.info(
-            "Wayland pointer grab: grabbed=%s failed=%s grabbed_devices=%s failed_devices=%s",
+            "Wayland pointer grab: grabbed=%s already_grabbed=%s failed=%s grabbed_devices=%s already_grabbed_devices=%s failed_devices=%s",
             result.get("grabbed", 0),
+            result.get("already_grabbed", 0),
             result.get("failed", 0),
             result.get("grabbed_devices", []),
+            result.get("already_grabbed_devices", []),
             result.get("failed_devices", []),
         )
-        if result.get("grabbed", 0) == 0:
+        if effective_grabbed == 0:
             logger.warning(
                 "Wayland pointer grab did not capture any devices (failed=%s).",
                 result.get("failed", 0),
@@ -348,14 +353,19 @@ class WaylandDisplayBackend(DisplayBackend):
         """
         """Grab keyboard via helper."""
         result: dict[str, Any] = self._helper.keyboard_grab()
+        effective_grabbed: int = int(result.get("grabbed", 0)) + int(
+            result.get("already_grabbed", 0)
+        )
         logger.info(
-            "Wayland keyboard grab: grabbed=%s failed=%s grabbed_devices=%s failed_devices=%s",
+            "Wayland keyboard grab: grabbed=%s already_grabbed=%s failed=%s grabbed_devices=%s already_grabbed_devices=%s failed_devices=%s",
             result.get("grabbed", 0),
+            result.get("already_grabbed", 0),
             result.get("failed", 0),
             result.get("grabbed_devices", []),
+            result.get("already_grabbed_devices", []),
             result.get("failed_devices", []),
         )
-        if result.get("grabbed", 0) == 0:
+        if effective_grabbed == 0:
             message: str = (
                 "Wayland keyboard grab did not capture any devices (failed=%s). "
                 "Keystrokes may still execute on the server."

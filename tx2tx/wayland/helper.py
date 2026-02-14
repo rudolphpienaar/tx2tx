@@ -165,8 +165,10 @@ class WaylandHelperClient:
         result = self._request("pointer_grab", {})
         return {
             "grabbed": int(result.get("grabbed", 0)),
+            "already_grabbed": int(result.get("already_grabbed", 0)),
             "failed": int(result.get("failed", 0)),
             "grabbed_devices": list(result.get("grabbed_devices", [])),
+            "already_grabbed_devices": list(result.get("already_grabbed_devices", [])),
             "failed_devices": list(result.get("failed_devices", [])),
         }
 
@@ -184,8 +186,10 @@ class WaylandHelperClient:
         result = self._request("pointer_ungrab", {})
         return {
             "released": int(result.get("released", 0)),
+            "deferred_release": int(result.get("deferred_release", 0)),
             "failed": int(result.get("failed", 0)),
             "released_devices": list(result.get("released_devices", [])),
+            "deferred_release_devices": list(result.get("deferred_release_devices", [])),
             "failed_devices": list(result.get("failed_devices", [])),
         }
 
@@ -203,8 +207,10 @@ class WaylandHelperClient:
         result = self._request("keyboard_grab", {})
         return {
             "grabbed": int(result.get("grabbed", 0)),
+            "already_grabbed": int(result.get("already_grabbed", 0)),
             "failed": int(result.get("failed", 0)),
             "grabbed_devices": list(result.get("grabbed_devices", [])),
+            "already_grabbed_devices": list(result.get("already_grabbed_devices", [])),
             "failed_devices": list(result.get("failed_devices", [])),
         }
 
@@ -222,8 +228,10 @@ class WaylandHelperClient:
         result = self._request("keyboard_ungrab", {})
         return {
             "released": int(result.get("released", 0)),
+            "deferred_release": int(result.get("deferred_release", 0)),
             "failed": int(result.get("failed", 0)),
             "released_devices": list(result.get("released_devices", [])),
+            "deferred_release_devices": list(result.get("deferred_release_devices", [])),
             "failed_devices": list(result.get("failed_devices", [])),
         }
 

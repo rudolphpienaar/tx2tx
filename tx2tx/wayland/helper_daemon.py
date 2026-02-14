@@ -145,6 +145,7 @@ class InputDeviceManager:
         self._mouse_fds = {d.fd for d in self._mouse_devices}
         self._key_fds = {d.fd for d in self._key_devices}
         self._fd_to_path = {d.fd: d.path for d in self._devices}
+        self._grab_refcount_by_fd: dict[int, int] = {}
 
         self._reader = threading.Thread(target=self._events_loop, daemon=True)
         self._reader.start()
@@ -188,21 +189,30 @@ class InputDeviceManager:
             Dictionary containing grab counts and device paths.
         """
         grabbed: int = 0
+        already_grabbed: int = 0
         failed: int = 0
         grabbed_devices: list[str] = []
+        already_grabbed_devices: list[str] = []
         failed_devices: list[str] = []
         for dev in self._mouse_devices:
-            try:
-                dev.grab()
+            status: str
+            device_path: str
+            status, device_path = self._deviceGrab_apply(dev)
+            if status == "grabbed":
                 grabbed += 1
-                grabbed_devices.append(self._fd_to_path.get(dev.fd, "unknown"))
-            except Exception:
+                grabbed_devices.append(device_path)
+            elif status == "already_grabbed":
+                already_grabbed += 1
+                already_grabbed_devices.append(device_path)
+            else:
                 failed += 1
-                failed_devices.append(self._fd_to_path.get(dev.fd, "unknown"))
+                failed_devices.append(device_path)
         return {
             "grabbed": grabbed,
+            "already_grabbed": already_grabbed,
             "failed": failed,
             "grabbed_devices": grabbed_devices,
+            "already_grabbed_devices": already_grabbed_devices,
             "failed_devices": failed_devices,
         }
 
@@ -214,21 +224,30 @@ class InputDeviceManager:
             Dictionary containing release counts and device paths.
         """
         released: int = 0
+        deferred_release: int = 0
         failed: int = 0
         released_devices: list[str] = []
+        deferred_release_devices: list[str] = []
         failed_devices: list[str] = []
         for dev in self._mouse_devices:
-            try:
-                dev.ungrab()
+            status: str
+            device_path: str
+            status, device_path = self._deviceUngrab_apply(dev)
+            if status == "released":
                 released += 1
-                released_devices.append(self._fd_to_path.get(dev.fd, "unknown"))
-            except Exception:
+                released_devices.append(device_path)
+            elif status == "deferred":
+                deferred_release += 1
+                deferred_release_devices.append(device_path)
+            else:
                 failed += 1
-                failed_devices.append(self._fd_to_path.get(dev.fd, "unknown"))
+                failed_devices.append(device_path)
         return {
             "released": released,
+            "deferred_release": deferred_release,
             "failed": failed,
             "released_devices": released_devices,
+            "deferred_release_devices": deferred_release_devices,
             "failed_devices": failed_devices,
         }
 
@@ -240,21 +259,30 @@ class InputDeviceManager:
             Dictionary containing grab counts and device paths.
         """
         grabbed: int = 0
+        already_grabbed: int = 0
         failed: int = 0
         grabbed_devices: list[str] = []
+        already_grabbed_devices: list[str] = []
         failed_devices: list[str] = []
         for dev in self._key_devices:
-            try:
-                dev.grab()
+            status: str
+            device_path: str
+            status, device_path = self._deviceGrab_apply(dev)
+            if status == "grabbed":
                 grabbed += 1
-                grabbed_devices.append(self._fd_to_path.get(dev.fd, "unknown"))
-            except Exception:
+                grabbed_devices.append(device_path)
+            elif status == "already_grabbed":
+                already_grabbed += 1
+                already_grabbed_devices.append(device_path)
+            else:
                 failed += 1
-                failed_devices.append(self._fd_to_path.get(dev.fd, "unknown"))
+                failed_devices.append(device_path)
         return {
             "grabbed": grabbed,
+            "already_grabbed": already_grabbed,
             "failed": failed,
             "grabbed_devices": grabbed_devices,
+            "already_grabbed_devices": already_grabbed_devices,
             "failed_devices": failed_devices,
         }
 
@@ -266,23 +294,82 @@ class InputDeviceManager:
             Dictionary containing release counts and device paths.
         """
         released: int = 0
+        deferred_release: int = 0
         failed: int = 0
         released_devices: list[str] = []
+        deferred_release_devices: list[str] = []
         failed_devices: list[str] = []
         for dev in self._key_devices:
-            try:
-                dev.ungrab()
+            status: str
+            device_path: str
+            status, device_path = self._deviceUngrab_apply(dev)
+            if status == "released":
                 released += 1
-                released_devices.append(self._fd_to_path.get(dev.fd, "unknown"))
-            except Exception:
+                released_devices.append(device_path)
+            elif status == "deferred":
+                deferred_release += 1
+                deferred_release_devices.append(device_path)
+            else:
                 failed += 1
-                failed_devices.append(self._fd_to_path.get(dev.fd, "unknown"))
+                failed_devices.append(device_path)
         return {
             "released": released,
+            "deferred_release": deferred_release,
             "failed": failed,
             "released_devices": released_devices,
+            "deferred_release_devices": deferred_release_devices,
             "failed_devices": failed_devices,
         }
+
+    def _deviceGrab_apply(self, device: InputDevice) -> tuple[str, str]:
+        """
+        Apply grab on a device with refcount tracking.
+
+        Args:
+            device: Input device to grab.
+
+        Returns:
+            Tuple of (status, device_path) where status is one of:
+            "grabbed", "already_grabbed", or "failed".
+        """
+        fd: int = device.fd
+        device_path: str = self._fd_to_path.get(fd, "unknown")
+        current_count: int = self._grab_refcount_by_fd.get(fd, 0)
+        if current_count > 0:
+            self._grab_refcount_by_fd[fd] = current_count + 1
+            return "already_grabbed", device_path
+        try:
+            device.grab()
+            self._grab_refcount_by_fd[fd] = 1
+            return "grabbed", device_path
+        except Exception:
+            return "failed", device_path
+
+    def _deviceUngrab_apply(self, device: InputDevice) -> tuple[str, str]:
+        """
+        Apply ungrab on a device with refcount tracking.
+
+        Args:
+            device: Input device to ungrab.
+
+        Returns:
+            Tuple of (status, device_path) where status is one of:
+            "released", "deferred", or "failed".
+        """
+        fd: int = device.fd
+        device_path: str = self._fd_to_path.get(fd, "unknown")
+        current_count: int = self._grab_refcount_by_fd.get(fd, 0)
+        if current_count <= 0:
+            return "failed", device_path
+        if current_count > 1:
+            self._grab_refcount_by_fd[fd] = current_count - 1
+            return "deferred", device_path
+        try:
+            device.ungrab()
+            self._grab_refcount_by_fd.pop(fd, None)
+            return "released", device_path
+        except Exception:
+            return "failed", device_path
 
     def _devices_open(self, device_paths: Optional[list[str]]) -> list[InputDevice]:
         """
