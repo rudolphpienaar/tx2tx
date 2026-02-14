@@ -9,9 +9,8 @@ from tx2tx.common.types import EventType, KeyEvent, MouseEvent, Position, Screen
 from tx2tx.input.backend import DisplayBackend, InputCapturer, InputEvent, InputInjector
 from tx2tx.wayland.gnome_pointer import GnomePointerProvider
 from tx2tx.wayland.helper import WaylandHelperClient
+from tx2tx.wayland.keysym_mapping import keysymFromEvdevKeycode_get
 
-_KEYCODE_TO_KEYNAME: Optional[dict[int, str]] = None
-_KEYCODE_TO_KEYSYM: Optional[dict[int, int]] = None
 logger = logging.getLogger(__name__)
 
 
@@ -25,150 +24,7 @@ def _keysym_from_evdev(keycode: int) -> Optional[int]:
     Returns:
         X11 keysym integer or None if unknown.
     """
-    try:
-        from evdev import ecodes
-        from Xlib import XK
-    except Exception:
-        return None
-
-    global _KEYCODE_TO_KEYNAME, _KEYCODE_TO_KEYSYM
-    if _KEYCODE_TO_KEYSYM is None:
-        keyname_mapping: dict[int, str] = {}
-        for name, value in ecodes.KEY.items():
-            if not isinstance(name, str) or not name.startswith("KEY_"):
-                continue
-            if isinstance(value, int):
-                keyname_mapping.setdefault(value, name)
-            elif isinstance(value, (list, tuple)):
-                for item in value:
-                    if isinstance(item, int):
-                        keyname_mapping.setdefault(item, name)
-
-        special = {
-            "ENTER": "Return",
-            "ESC": "Escape",
-            "SPACE": "space",
-            "TAB": "Tab",
-            "BACKSPACE": "BackSpace",
-            "MINUS": "minus",
-            "EQUAL": "equal",
-            "LEFTBRACE": "bracketleft",
-            "RIGHTBRACE": "bracketright",
-            "SEMICOLON": "semicolon",
-            "APOSTROPHE": "apostrophe",
-            "GRAVE": "grave",
-            "BACKSLASH": "backslash",
-            "COMMA": "comma",
-            "DOT": "period",
-            "SLASH": "slash",
-            "LEFTSHIFT": "Shift_L",
-            "RIGHTSHIFT": "Shift_R",
-            "LEFTCTRL": "Control_L",
-            "RIGHTCTRL": "Control_R",
-            "LEFTALT": "Alt_L",
-            "RIGHTALT": "Alt_R",
-            "LEFTMETA": "Super_L",
-            "RIGHTMETA": "Super_R",
-            "CAPSLOCK": "Caps_Lock",
-            "DELETE": "Delete",
-            "INSERT": "Insert",
-            "HOME": "Home",
-            "END": "End",
-            "PAGEUP": "Page_Up",
-            "PAGEDOWN": "Page_Down",
-            "UP": "Up",
-            "DOWN": "Down",
-            "LEFT": "Left",
-            "RIGHT": "Right",
-            "PRINT": "Print",
-            "PAUSE": "Pause",
-        }
-
-        keysym_mapping: dict[int, int] = {}
-        for code, key_name in keyname_mapping.items():
-            base = key_name[4:]
-            if base in special:
-                keysym_name = special[base]
-            elif len(base) == 1 and base.isalpha():
-                keysym_name = base.lower()
-            elif base.isdigit():
-                keysym_name = base
-            elif base.startswith("F") and base[1:].isdigit():
-                keysym_name = base
-            else:
-                continue
-
-            keysym = XK.string_to_keysym(keysym_name)
-            if keysym != 0:
-                keysym_mapping[code] = keysym
-
-        _KEYCODE_TO_KEYNAME = keyname_mapping
-        _KEYCODE_TO_KEYSYM = keysym_mapping
-
-    if _KEYCODE_TO_KEYSYM is not None:
-        keysym = _KEYCODE_TO_KEYSYM.get(keycode)
-        if keysym is not None:
-            return keysym
-
-    key_name = _KEYCODE_TO_KEYNAME.get(keycode) if _KEYCODE_TO_KEYNAME else None
-
-    if not key_name or not key_name.startswith("KEY_"):
-        return None
-
-    base = key_name[4:]
-    special = {
-        "ENTER": "Return",
-        "ESC": "Escape",
-        "SPACE": "space",
-        "TAB": "Tab",
-        "BACKSPACE": "BackSpace",
-        "MINUS": "minus",
-        "EQUAL": "equal",
-        "LEFTBRACE": "bracketleft",
-        "RIGHTBRACE": "bracketright",
-        "SEMICOLON": "semicolon",
-        "APOSTROPHE": "apostrophe",
-        "GRAVE": "grave",
-        "BACKSLASH": "backslash",
-        "COMMA": "comma",
-        "DOT": "period",
-        "SLASH": "slash",
-        "LEFTSHIFT": "Shift_L",
-        "RIGHTSHIFT": "Shift_R",
-        "LEFTCTRL": "Control_L",
-        "RIGHTCTRL": "Control_R",
-        "LEFTALT": "Alt_L",
-        "RIGHTALT": "Alt_R",
-        "LEFTMETA": "Super_L",
-        "RIGHTMETA": "Super_R",
-        "CAPSLOCK": "Caps_Lock",
-        "DELETE": "Delete",
-        "INSERT": "Insert",
-        "HOME": "Home",
-        "END": "End",
-        "PAGEUP": "Page_Up",
-        "PAGEDOWN": "Page_Down",
-        "UP": "Up",
-        "DOWN": "Down",
-        "LEFT": "Left",
-        "RIGHT": "Right",
-        "PRINT": "Print",
-        "PAUSE": "Pause",
-    }
-
-    if base in special:
-        keysym_name = special[base]
-    elif len(base) == 1 and base.isalpha():
-        keysym_name = base.lower()
-    elif base.isdigit():
-        keysym_name = base
-    elif base.startswith("F") and base[1:].isdigit():
-        keysym_name = base
-    else:
-        return None
-
-    keysym = XK.string_to_keysym(keysym_name)
-    return keysym if keysym != 0 else None
+    return keysymFromEvdevKeycode_get(keycode)
 
 
 class WaylandDisplayBackend(DisplayBackend):

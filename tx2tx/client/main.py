@@ -183,71 +183,111 @@ def serverMessage_handle(
         logger.debug("Received SCREEN_ENTER (informational)")
 
     elif message.msg_type == MessageType.MOUSE_EVENT:
-        if injector and display_manager:
-            mouse_event = MessageParser.mouseEvent_parse(message)
-            actual_event = mouse_event
-
-            # Handle normalized coordinates (v2.0 protocol)
-            if mouse_event.normalized_point is not None:
-                norm_point = mouse_event.normalized_point
-
-                # Check for hide signal (negative coordinates)
-                if norm_point.x < 0 or norm_point.y < 0:
-                    display_manager.cursor_hide()
-                    logger.info("Cursor hidden")
-                    return
-                else:
-                    # Convert normalized coordinates to client pixel position
-                    client_screen = display_manager.screenGeometry_get()
-                    pixel_position = client_screen.coordinates_denormalize(norm_point)
-
-                    # Create pixel position mouse event for injection
-                    actual_event = MouseEvent(
-                        event_type=mouse_event.event_type,
-                        position=pixel_position,
-                        button=mouse_event.button,
-                    )
-
-                    # Update software cursor if enabled
-                    if software_cursor:
-                        software_cursor.move(pixel_position.x, pixel_position.y)
-
-                    # Ensure cursor is shown
-                    display_manager.cursor_show()
-
-            # Inject event
-            try:
-                injector.mouseEvent_inject(actual_event)
-            except ValueError as e:
-                logger.warning(f"Failed to inject mouse event: {e}")
-
-            if actual_event.event_type == EventType.MOUSE_MOVE:
-                if actual_event.position:
-                    logger.debug(
-                        f"Cursor at ({actual_event.position.x}, {actual_event.position.y})"
-                    )
-            else:
-                logger.info(f"Mouse {actual_event.event_type.value}: button={actual_event.button}")
-        else:
-            logger.warning("Received mouse event but injector or display_manager not available")
+        mouseMessage_handle(message, injector, display_manager, software_cursor)
 
     elif message.msg_type == MessageType.KEY_EVENT:
-        if injector:
-            key_event = MessageParser.keyEvent_parse(message)
-            injector.keyEvent_inject(key_event)
-            # Log key events with keycode and keysym info
-            if key_event.keysym is not None:
-                logger.info(
-                    f"Key {key_event.event_type.value}: keycode={key_event.keycode} "
-                    f"keysym={key_event.keysym:#x}"
-                )
-            else:
-                logger.info(f"Key {key_event.event_type.value}: keycode={key_event.keycode}")
-        else:
-            logger.warning("Received key event but injector not available")
+        keyMessage_handle(message, injector)
 
     else:
         logger.debug(f"Message: {message.msg_type.value}")
+
+
+def mouseMessage_handle(
+    message: Message,
+    injector: Optional[InputInjector],
+    display_manager: Optional[DisplayBackend],
+    software_cursor: Optional[SoftwareCursor],
+) -> None:
+    """
+    Handle incoming mouse event message.
+
+    Args:
+        message: Protocol message.
+        injector: Input injector instance.
+        display_manager: Display backend instance.
+        software_cursor: Optional software cursor.
+    """
+    if injector is None or display_manager is None:
+        logger.warning("Received mouse event but injector or display_manager not available")
+        return
+
+    mouse_event: MouseEvent = MessageParser.mouseEvent_parse(message)
+    actual_event: MouseEvent | None = mouseEventForInjection_build(
+        mouse_event, display_manager, software_cursor
+    )
+    if actual_event is None:
+        return
+
+    try:
+        injector.mouseEvent_inject(actual_event)
+    except ValueError as e:
+        logger.warning(f"Failed to inject mouse event: {e}")
+        return
+
+    if actual_event.event_type == EventType.MOUSE_MOVE and actual_event.position is not None:
+        logger.debug(f"Cursor at ({actual_event.position.x}, {actual_event.position.y})")
+        return
+    logger.info(f"Mouse {actual_event.event_type.value}: button={actual_event.button}")
+
+
+def mouseEventForInjection_build(
+    mouse_event: MouseEvent,
+    display_manager: DisplayBackend,
+    software_cursor: Optional[SoftwareCursor],
+) -> MouseEvent | None:
+    """
+    Convert incoming protocol mouse event into injection-ready event.
+
+    Args:
+        mouse_event: Parsed protocol mouse event.
+        display_manager: Display backend instance.
+        software_cursor: Optional software cursor.
+
+    Returns:
+        Mouse event suitable for injector, or None when event is consume-only.
+    """
+    if mouse_event.normalized_point is None:
+        return mouse_event
+
+    norm_point = mouse_event.normalized_point
+    if norm_point.x < 0 or norm_point.y < 0:
+        display_manager.cursor_hide()
+        logger.info("Cursor hidden")
+        return None
+
+    client_screen = display_manager.screenGeometry_get()
+    pixel_position = client_screen.coordinates_denormalize(norm_point)
+    if software_cursor is not None:
+        software_cursor.move(pixel_position.x, pixel_position.y)
+    display_manager.cursor_show()
+    return MouseEvent(
+        event_type=mouse_event.event_type,
+        position=pixel_position,
+        button=mouse_event.button,
+    )
+
+
+def keyMessage_handle(message: Message, injector: Optional[InputInjector]) -> None:
+    """
+    Handle incoming key event message.
+
+    Args:
+        message: Protocol message.
+        injector: Input injector instance.
+    """
+    if injector is None:
+        logger.warning("Received key event but injector not available")
+        return
+
+    key_event = MessageParser.keyEvent_parse(message)
+    injector.keyEvent_inject(key_event)
+    if key_event.keysym is not None:
+        logger.info(
+            f"Key {key_event.event_type.value}: keycode={key_event.keycode} "
+            f"keysym={key_event.keysym:#x}"
+        )
+        return
+    logger.info(f"Key {key_event.event_type.value}: keycode={key_event.keycode}")
 
 
 def client_run(args: argparse.Namespace) -> None:

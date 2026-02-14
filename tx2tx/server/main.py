@@ -5,7 +5,7 @@ import logging
 import sys
 import time
 from pathlib import Path
-from typing import NoReturn, Optional
+from typing import Any, NoReturn, Optional
 
 from tx2tx import __version__
 from tx2tx.common.config import ConfigLoader
@@ -441,6 +441,299 @@ def clientMessage_handle(
         logger.warning(f"Unexpected message type: {message.msg_type.value}")
 
 
+def centerContext_process(
+    network: ServerNetwork,
+    display_manager: DisplayBackend,
+    pointer_tracker: PointerTracker,
+    screen_geometry: Screen,
+    position: Position,
+    velocity: float,
+    context_to_client: dict[ScreenContext, str],
+) -> None:
+    """
+    Process boundary transition logic while server is in CENTER context.
+
+    Args:
+        network: Active server network.
+        display_manager: Server display backend.
+        pointer_tracker: Pointer tracker.
+        screen_geometry: Local screen geometry.
+        position: Current pointer position.
+        velocity: Current pointer velocity.
+        context_to_client: Context-to-client routing map.
+    """
+    time_since_center_switch: float = time.time() - server_state.last_center_switch_time
+    if time_since_center_switch < settings.HYSTERESIS_DELAY_SEC:
+        return
+
+    transition = pointer_tracker.boundary_detect(position, screen_geometry)
+    if transition is None:
+        return
+
+    direction_to_context: dict[Direction, ScreenContext] = {
+        Direction.LEFT: ScreenContext.WEST,
+        Direction.RIGHT: ScreenContext.EAST,
+        Direction.TOP: ScreenContext.NORTH,
+        Direction.BOTTOM: ScreenContext.SOUTH,
+    }
+    new_context: ScreenContext | None = direction_to_context.get(transition.direction)
+    if new_context is None:
+        logger.error(f"Invalid transition direction: {transition.direction}")
+        return
+
+    logger.info(
+        f"[TRANSITION] Boundary crossed: pos=({transition.position.x},{transition.position.y}), "
+        f"velocity={velocity:.1f}px/s, direction={transition.direction.value.upper()}, "
+        f"CENTER → {new_context.value.upper()}"
+    )
+
+    try:
+        t0: float = time.time()
+        target_client_name: str | None = context_to_client.get(new_context)
+        if not target_client_name:
+            logger.error(f"No client configured for {new_context.value}")
+            return
+        target_client: ClientConnection | None = network.clientByName_get(target_client_name)
+        if target_client is None:
+            connected_names: list[str | None] = [client.name for client in network.clients]
+            logger.error(
+                "Transition blocked: target '%s' unresolved. Connected clients: %s",
+                target_client_name,
+                connected_names,
+            )
+            return
+
+        parking_offset: int = 30
+        if transition.direction == Direction.LEFT:
+            warp_pos = Position(x=screen_geometry.width - parking_offset, y=transition.position.y)
+        elif transition.direction == Direction.RIGHT:
+            warp_pos = Position(x=parking_offset, y=transition.position.y)
+        elif transition.direction == Direction.TOP:
+            warp_pos = Position(x=transition.position.x, y=screen_geometry.height - parking_offset)
+        else:
+            warp_pos = Position(x=transition.position.x, y=parking_offset)
+
+        server_state.context = new_context
+        server_state.active_remote_client_name = target_client.name or target_client_name
+        logger.debug(f"[CONTEXT] Changed to {new_context.value.upper()}")
+
+        logger.info(
+            f"[WARP] Parking cursor at ({warp_pos.x}, {warp_pos.y}) near {transition.direction.value} edge"
+        )
+        display_manager.cursorPosition_set(warp_pos)
+        logger.info("[TIMING] cursorPosition_set: %.3f sec", time.time() - t0)
+        t0 = time.time()
+
+        display_manager.pointer_grab()
+        display_manager.keyboard_grab()
+        logger.info("[TIMING] input_grab: %.3f sec", time.time() - t0)
+        t0 = time.time()
+
+        display_manager.cursor_hide()
+        logger.info("[TIMING] cursor_hide: %.3f sec", time.time() - t0)
+
+        pointer_tracker.reset()
+        server_state.last_sent_position = None
+        server_state.last_remote_switch_time = time.time()
+        logger.info(f"[STATE] → {new_context.value.upper()} context")
+    except Exception as e:
+        logger.error(f"Transition failed: {e}", exc_info=True)
+        try:
+            display_manager.keyboard_ungrab()
+            display_manager.pointer_ungrab()
+            display_manager.cursor_show()
+        except Exception:
+            pass
+        server_state.context = ScreenContext.CENTER
+        server_state.active_remote_client_name = None
+        server_state.last_center_switch_time = time.time()
+        logger.warning("Reverted to CENTER after failed transition")
+
+
+def remoteContext_process(
+    network: ServerNetwork,
+    display_manager: DisplayBackend,
+    pointer_tracker: PointerTracker,
+    screen_geometry: Screen,
+    config: Any,
+    position: Position,
+    velocity: float,
+    context_to_client: dict[ScreenContext, str],
+    x11native: bool,
+    input_capturer: InputCapturer,
+    panic_keysyms: set[int],
+    panic_modifiers: int,
+) -> None:
+    """
+    Process forwarding/return logic while server is in REMOTE context.
+
+    Args:
+        network: Active server network.
+        display_manager: Server display backend.
+        pointer_tracker: Pointer tracker.
+        screen_geometry: Local screen geometry.
+        config: Loaded config.
+        position: Current pointer position.
+        velocity: Current pointer velocity.
+        context_to_client: Context-to-client routing map.
+        x11native: Native X11 mode flag.
+        input_capturer: Input capture backend.
+        panic_keysyms: Panic key keysyms.
+        panic_modifiers: Panic key modifier mask.
+    """
+    target_client_name: str | None = (
+        server_state.active_remote_client_name or context_to_client.get(server_state.context)
+    )
+
+    if not (x11native or display_manager.session_isNative_check()):
+        if (time.time() - server_state.last_remote_switch_time) < 0.5:
+            target_pos: Position | None = None
+            if server_state.context == ScreenContext.WEST:
+                target_pos = Position(x=screen_geometry.width - 3, y=position.y)
+            elif server_state.context == ScreenContext.EAST:
+                target_pos = Position(x=2, y=position.y)
+            if target_pos and abs(position.x - target_pos.x) > 100:
+                logger.info(
+                    f"[ENFORCE] Cursor at ({position.x},{position.y}), enforcing warp to ({target_pos.x},{target_pos.y})"
+                )
+                display_manager.cursorPosition_set(target_pos)
+                time.sleep(0.01)
+                return
+
+    should_return: bool = remoteReturnBoundary_check(server_state.context, position, screen_geometry)
+    if should_return and velocity >= (config.server.velocity_threshold * 0.5):
+        logger.info(
+            f"[BOUNDARY] Returning from {server_state.context.value.upper()} at ({position.x}, {position.y})"
+        )
+        try:
+            if target_client_name:
+                hide_event = MouseEvent(
+                    event_type=EventType.MOUSE_MOVE,
+                    normalized_point=NormalizedPoint(x=-1.0, y=-1.0),
+                )
+                hide_msg = MessageBuilder.mouseEventMessage_create(hide_event)
+                network.messageToClient_send(target_client_name, hide_msg)
+            state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
+        except Exception as e:
+            logger.error(f"Return transition failed: {e}", exc_info=True)
+            server_state.context = ScreenContext.CENTER
+            try:
+                display_manager.cursor_show()
+                display_manager.keyboard_ungrab()
+                display_manager.pointer_ungrab()
+            except Exception:
+                pass
+        return
+
+    if not target_client_name:
+        _, _ = input_capturer.inputEvents_read()
+        logger.error(
+            f"Active context {server_state.context.value} has no connected client, reverting"
+        )
+        state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
+        return
+
+    if server_state.positionChanged_check(position):
+        logger.debug(f"[MOUSE] Sending pos ({position.x}, {position.y}) to {target_client_name}")
+        normalized_point = screen_geometry.coordinates_normalize(position)
+        mouse_event = MouseEvent(
+            event_type=EventType.MOUSE_MOVE,
+            normalized_point=normalized_point,
+        )
+        move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
+        if not network.messageToClient_send(target_client_name, move_msg):
+            connected_names = [client.name for client in network.clients]
+            logger.error(
+                f"Failed to send movement to '{target_client_name}'. Connected clients: {connected_names}. Reverting."
+            )
+            state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
+            return
+        server_state.lastSentPosition_update(position)
+
+    input_events, modifier_state = input_capturer.inputEvents_read()
+    if panicKey_check(input_events, panic_keysyms, panic_modifiers, modifier_state):
+        logger.warning("[PANIC] Panic key pressed - forcing return to CENTER")
+        state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
+        return
+
+    remoteInputEvents_send(
+        network=network,
+        target_client_name=target_client_name,
+        screen_geometry=screen_geometry,
+        input_events=input_events,
+        display_manager=display_manager,
+        pointer_tracker=pointer_tracker,
+        position=position,
+    )
+
+
+def remoteReturnBoundary_check(
+    context: ScreenContext, position: Position, screen_geometry: Screen
+) -> bool:
+    """
+    Check whether current pointer position hits return boundary for active context.
+
+    Args:
+        context: Active remote context.
+        position: Current pointer position.
+        screen_geometry: Local screen geometry.
+
+    Returns:
+        True when return boundary is reached.
+    """
+    if context == ScreenContext.WEST:
+        return position.x >= screen_geometry.width - 1
+    if context == ScreenContext.EAST:
+        return position.x <= 0
+    if context == ScreenContext.NORTH:
+        return position.y >= screen_geometry.height - 1
+    if context == ScreenContext.SOUTH:
+        return position.y <= 0
+    return False
+
+
+def remoteInputEvents_send(
+    network: ServerNetwork,
+    target_client_name: str,
+    screen_geometry: Screen,
+    input_events: list[InputEvent],
+    display_manager: DisplayBackend,
+    pointer_tracker: PointerTracker,
+    position: Position,
+) -> None:
+    """
+    Forward captured mouse/key input events to active remote client.
+
+    Args:
+        network: Active server network.
+        target_client_name: Destination client name.
+        screen_geometry: Local screen geometry.
+        input_events: Captured input event list.
+        display_manager: Server display backend.
+        pointer_tracker: Pointer tracker.
+        position: Current pointer position.
+    """
+    for event in input_events:
+        msg: Message | None = None
+        if isinstance(event, MouseEvent) and event.position:
+            norm_pos = screen_geometry.coordinates_normalize(event.position)
+            norm_event = MouseEvent(
+                event_type=event.event_type,
+                normalized_point=norm_pos,
+                button=event.button,
+            )
+            msg = MessageBuilder.mouseEventMessage_create(norm_event)
+            logger.debug(f"[BUTTON] {event.event_type.value} button={event.button}")
+        elif isinstance(event, KeyEvent):
+            msg = MessageBuilder.keyEventMessage_create(event)
+            logger.debug(f"[KEY] {event.event_type.value} keycode={event.keycode}")
+
+        if msg and not network.messageToClient_send(target_client_name, msg):
+            logger.error(f"Failed to send {event.event_type.value} to {target_client_name}")
+            state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
+            break
+
+
 def _process_polling_loop(
     network: ServerNetwork,
     display_manager: DisplayBackend,
@@ -533,290 +826,30 @@ def _process_polling_loop(
             )
 
         if server_state.context == ScreenContext.CENTER:
-
-            # Add hysteresis: skip boundary detection after switching to CENTER
-            # This prevents immediate re-detection of boundary after cursor release
-            time_since_center_switch = time.time() - server_state.last_center_switch_time
-
-            if time_since_center_switch >= settings.HYSTERESIS_DELAY_SEC:
-                # Detect boundary crossings
-                transition = pointer_tracker.boundary_detect(position, screen_geometry)
-
-                if transition:
-                    # Map direction to context
-                    direction_to_context = {
-                        Direction.LEFT: ScreenContext.WEST,
-                        Direction.RIGHT: ScreenContext.EAST,
-                        Direction.TOP: ScreenContext.NORTH,
-                        Direction.BOTTOM: ScreenContext.SOUTH,
-                    }
-                    new_context = direction_to_context.get(transition.direction)
-                    if not new_context:
-                        logger.error(
-                            f"Invalid transition direction: {transition.direction}"
-                        )
-                        return
-
-                    logger.info(
-                        f"[TRANSITION] Boundary crossed: pos=({transition.position.x},{transition.position.y}), "
-                        f"velocity={velocity:.1f}px/s, direction={transition.direction.value.upper()}, "
-                        f"CENTER → {new_context.value.upper()}"
-                    )
-
-                    try:
-                        t0 = time.time()
-                        # Get target client name
-                        target_client_name = context_to_client.get(new_context)
-                        if not target_client_name:
-                            logger.error(f"No client configured for {new_context.value}")
-                            return
-                        target_client = network.clientByName_get(target_client_name)
-                        if target_client is None:
-                            connected_names: list[str | None] = [
-                                client.name for client in network.clients
-                            ]
-                            logger.error(
-                                "Transition blocked: target '%s' unresolved. Connected clients: %s",
-                                target_client_name,
-                                connected_names,
-                            )
-                            return
-
-                        # Calculate where cursor should be warped to (Opposite Edge)
-                        # We park at the far side so that coordinates sent to the client
-                        # map naturally to its entry edge.
-                        parking_offset = 30
-                        if transition.direction == Direction.LEFT:
-                            warp_pos = Position(
-                                x=screen_geometry.width - parking_offset, y=transition.position.y
-                            )
-                        elif transition.direction == Direction.RIGHT:
-                            warp_pos = Position(x=parking_offset, y=transition.position.y)
-                        elif transition.direction == Direction.TOP:
-                            warp_pos = Position(
-                                x=transition.position.x, y=screen_geometry.height - parking_offset
-                            )
-                        else:  # BOTTOM
-                            warp_pos = Position(x=transition.position.x, y=parking_offset)
-
-                        # Now transition state
-                        server_state.context = new_context
-                        server_state.active_remote_client_name = (
-                            target_client.name or target_client_name
-                        )
-                        logger.debug(f"[CONTEXT] Changed to {new_context.value.upper()}")
-
-                        # WARP (Parking): Anchor cursor near transition edge
-                        logger.info(
-                            f"[WARP] Parking cursor at ({warp_pos.x}, {warp_pos.y}) near {transition.direction.value} edge"
-                        )
-                        display_manager.cursorPosition_set(warp_pos)
-                        logger.info("[TIMING] cursorPosition_set: %.3f sec", time.time() - t0)
-                        t0 = time.time()
-                        
-                        # Grab input. REMOTE mode is invalid without keyboard capture.
-                        display_manager.pointer_grab()
-                        display_manager.keyboard_grab()
-                        logger.info("[TIMING] input_grab: %.3f sec", time.time() - t0)
-                        t0 = time.time()
-
-                        # Hide cursor
-                        display_manager.cursor_hide()
-                        logger.info("[TIMING] cursor_hide: %.3f sec", time.time() - t0)
-
-                        # Reset velocity tracker and last sent position
-                        pointer_tracker.reset()
-                        server_state.last_sent_position = (
-                            None  # Ensure first position in new context is sent
-                        )
-                        server_state.last_remote_switch_time = time.time()
-
-                        logger.info(f"[STATE] → {new_context.value.upper()} context")
-
-                    except Exception as e:
-                        # Cleanup on error
-                        logger.error(f"Transition failed: {e}", exc_info=True)
-                        try:
-                            display_manager.keyboard_ungrab()
-                            display_manager.pointer_ungrab()
-                            display_manager.cursor_show()
-                        except Exception:
-                            pass
-                        server_state.context = ScreenContext.CENTER
-                        server_state.active_remote_client_name = None
-                        server_state.last_center_switch_time = (
-                            time.time()
-                        )  # Prevent rapid re-entry
-                        logger.warning("Reverted to CENTER after failed transition")
-
-        elif server_state.context != ScreenContext.CENTER:
-            # In REMOTE mode - Server Authoritative Return Logic
-            target_client_name = (
-                server_state.active_remote_client_name
-                or context_to_client.get(server_state.context)
+            centerContext_process(
+                network=network,
+                display_manager=display_manager,
+                pointer_tracker=pointer_tracker,
+                screen_geometry=screen_geometry,
+                position=position,
+                velocity=velocity,
+                context_to_client=context_to_client,
             )
-
-            # 0. WARP ENFORCEMENT (Grace Period)
-            # Only needed on Crostini where warp is unreliable
-            # On native X11, pointer grab prevents mouse movement (position still updates but cursor doesn't move)
-            if not (x11native or display_manager.session_isNative_check()):
-                if (time.time() - server_state.last_remote_switch_time) < 0.5:
-                    # Determine where we SHOULD be
-                    target_pos = None
-                    if server_state.context == ScreenContext.WEST:
-                        target_pos = Position(x=screen_geometry.width - 3, y=position.y)
-                    elif server_state.context == ScreenContext.EAST:
-                        target_pos = Position(x=2, y=position.y)
-
-                    # Only checking WEST/EAST for now as they are primary use cases
-                    if target_pos:
-                        # If we are far from target (e.g. at wrong edge), re-warp
-                        if abs(position.x - target_pos.x) > 100:
-                            logger.info(f"[ENFORCE] Cursor at ({position.x},{position.y}), enforcing warp to ({target_pos.x},{target_pos.y})")
-                            display_manager.cursorPosition_set(target_pos)
-                            # Skip return check this iteration to allow warp to take effect
-                            time.sleep(0.01)
-                            return  # Exit function early, don't check return yet
-
-            # 1. Check for Return Condition
-            # Determine which edge triggers return based on current context
-            should_return = False
-
-            if server_state.context == ScreenContext.WEST:
-                # West Client: Return when hitting RIGHT edge of server screen
-                should_return = position.x >= screen_geometry.width - 1
-            elif server_state.context == ScreenContext.EAST:
-                # East Client: Return when hitting LEFT edge
-                should_return = position.x <= 0
-            elif server_state.context == ScreenContext.NORTH:
-                # North Client: Return when hitting BOTTOM edge
-                should_return = position.y >= screen_geometry.height - 1
-            elif server_state.context == ScreenContext.SOUTH:
-                # South Client: Return when hitting TOP edge
-                should_return = position.y <= 0
-
-            # Check velocity for return (to prevent accidental triggers)
-            # Use lower threshold for return to make it feel natural
-            if should_return and velocity >= (config.server.velocity_threshold * 0.5):
-                logger.info(
-                    f"[BOUNDARY] Returning from {server_state.context.value.upper()} at ({position.x}, {position.y})"
-                )
-
-                try:
-                    # 1. Send Hide Signal to Client
-                    if target_client_name:
-                        hide_event = MouseEvent(
-                            event_type=EventType.MOUSE_MOVE,
-                            normalized_point=NormalizedPoint(x=-1.0, y=-1.0),
-                        )
-                        hide_msg = MessageBuilder.mouseEventMessage_create(hide_event)
-                        # We try to send it, but if it fails we still need to revert local state
-                        network.messageToClient_send(target_client_name, hide_msg)
-
-                    # 2. Revert State (Restore desktop)
-                    state_revertToCenter(
-                        display_manager, screen_geometry, position, pointer_tracker
-                    )
-
-                except Exception as e:
-                    logger.error(f"Return transition failed: {e}", exc_info=True)
-                    # Emergency cleanup
-                    server_state.context = ScreenContext.CENTER
-                    try:
-                        display_manager.cursor_show()
-                        display_manager.keyboard_ungrab()
-                        display_manager.pointer_ungrab()
-                    except Exception:
-                        pass
-            else:
-                if target_client_name:
-                    # Not returning - Send events to active client ONLY if position changed
-                    if server_state.positionChanged_check(position):
-                        logger.debug(
-                            f"[MOUSE] Sending pos ({position.x}, {position.y}) to {target_client_name}"
-                        )
-                        normalized_point = screen_geometry.coordinates_normalize(position)
-
-                        mouse_event = MouseEvent(
-                            event_type=EventType.MOUSE_MOVE,
-                            normalized_point=normalized_point,
-                        )
-                        move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
-
-                        # If sending fails, revert to CENTER
-                        if not network.messageToClient_send(target_client_name, move_msg):
-                            connected_names = [c.name for c in network.clients]
-                            logger.error(
-                                f"Failed to send movement to '{target_client_name}'. Connected clients: {connected_names}. Reverting."
-                            )
-                            state_revertToCenter(
-                                display_manager, screen_geometry, position, pointer_tracker
-                            )
-                            return
-
-                        # Update last sent position
-                        server_state.lastSentPosition_update(position)
-
-                    # Send Input Events (Buttons & Keys)
-                    input_events, modifier_state = input_capturer.inputEvents_read()
-
-                    # Check for panic key - configurable escape hatch
-                    if panicKey_check(
-                        input_events, panic_keysyms, panic_modifiers, modifier_state
-                    ):
-                        logger.warning(
-                            "[PANIC] Panic key pressed - forcing return to CENTER"
-                        )
-                        state_revertToCenter(
-                            display_manager, screen_geometry, position, pointer_tracker
-                        )
-                        return
-
-                    for event in input_events:
-                        msg = None
-                        if isinstance(event, MouseEvent):
-                            # Normalize position for button events
-                            if event.position:
-                                norm_pos = screen_geometry.coordinates_normalize(event.position)
-                                # Create new event with normalized point
-                                norm_event = MouseEvent(
-                                    event_type=event.event_type,
-                                    normalized_point=norm_pos,
-                                    button=event.button,
-                                )
-                                msg = MessageBuilder.mouseEventMessage_create(norm_event)
-                                logger.debug(
-                                    f"[BUTTON] {event.event_type.value} button={event.button}"
-                                )
-                        elif isinstance(event, KeyEvent):
-                            msg = MessageBuilder.keyEventMessage_create(event)
-                            logger.debug(
-                                f"[KEY] {event.event_type.value} keycode={event.keycode}"
-                            )
-
-                        if msg:
-                            if not network.messageToClient_send(target_client_name, msg):
-                                logger.error(
-                                    f"Failed to send {event.event_type.value} to {target_client_name}"
-                                )
-                                # We don't break/continue here, the next loop iteration will handle it if move fails
-                                # but actually we should probably revert now.
-                                state_revertToCenter(
-                                    display_manager,
-                                    screen_geometry,
-                                    position,
-                                    pointer_tracker,
-                                )
-                                break
-                else:
-                    # Drain events if no client connected but in remote mode
-                    _, _ = input_capturer.inputEvents_read()
-                    logger.error(
-                        f"Active context {server_state.context.value} has no connected client, reverting"
-                    )
-                    state_revertToCenter(
-                        display_manager, screen_geometry, position, pointer_tracker
-                    )
+        else:
+            remoteContext_process(
+                network=network,
+                display_manager=display_manager,
+                pointer_tracker=pointer_tracker,
+                screen_geometry=screen_geometry,
+                config=config,
+                position=position,
+                velocity=velocity,
+                context_to_client=context_to_client,
+                x11native=x11native,
+                input_capturer=input_capturer,
+                panic_keysyms=panic_keysyms,
+                panic_modifiers=panic_modifiers,
+            )
 
     # Small sleep to prevent busy waiting
     time.sleep(config.server.poll_interval_ms / settings.POLL_INTERVAL_DIVISOR)
@@ -832,33 +865,8 @@ def server_run(args: argparse.Namespace) -> None:
     Returns:
         Result value.
     """
-    # Load configuration
-    config_path = Path(args.config) if args.config else None
-
-    try:
-        config = ConfigLoader.configWithOverrides_load(
-            file_path=config_path,
-            name=args.name,
-            host=args.host,
-            port=args.port,
-            edge_threshold=args.edge_threshold,
-            display=args.display,
-            overlay_enabled=getattr(args, "overlay_enabled", None),
-        )
-    except FileNotFoundError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        print("Create a config.yml file or specify path with --config", file=sys.stderr)
-        sys.exit(1)
-    except Exception as e:
-        print(f"Error loading config: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    # Initialize settings singleton with loaded config
-    settings.initialize(config)
-
-    # Setup logging
-    log_level = getattr(args, "log_level", None) or config.logging.level
-    logging_setup(log_level, config.logging.format, config.logging.file)
+    config = configWithSettings_load(args)
+    loggingWithConfig_setup(args, config)
 
     logger.info(f"tx2tx server v{__version__}")
     logger.info(f"Server name: {config.server.name}")
@@ -876,66 +884,15 @@ def server_run(args: argparse.Namespace) -> None:
     else:
         logger.warning("No clients configured in config.yml")
 
-    # Parse panic key configuration
     panic_keysyms, panic_modifiers = panicKeyConfig_parse(config)
 
-    # Determine overlay and x11native settings
-    # Priority: CLI args > config file
-    x11native = getattr(args, "x11native", False)
-    if x11native:
-        overlay_enabled = False  # Force disable overlay on native X11
-        logger.info("Native X11 mode enabled (--x11native)")
-    else:
-        overlay_enabled = getattr(args, "overlay_enabled", None)
-        if overlay_enabled is None:
-            overlay_enabled = config.server.overlay_enabled  # Use config default
-        if overlay_enabled:
-            logger.info("Overlay window enabled (Crostini mode)")
-
-    backend_name = getattr(args, "backend", None) or config.backend.name or "x11"
-    if backend_name.lower() not in {"x11", "wayland"}:
-        logger.error(f"Unsupported backend '{backend_name}'. Supported: x11, wayland.")
-        sys.exit(1)
-    logger.info(f"Backend: {backend_name}")
-    wayland_helper = getattr(args, "wayland_helper", None) or config.backend.wayland.helper_command
-    if backend_name.lower() == "wayland" and not wayland_helper:
-        logger.error(
-            "Wayland backend requires a helper command. "
-            "Provide --wayland-helper or set backend.wayland.helper_command in config."
-        )
-        sys.exit(1)
-    wayland_screen_width = (
-        getattr(args, "wayland_screen_width", None) or config.backend.wayland.screen_width
+    backend_options: dict[str, Any] = backendOptions_resolve(args, config)
+    display_manager, input_capturer = serverBackendComponents_create(
+        config=config, backend_options=backend_options
     )
-    wayland_screen_height = (
-        getattr(args, "wayland_screen_height", None) or config.backend.wayland.screen_height
-    )
-    wayland_calibrate = getattr(args, "wayland_calibrate", False) or config.backend.wayland.calibrate
-    wayland_pointer_provider = (
-        getattr(args, "wayland_pointer_provider", None)
-        or config.backend.wayland.pointer_provider
-        or "helper"
-    ).lower()
-    if wayland_pointer_provider not in {"helper", "gnome"}:
-        logger.error(
-            "Unsupported Wayland pointer provider '%s'. Supported: helper, gnome.",
-            wayland_pointer_provider,
-        )
-        sys.exit(1)
-    if backend_name.lower() == "wayland":
-        logger.info("Wayland pointer provider: %s", wayland_pointer_provider)
-
-    # Initialize backend display and input capture
-    display_manager, input_capturer = serverBackend_create(
-        backend_name=backend_name,
-        display_name=config.server.display,
-        overlay_enabled=overlay_enabled,
-        x11native=x11native,
-        wayland_helper=wayland_helper,
-        wayland_screen_width=wayland_screen_width,
-        wayland_screen_height=wayland_screen_height,
-        wayland_pointer_provider=wayland_pointer_provider,
-    )
+    backend_name: str = backend_options["backend_name"]
+    wayland_calibrate: bool = backend_options["wayland_calibrate"]
+    x11native: bool = backend_options["x11native"]
 
     try:
         display_manager.connection_establish()
@@ -979,18 +936,7 @@ def server_run(args: argparse.Namespace) -> None:
         host=config.server.host, port=config.server.port, max_clients=config.server.max_clients
     )
 
-    # Map context to client name
-    context_to_client = {}
-    if config.clients:
-        for client_cfg in config.clients:
-            try:
-                ctx = ScreenContext(client_cfg.position.lower())
-                # Normalize name to lowercase
-                context_to_client[ctx] = client_cfg.name.lower()
-            except ValueError:
-                logger.warning(
-                    f"Invalid position '{client_cfg.position}' for client {client_cfg.name}"
-                )
+    context_to_client: dict[ScreenContext, str] = contextToClientMap_build(config)
 
     # Reset server state singleton to initial values
     server_state.reset()
@@ -1021,6 +967,170 @@ def server_run(args: argparse.Namespace) -> None:
     finally:
         network.server_stop()
         display_manager.connection_close()
+
+
+def configWithSettings_load(args: argparse.Namespace) -> Any:
+    """
+    Load configuration and initialize global settings.
+
+    Args:
+        args: Parsed server CLI args.
+
+    Returns:
+        Loaded configuration object.
+    """
+    config_path: Path | None = Path(args.config) if args.config else None
+    try:
+        config = ConfigLoader.configWithOverrides_load(
+            file_path=config_path,
+            name=args.name,
+            host=args.host,
+            port=args.port,
+            edge_threshold=args.edge_threshold,
+            display=args.display,
+            overlay_enabled=getattr(args, "overlay_enabled", None),
+        )
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        print("Create a config.yml file or specify path with --config", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error loading config: {e}", file=sys.stderr)
+        sys.exit(1)
+    settings.initialize(config)
+    return config
+
+
+def loggingWithConfig_setup(args: argparse.Namespace, config: Any) -> None:
+    """
+    Configure logger from config and optional CLI override.
+
+    Args:
+        args: Parsed server CLI args.
+        config: Loaded config object.
+    """
+    log_level: str = getattr(args, "log_level", None) or config.logging.level
+    logging_setup(log_level, config.logging.format, config.logging.file)
+
+
+def backendOptions_resolve(args: argparse.Namespace, config: Any) -> dict[str, Any]:
+    """
+    Resolve backend policy/options from CLI and config.
+
+    Args:
+        args: Parsed server CLI args.
+        config: Loaded config object.
+
+    Returns:
+        Backend options map.
+    """
+    x11native: bool = bool(getattr(args, "x11native", False))
+    if x11native:
+        overlay_enabled: bool | None = False
+        logger.info("Native X11 mode enabled (--x11native)")
+    else:
+        overlay_enabled = getattr(args, "overlay_enabled", None)
+        if overlay_enabled is None:
+            overlay_enabled = config.server.overlay_enabled
+        if overlay_enabled:
+            logger.info("Overlay window enabled (Crostini mode)")
+
+    backend_name: str = getattr(args, "backend", None) or config.backend.name or "x11"
+    if backend_name.lower() not in {"x11", "wayland"}:
+        logger.error(f"Unsupported backend '{backend_name}'. Supported: x11, wayland.")
+        sys.exit(1)
+    logger.info(f"Backend: {backend_name}")
+
+    wayland_helper: str | None = (
+        getattr(args, "wayland_helper", None) or config.backend.wayland.helper_command
+    )
+    if backend_name.lower() == "wayland" and not wayland_helper:
+        logger.error(
+            "Wayland backend requires a helper command. "
+            "Provide --wayland-helper or set backend.wayland.helper_command in config."
+        )
+        sys.exit(1)
+    wayland_screen_width: int | None = (
+        getattr(args, "wayland_screen_width", None) or config.backend.wayland.screen_width
+    )
+    wayland_screen_height: int | None = (
+        getattr(args, "wayland_screen_height", None) or config.backend.wayland.screen_height
+    )
+    wayland_calibrate: bool = bool(
+        getattr(args, "wayland_calibrate", False) or config.backend.wayland.calibrate
+    )
+    wayland_pointer_provider: str = (
+        getattr(args, "wayland_pointer_provider", None)
+        or config.backend.wayland.pointer_provider
+        or "helper"
+    ).lower()
+    if wayland_pointer_provider not in {"helper", "gnome"}:
+        logger.error(
+            "Unsupported Wayland pointer provider '%s'. Supported: helper, gnome.",
+            wayland_pointer_provider,
+        )
+        sys.exit(1)
+    if backend_name.lower() == "wayland":
+        logger.info("Wayland pointer provider: %s", wayland_pointer_provider)
+
+    return {
+        "backend_name": backend_name,
+        "overlay_enabled": overlay_enabled,
+        "x11native": x11native,
+        "wayland_helper": wayland_helper,
+        "wayland_screen_width": wayland_screen_width,
+        "wayland_screen_height": wayland_screen_height,
+        "wayland_calibrate": wayland_calibrate,
+        "wayland_pointer_provider": wayland_pointer_provider,
+    }
+
+
+def serverBackendComponents_create(
+    config: Any, backend_options: dict[str, Any]
+) -> tuple[DisplayBackend, InputCapturer]:
+    """
+    Create server backend display manager and input capturer.
+
+    Args:
+        config: Loaded config object.
+        backend_options: Resolved backend options.
+
+    Returns:
+        Tuple of display manager and input capturer.
+    """
+    return serverBackend_create(
+        backend_name=backend_options["backend_name"],
+        display_name=config.server.display,
+        overlay_enabled=backend_options["overlay_enabled"],
+        x11native=backend_options["x11native"],
+        wayland_helper=backend_options["wayland_helper"],
+        wayland_screen_width=backend_options["wayland_screen_width"],
+        wayland_screen_height=backend_options["wayland_screen_height"],
+        wayland_pointer_provider=backend_options["wayland_pointer_provider"],
+    )
+
+
+def contextToClientMap_build(config: Any) -> dict[ScreenContext, str]:
+    """
+    Build context-to-client routing map from config.
+
+    Args:
+        config: Loaded config object.
+
+    Returns:
+        Mapping from remote context to normalized client name.
+    """
+    context_to_client: dict[ScreenContext, str] = {}
+    if config.clients:
+        for client_cfg in config.clients:
+            try:
+                ctx: ScreenContext = ScreenContext(client_cfg.position.lower())
+                context_to_client[ctx] = client_cfg.name.lower()
+            except ValueError:
+                logger.warning(
+                    f"Invalid position '{client_cfg.position}' for client {client_cfg.name}"
+                )
+    return context_to_client
 
 def main() -> NoReturn:
     """

@@ -173,53 +173,14 @@ def main() -> NoReturn:
     """Main entry point for unified tx2tx command"""
     args = arguments_parse()
 
-    # Determine logging level override
-    log_level_override = None
-    if args.debug:
-        log_level_override = "DEBUG"
-    elif args.info:
-        log_level_override = "INFO"
-    elif args.warning:
-        log_level_override = "WARNING"
-    elif args.error:
-        log_level_override = "ERROR"
-    elif args.critical:
-        log_level_override = "CRITICAL"
+    log_level_override: str | None = logLevelOverride_get(args)
 
     try:
-        if args.server or args.client or args.software_cursor:
-            # --server, --client, or --software-cursor specified: run as client
-            # If --client is specified, treat it as client name if --name not provided
-            if args.client and not args.name:
-                args.name = args.client
-
-            from tx2tx.client.main import client_run
-            
-            if log_level_override:
-                setattr(args, "log_level", log_level_override)
-
-            client_run(args)
+        argsWithLogLevel_apply(args, log_level_override)
+        if clientMode_isEnabled(args):
+            clientMode_run(args)
         else:
-            # No client-related flags: run as server
-            from tx2tx.server.main import server_run
-
-            if log_level_override:
-                setattr(args, "log_level", log_level_override)
-
-            # Handle overlay flag
-            if args.overlay:
-                setattr(args, "overlay_enabled", True)
-            else:
-                setattr(args, "overlay_enabled", None)  # Let config decide
-
-            # Handle x11native flag (takes precedence over overlay)
-            if args.x11native:
-                setattr(args, "x11native", True)
-                setattr(args, "overlay_enabled", False)  # Force disable overlay on native X11
-            else:
-                setattr(args, "x11native", False)
-
-            server_run(args)
+            serverMode_run(args)
         # Both client_run and server_run are NoReturn, so this is unreachable
         # But we need explicit exit for mypy
         sys.exit(0)
@@ -230,6 +191,88 @@ def main() -> NoReturn:
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
+
+
+def logLevelOverride_get(args: argparse.Namespace) -> str | None:
+    """
+    Resolve explicit log level override flags.
+
+    Args:
+        args: Parsed CLI args.
+
+    Returns:
+        Selected log level or None.
+    """
+    if args.debug:
+        return "DEBUG"
+    if args.info:
+        return "INFO"
+    if args.warning:
+        return "WARNING"
+    if args.error:
+        return "ERROR"
+    if args.critical:
+        return "CRITICAL"
+    return None
+
+
+def argsWithLogLevel_apply(args: argparse.Namespace, log_level: str | None) -> None:
+    """
+    Apply optional log level override to args.
+
+    Args:
+        args: Parsed CLI args.
+        log_level: Optional log level string.
+    """
+    if log_level is not None:
+        setattr(args, "log_level", log_level)
+
+
+def clientMode_isEnabled(args: argparse.Namespace) -> bool:
+    """
+    Determine whether CLI should run client mode.
+
+    Args:
+        args: Parsed CLI args.
+
+    Returns:
+        True when client mode should run.
+    """
+    return bool(args.server or args.client or args.software_cursor)
+
+
+def clientMode_run(args: argparse.Namespace) -> None:
+    """
+    Run client mode entrypoint.
+
+    Args:
+        args: Parsed CLI args.
+    """
+    if args.client and not args.name:
+        args.name = args.client
+
+    from tx2tx.client.main import client_run
+
+    client_run(args)
+
+
+def serverMode_run(args: argparse.Namespace) -> None:
+    """
+    Run server mode entrypoint.
+
+    Args:
+        args: Parsed CLI args.
+    """
+    from tx2tx.server.main import server_run
+
+    overlay_enabled: bool | None = True if args.overlay else None
+    if args.x11native:
+        setattr(args, "x11native", True)
+        overlay_enabled = False
+    else:
+        setattr(args, "x11native", False)
+    setattr(args, "overlay_enabled", overlay_enabled)
+    server_run(args)
 
 
 if __name__ == "__main__":

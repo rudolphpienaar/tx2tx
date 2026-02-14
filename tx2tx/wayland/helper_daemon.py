@@ -687,6 +687,7 @@ class WaylandHelperDaemon:
         self._height = height
         self._device_manager = InputDeviceManager(device_paths=devices, width=width, height=height)
         self._uinput = UInputManager(width=width, height=height)
+        self._command_handlers = self._commandHandlers_get()
 
     def run(self) -> None:
         """
@@ -719,54 +720,262 @@ class WaylandHelperDaemon:
         Returns:
             Command result payload.
         """
-        if cmd == "hello":
-            return {"version": "0.1.0"}
-        if cmd == "screen_geometry_get":
-            width, height = self._screen_geometry_get()
-            return {"width": width, "height": height}
-        if cmd == "pointer_position_get":
-            x, y = self._device_manager.pointerPosition_get()
-            return {"x": x, "y": y}
-        if cmd == "cursor_position_set":
-            x = int(payload["x"])
-            y = int(payload["y"])
-            self._device_manager.pointerPosition_set(x, y)
-            self._uinput.mouse_move(x=x, y=y)
-            return {}
-        if cmd == "pointer_grab":
-            return self._device_manager.pointer_grab()
-        if cmd == "pointer_ungrab":
-            return self._device_manager.pointer_ungrab()
-        if cmd == "keyboard_grab":
-            return self._device_manager.keyboard_grab()
-        if cmd == "keyboard_ungrab":
-            return self._device_manager.keyboard_ungrab()
-        if cmd == "cursor_hide":
-            return {
-                "supported": False,
-                "reason": "cursor hide/show is not implemented by this helper",
-            }
-        if cmd == "cursor_show":
-            return {
-                "supported": False,
-                "reason": "cursor hide/show is not implemented by this helper",
-            }
-        if cmd == "input_events_read":
-            events, modifier_state = self._device_manager.inputEvents_read()
-            return {"events": events, "modifier_state": modifier_state}
-        if cmd == "inject_mouse":
-            self._inject_mouse(payload)
-            return {}
-        if cmd == "inject_key":
-            self._inject_key(payload)
-            return {}
-        if cmd == "session_is_native":
-            return {"native": False}
-        if cmd == "sync":
-            return {}
-        if cmd == "shutdown":
-            sys.exit(0)
-        raise ValueError(f"Unknown command: {cmd}")
+        command_handler = self._command_handlers.get(cmd)
+        if command_handler is None:
+            raise ValueError(f"Unknown command: {cmd}")
+        return command_handler(payload)
+
+    def _commandHandlers_get(self) -> dict[str, Any]:
+        """
+        Build command dispatch table for helper protocol.
+
+        Returns:
+            Mapping of command name to handler callable.
+        """
+        return {
+            "hello": self._cmdHello_handle,
+            "screen_geometry_get": self._cmdScreenGeometryGet_handle,
+            "pointer_position_get": self._cmdPointerPositionGet_handle,
+            "cursor_position_set": self._cmdCursorPositionSet_handle,
+            "pointer_grab": self._cmdPointerGrab_handle,
+            "pointer_ungrab": self._cmdPointerUngrab_handle,
+            "keyboard_grab": self._cmdKeyboardGrab_handle,
+            "keyboard_ungrab": self._cmdKeyboardUngrab_handle,
+            "cursor_hide": self._cmdCursorHide_handle,
+            "cursor_show": self._cmdCursorShow_handle,
+            "input_events_read": self._cmdInputEventsRead_handle,
+            "inject_mouse": self._cmdInjectMouse_handle,
+            "inject_key": self._cmdInjectKey_handle,
+            "session_is_native": self._cmdSessionIsNative_handle,
+            "sync": self._cmdSync_handle,
+            "shutdown": self._cmdShutdown_handle,
+        }
+
+    def _cmdHello_handle(self, payload: dict[str, Any]) -> dict[str, str]:
+        """
+        Handle helper hello command.
+
+        Args:
+            payload: Request payload.
+
+        Returns:
+            Helper version payload.
+        """
+        _ = payload
+        return {"version": "0.1.0"}
+
+    def _cmdScreenGeometryGet_handle(self, payload: dict[str, Any]) -> dict[str, int]:
+        """
+        Handle screen geometry command.
+
+        Args:
+            payload: Request payload.
+
+        Returns:
+            Width/height payload.
+        """
+        _ = payload
+        width: int
+        height: int
+        width, height = self._screen_geometry_get()
+        return {"width": width, "height": height}
+
+    def _cmdPointerPositionGet_handle(self, payload: dict[str, Any]) -> dict[str, int]:
+        """
+        Handle pointer position query command.
+
+        Args:
+            payload: Request payload.
+
+        Returns:
+            Pointer x/y payload.
+        """
+        _ = payload
+        x: int
+        y: int
+        x, y = self._device_manager.pointerPosition_get()
+        return {"x": x, "y": y}
+
+    def _cmdCursorPositionSet_handle(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """
+        Handle cursor position set command.
+
+        Args:
+            payload: Request payload.
+
+        Returns:
+            Empty result payload.
+        """
+        x: int = int(payload["x"])
+        y: int = int(payload["y"])
+        self._device_manager.pointerPosition_set(x, y)
+        self._uinput.mouse_move(x=x, y=y)
+        return {}
+
+    def _cmdPointerGrab_handle(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """
+        Handle pointer grab command.
+
+        Args:
+            payload: Request payload.
+
+        Returns:
+            Pointer grab stats.
+        """
+        _ = payload
+        return self._device_manager.pointer_grab()
+
+    def _cmdPointerUngrab_handle(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """
+        Handle pointer ungrab command.
+
+        Args:
+            payload: Request payload.
+
+        Returns:
+            Pointer ungrab stats.
+        """
+        _ = payload
+        return self._device_manager.pointer_ungrab()
+
+    def _cmdKeyboardGrab_handle(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """
+        Handle keyboard grab command.
+
+        Args:
+            payload: Request payload.
+
+        Returns:
+            Keyboard grab stats.
+        """
+        _ = payload
+        return self._device_manager.keyboard_grab()
+
+    def _cmdKeyboardUngrab_handle(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """
+        Handle keyboard ungrab command.
+
+        Args:
+            payload: Request payload.
+
+        Returns:
+            Keyboard ungrab stats.
+        """
+        _ = payload
+        return self._device_manager.keyboard_ungrab()
+
+    def _cmdCursorHide_handle(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """
+        Handle cursor hide command.
+
+        Args:
+            payload: Request payload.
+
+        Returns:
+            Capability payload.
+        """
+        _ = payload
+        return {
+            "supported": False,
+            "reason": "cursor hide/show is not implemented by this helper",
+        }
+
+    def _cmdCursorShow_handle(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """
+        Handle cursor show command.
+
+        Args:
+            payload: Request payload.
+
+        Returns:
+            Capability payload.
+        """
+        _ = payload
+        return {
+            "supported": False,
+            "reason": "cursor hide/show is not implemented by this helper",
+        }
+
+    def _cmdInputEventsRead_handle(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """
+        Handle input events read command.
+
+        Args:
+            payload: Request payload.
+
+        Returns:
+            Event stream payload.
+        """
+        _ = payload
+        events: list[dict[str, Any]]
+        modifier_state: int
+        events, modifier_state = self._device_manager.inputEvents_read()
+        return {"events": events, "modifier_state": modifier_state}
+
+    def _cmdInjectMouse_handle(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """
+        Handle mouse injection command.
+
+        Args:
+            payload: Mouse injection payload.
+
+        Returns:
+            Empty result payload.
+        """
+        self._inject_mouse(payload)
+        return {}
+
+    def _cmdInjectKey_handle(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """
+        Handle key injection command.
+
+        Args:
+            payload: Key injection payload.
+
+        Returns:
+            Empty result payload.
+        """
+        self._inject_key(payload)
+        return {}
+
+    def _cmdSessionIsNative_handle(self, payload: dict[str, Any]) -> dict[str, bool]:
+        """
+        Handle session-is-native query command.
+
+        Args:
+            payload: Request payload.
+
+        Returns:
+            Native session status payload.
+        """
+        _ = payload
+        return {"native": False}
+
+    def _cmdSync_handle(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """
+        Handle sync command.
+
+        Args:
+            payload: Request payload.
+
+        Returns:
+            Empty result payload.
+        """
+        _ = payload
+        return {}
+
+    def _cmdShutdown_handle(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """
+        Handle shutdown command.
+
+        Args:
+            payload: Request payload.
+
+        Returns:
+            Unreachable empty payload.
+        """
+        _ = payload
+        sys.exit(0)
 
     def _screen_geometry_get(self) -> tuple[int, int]:
         """
