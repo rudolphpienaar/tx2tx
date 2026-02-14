@@ -61,6 +61,9 @@ class ServerState:
         # Last sent position to client (to avoid sending duplicates)
         self.last_sent_position: Optional[Position] = None
 
+        # Active remote target client name for current non-CENTER context.
+        self.active_remote_client_name: Optional[str] = None
+
         self._initialized = True
 
     def reset(self) -> None:
@@ -80,6 +83,7 @@ class ServerState:
         self.boundary_crossed = False
         self.target_warp_position = None
         self.last_sent_position = None
+        self.active_remote_client_name = None
 
     def boundaryCrossed_set(self, target_position: Position) -> None:
         """

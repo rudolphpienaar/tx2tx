@@ -291,19 +291,7 @@ class ServerNetwork:
         Returns:
             True if sent, False if client not found
         """
-        target_client = next((c for c in self.clients if c.name == client_name), None)
-        if target_client is None:
-            # Fallback for single-client setups where the client did not send
-            # a name in HELLO. This keeps transitions functional while still
-            # warning about the naming mismatch.
-            unnamed_clients = [c for c in self.clients if c.name is None]
-            if len(self.clients) == 1 and len(unnamed_clients) == 1:
-                target_client = unnamed_clients[0]
-                logger.warning(
-                    "Configured client '%s' not found; routing to sole unnamed client %s",
-                    client_name,
-                    target_client.address,
-                )
+        target_client: ClientConnection | None = self.clientByName_resolve(client_name)
 
         if target_client:
             try:
@@ -314,6 +302,52 @@ class ServerNetwork:
                 self.client_disconnect(target_client)
                 return False
         return False
+
+    def clientByName_resolve(self, client_name: str) -> ClientConnection | None:
+        """
+        Resolve a target client for a configured client name.
+
+        Args:
+            client_name: Configured client name.
+
+        Returns:
+            Matching client connection, inferred sole client, or None.
+        """
+        matched_clients: list[ClientConnection] = [
+            client for client in self.clients if client.name == client_name
+        ]
+        if len(matched_clients) == 1:
+            return matched_clients[0]
+        if len(matched_clients) > 1:
+            selected_client: ClientConnection = matched_clients[-1]
+            logger.warning(
+                "Multiple clients matched '%s'; routing to most recent %s",
+                client_name,
+                selected_client.address,
+            )
+            return selected_client
+
+        # Single-client fallback: if only one connection exists, route to it.
+        # When unnamed, infer the configured name so future lookups are stable.
+        if len(self.clients) == 1:
+            selected_client = self.clients[0]
+            if selected_client.name is None:
+                selected_client.name = client_name
+                logger.warning(
+                    "Inferring client name '%s' for sole connection %s",
+                    client_name,
+                    selected_client.address,
+                )
+            else:
+                logger.warning(
+                    "Configured client '%s' not found; routing to sole client %s (name=%s)",
+                    client_name,
+                    selected_client.address,
+                    selected_client.name,
+                )
+            return selected_client
+
+        return None
 
     def clients_count(self) -> int:
         """

@@ -210,6 +210,7 @@ def state_revertToCenter(
     # Clear boundary crossing state and last sent position
     server_state.boundaryCrossed_clear()
     server_state.last_sent_position = None  # Reset so next context sends first position
+    server_state.active_remote_client_name = None
 
     prev_context = server_state.context
     server_state.context = ScreenContext.CENTER
@@ -569,6 +570,17 @@ def _process_polling_loop(
                         if not target_client_name:
                             logger.error(f"No client configured for {new_context.value}")
                             return
+                        target_client = network.clientByName_resolve(target_client_name)
+                        if target_client is None:
+                            connected_names: list[str | None] = [
+                                client.name for client in network.clients
+                            ]
+                            logger.error(
+                                "Transition blocked: target '%s' unresolved. Connected clients: %s",
+                                target_client_name,
+                                connected_names,
+                            )
+                            return
 
                         # Calculate where cursor should be warped to (Opposite Edge)
                         # We park at the far side so that coordinates sent to the client
@@ -589,6 +601,9 @@ def _process_polling_loop(
 
                         # Now transition state
                         server_state.context = new_context
+                        server_state.active_remote_client_name = (
+                            target_client.name or target_client_name
+                        )
                         logger.debug(f"[CONTEXT] Changed to {new_context.value.upper()}")
 
                         # WARP (Parking): Anchor cursor near transition edge
@@ -631,6 +646,7 @@ def _process_polling_loop(
                         except Exception:
                             pass
                         server_state.context = ScreenContext.CENTER
+                        server_state.active_remote_client_name = None
                         server_state.last_center_switch_time = (
                             time.time()
                         )  # Prevent rapid re-entry
@@ -638,7 +654,10 @@ def _process_polling_loop(
 
         elif server_state.context != ScreenContext.CENTER:
             # In REMOTE mode - Server Authoritative Return Logic
-            target_client_name = context_to_client.get(server_state.context)
+            target_client_name = (
+                server_state.active_remote_client_name
+                or context_to_client.get(server_state.context)
+            )
 
             # 0. WARP ENFORCEMENT (Grace Period)
             # Only needed on Crostini where warp is unreliable

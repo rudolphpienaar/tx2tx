@@ -8,9 +8,7 @@ from tx2tx.server.main import clientMessage_handle
 class TestZombieClient(unittest.TestCase):
     def test_zombie_client_blackhole_repro(self):
         """
-        Verify that if two clients exist with the same name,
-        messageToClient_send picks the first one.
-        This confirms the NEED for the fix.
+        Verify duplicate-name routing prefers the newest connection.
         """
         server = ServerNetwork("localhost", 0)
 
@@ -26,12 +24,11 @@ class TestZombieClient(unittest.TestCase):
         new_client.name = "west"
         server.clients.append(new_client)
 
-        # Verify blackhole behavior exists in the Network class itself
-        # (This logic wasn't changed, but we avoid it by ensuring unique names)
+        # Verify duplicate-name routing uses newest connection.
         msg = Message(MessageType.KEEPALIVE, {})
         server.messageToClient_send("west", msg)
-        zombie_socket.sendall.assert_called()
-        new_socket.sendall.assert_not_called()
+        zombie_socket.sendall.assert_not_called()
+        new_socket.sendall.assert_called()
 
     def test_zombie_cleanup(self):
         """
