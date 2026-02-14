@@ -12,13 +12,18 @@ from tx2tx.x11.injector import EventInjector
 class _FakeWindow:
     """Fake X11 window object with focus tracking."""
 
-    def __init__(self) -> None:
+    def __init__(self, child_window: Any = 0) -> None:
         """Initialize fake window state."""
         self.focus_calls: int = 0
+        self._child_window: Any = child_window
 
     def set_input_focus(self, _revert_to: int, _time: int) -> None:
         """Record focus requests."""
         self.focus_calls += 1
+
+    def query_pointer(self) -> SimpleNamespace:
+        """Return pointer reply with child window."""
+        return SimpleNamespace(child=self._child_window)
 
 
 class _FakeRoot:
@@ -118,3 +123,24 @@ class TestEventInjectorFocus:
         assert len(fake_calls) == 1
         assert fake_calls[0][2] == 44
         assert fake_display.sync_calls == 1
+
+    def test_key_event_focuses_deepest_pointer_window(self, monkeypatch) -> None:
+        """Key injection should focus the deepest window under pointer."""
+        leaf_window = _FakeWindow(child_window=0)
+        frame_window = _FakeWindow(child_window=leaf_window)
+        fake_display = _FakeDisplay(child_window=frame_window)
+        injector = EventInjector(_FakeDisplayManager(fake_display))
+
+        fake_calls: list[tuple[Any, int, int]] = []
+
+        def _fake_input(display: Any, event_type: int, detail: int) -> None:
+            fake_calls.append((display, event_type, detail))
+
+        monkeypatch.setattr("tx2tx.x11.injector.xtest.fake_input", _fake_input)
+
+        key_event = KeyEvent(event_type=EventType.KEY_PRESS, keycode=24, keysym=None)
+        injector.keyEvent_inject(key_event)
+
+        assert frame_window.focus_calls == 0
+        assert leaf_window.focus_calls == 1
+        assert len(fake_calls) == 1
