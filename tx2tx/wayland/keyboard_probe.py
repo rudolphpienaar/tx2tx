@@ -86,9 +86,10 @@ class KeyboardProbe:
                 state_value: int = (
                     int(event["state"]) if event.get("state") is not None else modifier_state
                 )
+                source_device: str = str(event.get("source_device", "unknown"))
                 timestamp: str = time.strftime("%Y-%m-%d %H:%M:%S")
                 print(
-                    f"{timestamp} [{event_type}] keycode={keycode} state=0x{state_value:x}",
+                    f"{timestamp} [{event_type}] keycode={keycode} state=0x{state_value:x} device={source_device}",
                     flush=True,
                 )
             time.sleep(self._config.poll_interval_sec)

@@ -373,11 +373,13 @@ class InputDeviceManager:
                     if event.value
                     else EventType.MOUSE_BUTTON_RELEASE.value
                 )
+                device_path: str = self._fd_to_path.get(device.fd, "unknown")
                 payload: dict[str, Any] = {
                     "event_type": event_type,
                     "x": x,
                     "y": y,
                     "button": self._button_map(event.code),
+                    "source_device": device_path,
                 }
                 self._event_record(payload)
                 return
@@ -398,11 +400,13 @@ class InputDeviceManager:
             pressed: bool = event.value == 1
             self._modifier_state.update(event.code, pressed)
             event_type: str = EventType.KEY_PRESS.value if pressed else EventType.KEY_RELEASE.value
+            device_path = self._fd_to_path.get(device.fd, "unknown")
             payload: dict[str, Any] = {
                 "event_type": event_type,
                 "keycode": event.code,
                 "keysym": None,
                 "state": self._modifier_state.mask_get(),
+                "source_device": device_path,
             }
             self._event_record(payload)
 
