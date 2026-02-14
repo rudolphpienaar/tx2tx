@@ -11,7 +11,7 @@ from tx2tx import __version__
 from tx2tx.client.network import ClientNetwork
 from tx2tx.common.config import ConfigLoader
 from tx2tx.common.settings import settings
-from tx2tx.common.types import EventType, MouseEvent
+from tx2tx.common.types import EventType, MouseEvent, Screen
 from tx2tx.input.backend import DisplayBackend, InputInjector
 from tx2tx.input.factory import clientBackend_create
 from tx2tx.protocol.message import Message, MessageParser, MessageType
@@ -300,9 +300,77 @@ def client_run(args: argparse.Namespace) -> None:
     Returns:
         Result value.
     """
-    # Load configuration
-    config_path = Path(args.config) if args.config else None
+    config = configWithSettings_load(args)
+    loggingWithConfig_setup(args, config)
+    host, port = serverAddressWithConfig_parse(config)
 
+    logger.info(f"tx2tx client v{__version__}")
+    if args.name:
+        logger.info(f"Client name: {args.name}")
+    logger.info(f"Connecting to {host}:{port}")
+    logger.info(f"Display: {config.client.display or '$DISPLAY'}")
+
+    backend_name, wayland_helper = backendOptions_resolve(args, config)
+    logger.info(f"Backend: {backend_name}")
+
+    display_manager, event_injector = clientBackend_create(
+        backend_name=backend_name,
+        display_name=config.client.display,
+        wayland_helper=wayland_helper,
+    )
+
+    screen_geometry = displayConnection_establish(display_manager)
+
+    # Verify injection capability is available
+    if not event_injector.injectionReady_check():
+        logger.error("Input injection not available for selected backend")
+        display_manager.connection_close()
+        sys.exit(1)
+
+    logger.info("Input injection ready")
+
+    software_cursor = softwareCursor_create(args, backend_name, display_manager)
+
+    network = ClientNetwork(
+        host=host,
+        port=port,
+        reconnect_enabled=config.client.reconnect.enabled,
+        reconnect_max_attempts=config.client.reconnect.max_attempts,
+        reconnect_delay=config.client.reconnect.delay_seconds,
+    )
+
+    try:
+        clientSession_run(
+            network=network,
+            screen_geometry=screen_geometry,
+            client_name=args.name,
+            event_injector=event_injector,
+            display_manager=display_manager,
+            software_cursor=software_cursor,
+            config=config,
+        )
+    except ConnectionError as e:
+        logger.error(f"Failed to connect: {e}")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Client error: {e}", exc_info=True)
+        raise
+    finally:
+        network.connection_close()
+        display_manager.connection_close()
+
+
+def configWithSettings_load(args: argparse.Namespace):
+    """
+    Load client config and initialize settings singleton.
+
+    Args:
+        args: Parsed client CLI args.
+
+    Returns:
+        Loaded configuration object.
+    """
+    config_path: Path | None = Path(args.config) if args.config else None
     try:
         config = ConfigLoader.configWithOverrides_load(
             file_path=config_path, server_address=args.server, display=args.display
@@ -314,118 +382,176 @@ def client_run(args: argparse.Namespace) -> None:
     except Exception as e:
         print(f"Error loading config: {e}", file=sys.stderr)
         sys.exit(1)
-
-    # Initialize settings singleton with loaded config
     settings.initialize(config)
+    return config
 
-    # Setup logging
-    log_level = getattr(args, "log_level", None) or config.logging.level
+
+def loggingWithConfig_setup(args: argparse.Namespace, config) -> None:
+    """
+    Setup logging using CLI override and config defaults.
+
+    Args:
+        args: Parsed client CLI args.
+        config: Loaded config object.
+    """
+    log_level: str = getattr(args, "log_level", None) or config.logging.level
     logging_setup(log_level, config.logging.format, config.logging.file)
 
-    # Parse server address
+
+def serverAddressWithConfig_parse(config) -> tuple[str, int]:
+    """
+    Parse and validate server host/port from config.
+
+    Args:
+        config: Loaded config object.
+
+    Returns:
+        Server host and port.
+    """
     try:
+        host: str
+        port: int
         host, port = serverAddress_parse(config.client.server_address)
+        return host, port
     except ValueError as e:
         logger.error(f"Invalid server address: {e}")
         sys.exit(1)
 
-    logger.info(f"tx2tx client v{__version__}")
-    if args.name:
-        logger.info(f"Client name: {args.name}")
-    logger.info(f"Connecting to {host}:{port}")
-    logger.info(f"Display: {config.client.display or '$DISPLAY'}")
 
-    backend_name = getattr(args, "backend", None) or config.backend.name or "x11"
+def backendOptions_resolve(args: argparse.Namespace, config) -> tuple[str, str | None]:
+    """
+    Resolve backend selection and helper command.
+
+    Args:
+        args: Parsed client CLI args.
+        config: Loaded config object.
+
+    Returns:
+        Tuple of backend name and optional Wayland helper command.
+    """
+    backend_name: str = getattr(args, "backend", None) or config.backend.name or "x11"
     if backend_name.lower() not in {"x11", "wayland"}:
         logger.error(f"Unsupported backend '{backend_name}'. Supported: x11, wayland.")
         sys.exit(1)
-    logger.info(f"Backend: {backend_name}")
-    wayland_helper = getattr(args, "wayland_helper", None) or config.backend.wayland.helper_command
-
-    # Initialize backend display and event injector
-    display_manager, event_injector = clientBackend_create(
-        backend_name=backend_name,
-        display_name=config.client.display,
-        wayland_helper=wayland_helper,
+    wayland_helper: str | None = (
+        getattr(args, "wayland_helper", None) or config.backend.wayland.helper_command
     )
+    return backend_name, wayland_helper
 
+
+def displayConnection_establish(display_manager: DisplayBackend) -> Screen:
+    """
+    Establish display backend connection and return screen geometry.
+
+    Args:
+        display_manager: Display backend instance.
+
+    Returns:
+        Screen geometry.
+    """
     try:
         display_manager.connection_establish()
-        screen_geometry = display_manager.screenGeometry_get()
+        screen_geometry: Screen = display_manager.screenGeometry_get()
         logger.info(f"Screen geometry: {screen_geometry.width}x{screen_geometry.height}")
+        return screen_geometry
     except Exception as e:
         logger.error(f"Failed to connect to X11 display: {e}")
         sys.exit(1)
 
-    # Verify injection capability is available
-    if not event_injector.injectionReady_check():
-        logger.error("Input injection not available for selected backend")
-        display_manager.connection_close()
-        sys.exit(1)
 
-    logger.info("Input injection ready")
+def softwareCursor_create(
+    args: argparse.Namespace, backend_name: str, display_manager: DisplayBackend
+) -> SoftwareCursor | None:
+    """
+    Create software cursor if requested and supported.
 
-    # Initialize software cursor if requested
-    software_cursor = None
-    if args.software_cursor:
-        if backend_name.lower() == "x11":
-            x11_display = cast(X11DisplayBackend, display_manager)
-            software_cursor = SoftwareCursor(x11_display.displayManager_get())
-            logger.info("Software cursor enabled")
-        else:
-            logger.warning("Software cursor is only supported on X11 backends")
+    Args:
+        args: Parsed client CLI args.
+        backend_name: Selected backend name.
+        display_manager: Display backend instance.
 
-    # Initialize network client
-    network = ClientNetwork(
-        host=host,
-        port=port,
+    Returns:
+        Software cursor instance or None.
+    """
+    if not args.software_cursor:
+        return None
+    if backend_name.lower() != "x11":
+        logger.warning("Software cursor is only supported on X11 backends")
+        return None
+    x11_display: X11DisplayBackend = cast(X11DisplayBackend, display_manager)
+    software_cursor: SoftwareCursor = SoftwareCursor(x11_display.displayManager_get())
+    logger.info("Software cursor enabled")
+    return software_cursor
+
+
+def clientSession_run(
+    network: ClientNetwork,
+    screen_geometry: Screen,
+    client_name: str | None,
+    event_injector: InputInjector,
+    display_manager: DisplayBackend,
+    software_cursor: SoftwareCursor | None,
+    config,
+) -> None:
+    """
+    Run client connection lifecycle and message loop.
+
+    Args:
+        network: Client network transport.
+        screen_geometry: Client screen geometry.
+        client_name: Optional configured client name.
+        event_injector: Input injector.
+        display_manager: Display backend.
+        software_cursor: Optional software cursor.
+        config: Loaded config object.
+    """
+    network.connection_establish(
+        screen_width=screen_geometry.width,
+        screen_height=screen_geometry.height,
+        client_name=client_name,
+    )
+    logger.info("Client running. Press Ctrl+C to stop.")
+    messageLoop_run(
+        network=network,
+        event_injector=event_injector,
+        display_manager=display_manager,
+        software_cursor=software_cursor,
         reconnect_enabled=config.client.reconnect.enabled,
-        reconnect_max_attempts=config.client.reconnect.max_attempts,
-        reconnect_delay=config.client.reconnect.delay_seconds,
     )
 
-    try:
-        # Connect to server with screen geometry
-        network.connection_establish(
-            screen_width=screen_geometry.width,
-            screen_height=screen_geometry.height,
-            client_name=args.name,
-        )
 
-        # Main event loop
-        logger.info("Client running. Press Ctrl+C to stop.")
+def messageLoop_run(
+    network: ClientNetwork,
+    event_injector: InputInjector,
+    display_manager: DisplayBackend,
+    software_cursor: SoftwareCursor | None,
+    reconnect_enabled: bool,
+) -> None:
+    """
+    Run main client receive/inject loop.
 
-        while network.connectionStatus_check():
-            try:
-                # Receive messages from server
-                messages = network.messages_receive()
-
-                for message in messages:
-                    serverMessage_handle(message, event_injector, display_manager, software_cursor)
-
-                # Small sleep to prevent busy waiting
-                time.sleep(settings.RECONNECT_CHECK_INTERVAL)
-
-            except ConnectionError as e:
-                logger.error(f"Connection error: {e}")
-                if config.client.reconnect.enabled:
-                    if network.reconnection_attempt():
-                        logger.info("Reconnected successfully")
-                    else:
-                        logger.error("Reconnection failed, exiting")
-                        break
-                else:
-                    break
-
-    except ConnectionError as e:
-        logger.error(f"Failed to connect: {e}")
-        sys.exit(1)
-    except Exception as e:
-        logger.error(f"Client error: {e}", exc_info=True)
-        raise
-    finally:
-        network.connection_close()
-        display_manager.connection_close()
+    Args:
+        network: Client network transport.
+        event_injector: Input injector.
+        display_manager: Display backend.
+        software_cursor: Optional software cursor.
+        reconnect_enabled: Whether reconnect is enabled.
+    """
+    while network.connectionStatus_check():
+        try:
+            messages = network.messages_receive()
+            for message in messages:
+                serverMessage_handle(message, event_injector, display_manager, software_cursor)
+            time.sleep(settings.RECONNECT_CHECK_INTERVAL)
+        except ConnectionError as e:
+            logger.error(f"Connection error: {e}")
+            if not reconnect_enabled:
+                break
+            if network.reconnection_attempt():
+                logger.info("Reconnected successfully")
+                continue
+            logger.error("Reconnection failed, exiting")
+            break
 
 
 def main() -> NoReturn:

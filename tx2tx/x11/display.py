@@ -744,84 +744,90 @@ class DisplayManager:
             return
 
         display = self.display_get()
-        screen = display.screen()
-        root = screen.root
+        root = display.screen().root
+        native_x11: bool = self._x11native or is_native_x11()
 
-        # Determine if we're on native X11
-        native_x11 = self._x11native or is_native_x11()
-
-        # NATIVE X11 PATH - Use native XFixes via ctypes
         if native_x11 and not self._overlay_enabled:
-            logger.debug("Using native X11 cursor hiding methods")
-
-            # Method 1: Native XFixes via ctypes (bypasses python-xlib's missing implementation)
-            if xfixes_hide_cursor_native(display, root.id):
-                self._cursor_hidden = True
-                logger.info("Cursor hidden (native XFixes via ctypes)")
-                return
-
-            # Method 2: Blank pixmap cursor (fallback - truly invisible)
-            try:
-                cursor = self._ensure_blank_cursor()
-                if cursor:
-                    root.change_attributes(cursor=cursor)
-                    display.sync()
-                    self._cursor_hidden = True
-                    logger.info("Cursor hidden (blank pixmap)")
-                    return
-            except Exception as e:
-                logger.debug(f"Failed to set blank cursor: {e}")
-
-            # Method 3: Gray X Cursor on root window (last resort - visible but indicates remote mode)
-            try:
-                cursor = self._remoteCursor_create()
-                if cursor:
-                    root.change_attributes(cursor=cursor)
-                    display.sync()
-                    self._cursor_hidden = True
-                    logger.info("Cursor set to gray X (remote mode indicator)")
-                    return
-            except Exception as e:
-                logger.debug(f"Failed to set gray X cursor: {e}")
-
-        # CROSTINI/WAYLAND PATH - Overlay window workaround
+            hidden_ok: bool = self._cursorHideNative_try(display, root.id, root)
         else:
-            logger.debug("Using Crostini/Wayland cursor hiding methods")
+            hidden_ok = self._cursorHideWaylandLike_try(display, root)
 
-            # Method 1: Fullscreen overlay window with cursor
-            # This WORKS in Crostini because compositor respects window cursors
-            if self._overlay_enabled:
-                if self._cursorOverlay_show():
-                    self._cursor_hidden = True
-                    return
+        if not hidden_ok:
+            logger.warning("All cursor hiding methods failed")
+
+    def _cursorHideNative_try(self, display, root_id: int, root) -> bool:
+        """
+        Try native X11 cursor hide sequence.
+
+        Args:
+            display: X11 display object.
+            root_id: Root window XID.
+            root: Root window object.
+
+        Returns:
+            True when cursor hide succeeded.
+        """
+        logger.debug("Using native X11 cursor hiding methods")
+        if xfixes_hide_cursor_native(display, root_id):
+            self._cursor_hidden = True
+            logger.info("Cursor hidden (native XFixes via ctypes)")
+            return True
+        return self._cursorOnRoot_set(root, display, use_blank=True) or self._cursorOnRoot_set(
+            root, display, use_blank=False
+        )
+
+    def _cursorHideWaylandLike_try(self, display, root) -> bool:
+        """
+        Try Wayland/Crostini-compatible cursor hide sequence.
+
+        Args:
+            display: X11 display object.
+            root: Root window object.
+
+        Returns:
+            True when cursor hide succeeded.
+        """
+        logger.debug("Using Crostini/Wayland cursor hiding methods")
+        if self._overlay_enabled:
+            if self._cursorOverlay_show():
+                self._cursor_hidden = True
+                return True
+        else:
+            logger.debug("Overlay disabled, trying fallback methods")
+        return self._cursorOnRoot_set(root, display, use_blank=True) or self._cursorOnRoot_set(
+            root, display, use_blank=False
+        )
+
+    def _cursorOnRoot_set(self, root, display, use_blank: bool) -> bool:
+        """
+        Set root cursor to blank or remote-indicator cursor.
+
+        Args:
+            root: Root window object.
+            display: X11 display object.
+            use_blank: True for blank cursor, False for gray-X cursor.
+
+        Returns:
+            True when cursor attribute update succeeded.
+        """
+        try:
+            cursor = self._ensure_blank_cursor() if use_blank else self._remoteCursor_create()
+            if not cursor:
+                return False
+            root.change_attributes(cursor=cursor)
+            display.sync()
+            self._cursor_hidden = True
+            if use_blank:
+                logger.info("Cursor hidden (blank pixmap)")
             else:
-                logger.debug("Overlay disabled, trying fallback methods")
-
-            # Method 2: Blank cursor (may work on some compositors)
-            try:
-                cursor = self._ensure_blank_cursor()
-                if cursor:
-                    root.change_attributes(cursor=cursor)
-                    display.sync()
-                    self._cursor_hidden = True
-                    logger.info("Cursor hidden (blank pixmap)")
-                    return
-            except Exception as e:
+                logger.info("Cursor set to gray X (remote mode indicator)")
+            return True
+        except Exception as e:
+            if use_blank:
                 logger.debug(f"Failed to set blank cursor: {e}")
-
-            # Method 3: Gray X Cursor on root window (last resort - visible)
-            try:
-                cursor = self._remoteCursor_create()
-                if cursor:
-                    root.change_attributes(cursor=cursor)
-                    display.sync()
-                    self._cursor_hidden = True
-                    logger.info("Cursor set to gray X (remote mode indicator)")
-                    return
-            except Exception as e:
+            else:
                 logger.debug(f"Failed to set gray X cursor: {e}")
-
-        logger.warning("All cursor hiding methods failed")
+            return False
 
     def cursor_show(self) -> None:
         """

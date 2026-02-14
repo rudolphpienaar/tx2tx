@@ -470,13 +470,7 @@ def centerContext_process(
     if transition is None:
         return
 
-    direction_to_context: dict[Direction, ScreenContext] = {
-        Direction.LEFT: ScreenContext.WEST,
-        Direction.RIGHT: ScreenContext.EAST,
-        Direction.TOP: ScreenContext.NORTH,
-        Direction.BOTTOM: ScreenContext.SOUTH,
-    }
-    new_context: ScreenContext | None = direction_to_context.get(transition.direction)
+    new_context: ScreenContext | None = contextFromDirection_get(transition.direction)
     if new_context is None:
         logger.error(f"Invalid transition direction: {transition.direction}")
         return
@@ -489,29 +483,14 @@ def centerContext_process(
 
     try:
         t0: float = time.time()
-        target_client_name: str | None = context_to_client.get(new_context)
-        if not target_client_name:
-            logger.error(f"No client configured for {new_context.value}")
+        resolved_target = transitionTargetClient_resolve(network, new_context, context_to_client)
+        if resolved_target is None:
             return
-        target_client: ClientConnection | None = network.clientByName_get(target_client_name)
-        if target_client is None:
-            connected_names: list[str | None] = [client.name for client in network.clients]
-            logger.error(
-                "Transition blocked: target '%s' unresolved. Connected clients: %s",
-                target_client_name,
-                connected_names,
-            )
-            return
-
-        parking_offset: int = 30
-        if transition.direction == Direction.LEFT:
-            warp_pos = Position(x=screen_geometry.width - parking_offset, y=transition.position.y)
-        elif transition.direction == Direction.RIGHT:
-            warp_pos = Position(x=parking_offset, y=transition.position.y)
-        elif transition.direction == Direction.TOP:
-            warp_pos = Position(x=transition.position.x, y=screen_geometry.height - parking_offset)
-        else:
-            warp_pos = Position(x=transition.position.x, y=parking_offset)
+        target_client_name: str = resolved_target[0]
+        target_client: ClientConnection = resolved_target[1]
+        warp_pos: Position = transitionParkingPosition_get(
+            transition.direction, transition.position, screen_geometry
+        )
 
         server_state.context = new_context
         server_state.active_remote_client_name = target_client.name or target_client_name
@@ -550,6 +529,81 @@ def centerContext_process(
         logger.warning("Reverted to CENTER after failed transition")
 
 
+def contextFromDirection_get(direction: Direction) -> ScreenContext | None:
+    """
+    Map pointer boundary direction to screen context.
+
+    Args:
+        direction: Transition direction.
+
+    Returns:
+        Target screen context or None.
+    """
+    direction_to_context: dict[Direction, ScreenContext] = {
+        Direction.LEFT: ScreenContext.WEST,
+        Direction.RIGHT: ScreenContext.EAST,
+        Direction.TOP: ScreenContext.NORTH,
+        Direction.BOTTOM: ScreenContext.SOUTH,
+    }
+    return direction_to_context.get(direction)
+
+
+def transitionTargetClient_resolve(
+    network: ServerNetwork,
+    new_context: ScreenContext,
+    context_to_client: dict[ScreenContext, str],
+) -> tuple[str, ClientConnection] | None:
+    """
+    Resolve target client for a context transition.
+
+    Args:
+        network: Active server network.
+        new_context: Transition target context.
+        context_to_client: Context-to-client routing map.
+
+    Returns:
+        Tuple of (target_client_name, target_connection) or None.
+    """
+    target_client_name: str | None = context_to_client.get(new_context)
+    if not target_client_name:
+        logger.error(f"No client configured for {new_context.value}")
+        return None
+    target_client: ClientConnection | None = network.clientByName_get(target_client_name)
+    if target_client is None:
+        connected_names: list[str | None] = [client.name for client in network.clients]
+        logger.error(
+            "Transition blocked: target '%s' unresolved. Connected clients: %s",
+            target_client_name,
+            connected_names,
+        )
+        return None
+    return target_client_name, target_client
+
+
+def transitionParkingPosition_get(
+    direction: Direction, transition_position: Position, screen_geometry: Screen
+) -> Position:
+    """
+    Compute local parking position after CENTER->REMOTE transition.
+
+    Args:
+        direction: Transition direction.
+        transition_position: Position at transition edge.
+        screen_geometry: Local screen geometry.
+
+    Returns:
+        Parking cursor position.
+    """
+    parking_offset: int = 30
+    if direction == Direction.LEFT:
+        return Position(x=screen_geometry.width - parking_offset, y=transition_position.y)
+    if direction == Direction.RIGHT:
+        return Position(x=parking_offset, y=transition_position.y)
+    if direction == Direction.TOP:
+        return Position(x=transition_position.x, y=screen_geometry.height - parking_offset)
+    return Position(x=transition_position.x, y=parking_offset)
+
+
 def remoteContext_process(
     network: ServerNetwork,
     display_manager: DisplayBackend,
@@ -581,48 +635,26 @@ def remoteContext_process(
         panic_keysyms: Panic key keysyms.
         panic_modifiers: Panic key modifier mask.
     """
-    target_client_name: str | None = (
-        server_state.active_remote_client_name or context_to_client.get(server_state.context)
-    )
+    target_client_name: str | None = remoteTargetClientName_get(context_to_client)
 
-    if not (x11native or display_manager.session_isNative_check()):
-        if (time.time() - server_state.last_remote_switch_time) < 0.5:
-            target_pos: Position | None = None
-            if server_state.context == ScreenContext.WEST:
-                target_pos = Position(x=screen_geometry.width - 3, y=position.y)
-            elif server_state.context == ScreenContext.EAST:
-                target_pos = Position(x=2, y=position.y)
-            if target_pos and abs(position.x - target_pos.x) > 100:
-                logger.info(
-                    f"[ENFORCE] Cursor at ({position.x},{position.y}), enforcing warp to ({target_pos.x},{target_pos.y})"
-                )
-                display_manager.cursorPosition_set(target_pos)
-                time.sleep(0.01)
-                return
+    if remoteWarpEnforcement_apply(
+        display_manager=display_manager,
+        screen_geometry=screen_geometry,
+        position=position,
+        x11native=x11native,
+    ):
+        return
 
     should_return: bool = remoteReturnBoundary_check(server_state.context, position, screen_geometry)
     if should_return and velocity >= (config.server.velocity_threshold * 0.5):
-        logger.info(
-            f"[BOUNDARY] Returning from {server_state.context.value.upper()} at ({position.x}, {position.y})"
+        remoteReturn_process(
+            network=network,
+            target_client_name=target_client_name,
+            display_manager=display_manager,
+            screen_geometry=screen_geometry,
+            position=position,
+            pointer_tracker=pointer_tracker,
         )
-        try:
-            if target_client_name:
-                hide_event = MouseEvent(
-                    event_type=EventType.MOUSE_MOVE,
-                    normalized_point=NormalizedPoint(x=-1.0, y=-1.0),
-                )
-                hide_msg = MessageBuilder.mouseEventMessage_create(hide_event)
-                network.messageToClient_send(target_client_name, hide_msg)
-            state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
-        except Exception as e:
-            logger.error(f"Return transition failed: {e}", exc_info=True)
-            server_state.context = ScreenContext.CENTER
-            try:
-                display_manager.cursor_show()
-                display_manager.keyboard_ungrab()
-                display_manager.pointer_ungrab()
-            except Exception:
-                pass
         return
 
     if not target_client_name:
@@ -633,22 +665,15 @@ def remoteContext_process(
         state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
         return
 
-    if server_state.positionChanged_check(position):
-        logger.debug(f"[MOUSE] Sending pos ({position.x}, {position.y}) to {target_client_name}")
-        normalized_point = screen_geometry.coordinates_normalize(position)
-        mouse_event = MouseEvent(
-            event_type=EventType.MOUSE_MOVE,
-            normalized_point=normalized_point,
-        )
-        move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
-        if not network.messageToClient_send(target_client_name, move_msg):
-            connected_names = [client.name for client in network.clients]
-            logger.error(
-                f"Failed to send movement to '{target_client_name}'. Connected clients: {connected_names}. Reverting."
-            )
-            state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
-            return
-        server_state.lastSentPosition_update(position)
+    if not remoteMotionPosition_send(
+        network=network,
+        target_client_name=target_client_name,
+        screen_geometry=screen_geometry,
+        position=position,
+        display_manager=display_manager,
+        pointer_tracker=pointer_tracker,
+    ):
+        return
 
     input_events, modifier_state = input_capturer.inputEvents_read()
     if panicKey_check(input_events, panic_keysyms, panic_modifiers, modifier_state):
@@ -665,6 +690,140 @@ def remoteContext_process(
         pointer_tracker=pointer_tracker,
         position=position,
     )
+
+
+def remoteTargetClientName_get(context_to_client: dict[ScreenContext, str]) -> str | None:
+    """
+    Resolve active remote target client name from server state.
+
+    Args:
+        context_to_client: Context-to-client routing map.
+
+    Returns:
+        Target client name or None.
+    """
+    return server_state.active_remote_client_name or context_to_client.get(server_state.context)
+
+
+def remoteWarpEnforcement_apply(
+    display_manager: DisplayBackend,
+    screen_geometry: Screen,
+    position: Position,
+    x11native: bool,
+) -> bool:
+    """
+    Apply early REMOTE warp enforcement when compositor may drift pointer.
+
+    Args:
+        display_manager: Server display backend.
+        screen_geometry: Local screen geometry.
+        position: Current pointer position.
+        x11native: Native X11 mode flag.
+
+    Returns:
+        True when enforcement warped and caller should return early.
+    """
+    if x11native or display_manager.session_isNative_check():
+        return False
+    if (time.time() - server_state.last_remote_switch_time) >= 0.5:
+        return False
+    target_pos: Position | None = None
+    if server_state.context == ScreenContext.WEST:
+        target_pos = Position(x=screen_geometry.width - 3, y=position.y)
+    elif server_state.context == ScreenContext.EAST:
+        target_pos = Position(x=2, y=position.y)
+    if target_pos is None or abs(position.x - target_pos.x) <= 100:
+        return False
+    logger.info(
+        f"[ENFORCE] Cursor at ({position.x},{position.y}), enforcing warp to ({target_pos.x},{target_pos.y})"
+    )
+    display_manager.cursorPosition_set(target_pos)
+    time.sleep(0.01)
+    return True
+
+
+def remoteReturn_process(
+    network: ServerNetwork,
+    target_client_name: str | None,
+    display_manager: DisplayBackend,
+    screen_geometry: Screen,
+    position: Position,
+    pointer_tracker: PointerTracker,
+) -> None:
+    """
+    Process REMOTE->CENTER return sequence.
+
+    Args:
+        network: Active server network.
+        target_client_name: Active target client name.
+        display_manager: Server display backend.
+        screen_geometry: Local screen geometry.
+        position: Current pointer position.
+        pointer_tracker: Pointer tracker.
+    """
+    logger.info(
+        f"[BOUNDARY] Returning from {server_state.context.value.upper()} at ({position.x}, {position.y})"
+    )
+    try:
+        if target_client_name:
+            hide_event = MouseEvent(
+                event_type=EventType.MOUSE_MOVE,
+                normalized_point=NormalizedPoint(x=-1.0, y=-1.0),
+            )
+            hide_msg = MessageBuilder.mouseEventMessage_create(hide_event)
+            network.messageToClient_send(target_client_name, hide_msg)
+        state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
+    except Exception as e:
+        logger.error(f"Return transition failed: {e}", exc_info=True)
+        server_state.context = ScreenContext.CENTER
+        try:
+            display_manager.cursor_show()
+            display_manager.keyboard_ungrab()
+            display_manager.pointer_ungrab()
+        except Exception:
+            pass
+
+
+def remoteMotionPosition_send(
+    network: ServerNetwork,
+    target_client_name: str,
+    screen_geometry: Screen,
+    position: Position,
+    display_manager: DisplayBackend,
+    pointer_tracker: PointerTracker,
+) -> bool:
+    """
+    Send pointer position update to active remote client if changed.
+
+    Args:
+        network: Active server network.
+        target_client_name: Destination client name.
+        screen_geometry: Local screen geometry.
+        position: Current pointer position.
+        display_manager: Server display backend.
+        pointer_tracker: Pointer tracker.
+
+    Returns:
+        True when caller can continue processing.
+    """
+    if not server_state.positionChanged_check(position):
+        return True
+    logger.debug(f"[MOUSE] Sending pos ({position.x}, {position.y}) to {target_client_name}")
+    normalized_point = screen_geometry.coordinates_normalize(position)
+    mouse_event = MouseEvent(
+        event_type=EventType.MOUSE_MOVE,
+        normalized_point=normalized_point,
+    )
+    move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
+    if network.messageToClient_send(target_client_name, move_msg):
+        server_state.lastSentPosition_update(position)
+        return True
+    connected_names = [client.name for client in network.clients]
+    logger.error(
+        f"Failed to send movement to '{target_client_name}'. Connected clients: {connected_names}. Reverting."
+    )
+    state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
+    return False
 
 
 def remoteReturnBoundary_check(
