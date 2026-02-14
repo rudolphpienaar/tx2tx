@@ -17,6 +17,7 @@ class ProbeConfig:
 
     helper_command: str
     poll_interval_sec: float
+    timeout_sec: float | None
 
 
 class KeyboardProbe:
@@ -32,6 +33,7 @@ class KeyboardProbe:
         self._config: ProbeConfig = config
         self._helper: WaylandHelperClient = WaylandHelperClient(config.helper_command)
         self._running: bool = True
+        self._start_time_monotonic: float = time.monotonic()
 
     def signalHandle_requestStop(self, signum: int, _frame) -> None:
         """
@@ -75,6 +77,9 @@ class KeyboardProbe:
             return 2
 
         while self._running:
+            if self._timeoutExceeded_check():
+                self._running = False
+                break
             events, modifier_state = self._helper.inputEvents_read()
             for event in events:
                 event_type: str = str(event.get("event_type", "unknown"))
@@ -95,6 +100,20 @@ class KeyboardProbe:
             time.sleep(self._config.poll_interval_sec)
 
         return 0
+
+    def _timeoutExceeded_check(self) -> bool:
+        """
+        Check whether probe runtime exceeded configured timeout.
+
+        Returns:
+            True when timeout has elapsed, otherwise False.
+        """
+        timeout_sec: float | None = self._config.timeout_sec
+        if timeout_sec is None:
+            return False
+        current_time: float = time.monotonic()
+        elapsed_sec: float = current_time - self._start_time_monotonic
+        return elapsed_sec >= timeout_sec
 
     def shutdown(self) -> None:
         """
@@ -128,10 +147,17 @@ def arguments_parse() -> ProbeConfig:
         default=0.01,
         help="Polling interval in seconds (default: 0.01).",
     )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        help="Optional timeout in seconds for automatic graceful exit.",
+    )
     args = parser.parse_args()
     return ProbeConfig(
         helper_command=str(args.helper),
         poll_interval_sec=float(args.poll_interval),
+        timeout_sec=(float(args.timeout) if args.timeout is not None else None),
     )
 
 
