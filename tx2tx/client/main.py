@@ -9,7 +9,8 @@ from typing import NoReturn, Optional, cast
 
 from tx2tx import __version__
 from tx2tx.client.network import ClientNetwork
-from tx2tx.common.config import ConfigLoader
+from tx2tx.common.config import Config, ConfigLoader
+from tx2tx.common.runtime_models import ClientBackendOptions
 from tx2tx.common.settings import settings
 from tx2tx.common.types import EventType, MouseEvent, Screen
 from tx2tx.input.backend import DisplayBackend, InputInjector
@@ -310,7 +311,9 @@ def client_run(args: argparse.Namespace) -> None:
     logger.info(f"Connecting to {host}:{port}")
     logger.info(f"Display: {config.client.display or '$DISPLAY'}")
 
-    backend_name, wayland_helper = backendOptions_resolve(args, config)
+    backend_options: ClientBackendOptions = backendOptions_resolve(args, config)
+    backend_name: str = backend_options.backend_name
+    wayland_helper: str | None = backend_options.wayland_helper
     logger.info(f"Backend: {backend_name}")
 
     display_manager, event_injector = clientBackend_create(
@@ -360,7 +363,7 @@ def client_run(args: argparse.Namespace) -> None:
         display_manager.connection_close()
 
 
-def configWithSettings_load(args: argparse.Namespace):
+def configWithSettings_load(args: argparse.Namespace) -> Config:
     """
     Load client config and initialize settings singleton.
 
@@ -386,7 +389,7 @@ def configWithSettings_load(args: argparse.Namespace):
     return config
 
 
-def loggingWithConfig_setup(args: argparse.Namespace, config) -> None:
+def loggingWithConfig_setup(args: argparse.Namespace, config: Config) -> None:
     """
     Setup logging using CLI override and config defaults.
 
@@ -398,7 +401,7 @@ def loggingWithConfig_setup(args: argparse.Namespace, config) -> None:
     logging_setup(log_level, config.logging.format, config.logging.file)
 
 
-def serverAddressWithConfig_parse(config) -> tuple[str, int]:
+def serverAddressWithConfig_parse(config: Config) -> tuple[str, int]:
     """
     Parse and validate server host/port from config.
 
@@ -418,7 +421,9 @@ def serverAddressWithConfig_parse(config) -> tuple[str, int]:
         sys.exit(1)
 
 
-def backendOptions_resolve(args: argparse.Namespace, config) -> tuple[str, str | None]:
+def backendOptions_resolve(
+    args: argparse.Namespace, config: Config
+) -> ClientBackendOptions:
     """
     Resolve backend selection and helper command.
 
@@ -436,7 +441,10 @@ def backendOptions_resolve(args: argparse.Namespace, config) -> tuple[str, str |
     wayland_helper: str | None = (
         getattr(args, "wayland_helper", None) or config.backend.wayland.helper_command
     )
-    return backend_name, wayland_helper
+    return ClientBackendOptions(
+        backend_name=backend_name,
+        wayland_helper=wayland_helper,
+    )
 
 
 def displayConnection_establish(display_manager: DisplayBackend) -> Screen:
@@ -491,7 +499,7 @@ def clientSession_run(
     event_injector: InputInjector,
     display_manager: DisplayBackend,
     software_cursor: SoftwareCursor | None,
-    config,
+    config: Config,
 ) -> None:
     """
     Run client connection lifecycle and message loop.

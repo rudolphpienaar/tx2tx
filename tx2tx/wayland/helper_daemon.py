@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import select
 import sys
 import threading
@@ -13,6 +12,7 @@ from typing import Any, Optional
 from evdev import AbsInfo, InputDevice, UInput, ecodes
 
 from tx2tx.common.types import EventType
+from tx2tx.wayland.device_components import DeviceRegistry, GrabRefCounter, InputEventQueue
 
 
 @dataclass
@@ -131,21 +131,11 @@ class InputDeviceManager:
             width: Screen width in pixels
             height: Screen height in pixels
         """
-        self._devices: list[InputDevice] = []
         self._pointer_state = PointerState(width=width, height=height)
         self._modifier_state = ModifierState()
-        self._events: list[InputEventRecord] = []
-        self._lock = threading.Lock()
-
-        self._devices = self._devices_open(device_paths)
-        self._mouse_devices = [d for d in self._devices if self._device_is_mouse(d)]
-        # Keep keyboard capture broad for suppression reliability:
-        # any EV_KEY-capable device can carry key events on some stacks.
-        self._key_devices = [d for d in self._devices if ecodes.EV_KEY in d.capabilities()]
-        self._mouse_fds = {d.fd for d in self._mouse_devices}
-        self._key_fds = {d.fd for d in self._key_devices}
-        self._fd_to_path = {d.fd: d.path for d in self._devices}
-        self._grab_refcount_by_fd: dict[int, int] = {}
+        self._event_queue: InputEventQueue = InputEventQueue()
+        self._registry: DeviceRegistry = DeviceRegistry(device_paths)
+        self._grab_refcounter: GrabRefCounter = GrabRefCounter(self._registry)
 
         self._reader = threading.Thread(target=self._events_loop, daemon=True)
         self._reader.start()
@@ -176,9 +166,7 @@ class InputDeviceManager:
         Returns:
             Tuple of (event_list, modifier_state).
         """
-        with self._lock:
-            events = [record.payload for record in self._events]
-            self._events.clear()
+        events: list[dict[str, Any]] = self._event_queue.events_drain()
         return events, self._modifier_state.mask_get()
 
     def pointer_grab(self) -> dict[str, Any]:
@@ -194,10 +182,10 @@ class InputDeviceManager:
         grabbed_devices: list[str] = []
         already_grabbed_devices: list[str] = []
         failed_devices: list[str] = []
-        for dev in self._mouse_devices:
+        for dev in self._registry.devices_mouse():
             status: str
             device_path: str
-            status, device_path = self._deviceGrab_apply(dev)
+            status, device_path = self._grab_refcounter.grab_apply(dev)
             if status == "grabbed":
                 grabbed += 1
                 grabbed_devices.append(device_path)
@@ -229,10 +217,10 @@ class InputDeviceManager:
         released_devices: list[str] = []
         deferred_release_devices: list[str] = []
         failed_devices: list[str] = []
-        for dev in self._mouse_devices:
+        for dev in self._registry.devices_mouse():
             status: str
             device_path: str
-            status, device_path = self._deviceUngrab_apply(dev)
+            status, device_path = self._grab_refcounter.ungrab_apply(dev)
             if status == "released":
                 released += 1
                 released_devices.append(device_path)
@@ -264,10 +252,10 @@ class InputDeviceManager:
         grabbed_devices: list[str] = []
         already_grabbed_devices: list[str] = []
         failed_devices: list[str] = []
-        for dev in self._key_devices:
+        for dev in self._registry.devices_keyboard():
             status: str
             device_path: str
-            status, device_path = self._deviceGrab_apply(dev)
+            status, device_path = self._grab_refcounter.grab_apply(dev)
             if status == "grabbed":
                 grabbed += 1
                 grabbed_devices.append(device_path)
@@ -299,10 +287,10 @@ class InputDeviceManager:
         released_devices: list[str] = []
         deferred_release_devices: list[str] = []
         failed_devices: list[str] = []
-        for dev in self._key_devices:
+        for dev in self._registry.devices_keyboard():
             status: str
             device_path: str
-            status, device_path = self._deviceUngrab_apply(dev)
+            status, device_path = self._grab_refcounter.ungrab_apply(dev)
             if status == "released":
                 released += 1
                 released_devices.append(device_path)
@@ -321,98 +309,13 @@ class InputDeviceManager:
             "failed_devices": failed_devices,
         }
 
-    def _deviceGrab_apply(self, device: InputDevice) -> tuple[str, str]:
-        """
-        Apply grab on a device with refcount tracking.
-
-        Args:
-            device: Input device to grab.
-
-        Returns:
-            Tuple of (status, device_path) where status is one of:
-            "grabbed", "already_grabbed", or "failed".
-        """
-        fd: int = device.fd
-        device_path: str = self._fd_to_path.get(fd, "unknown")
-        current_count: int = self._grab_refcount_by_fd.get(fd, 0)
-        if current_count > 0:
-            self._grab_refcount_by_fd[fd] = current_count + 1
-            return "already_grabbed", device_path
-        try:
-            device.grab()
-            self._grab_refcount_by_fd[fd] = 1
-            return "grabbed", device_path
-        except Exception:
-            return "failed", device_path
-
-    def _deviceUngrab_apply(self, device: InputDevice) -> tuple[str, str]:
-        """
-        Apply ungrab on a device with refcount tracking.
-
-        Args:
-            device: Input device to ungrab.
-
-        Returns:
-            Tuple of (status, device_path) where status is one of:
-            "released", "deferred", or "failed".
-        """
-        fd: int = device.fd
-        device_path: str = self._fd_to_path.get(fd, "unknown")
-        current_count: int = self._grab_refcount_by_fd.get(fd, 0)
-        if current_count <= 0:
-            return "failed", device_path
-        if current_count > 1:
-            self._grab_refcount_by_fd[fd] = current_count - 1
-            return "deferred", device_path
-        try:
-            device.ungrab()
-            self._grab_refcount_by_fd.pop(fd, None)
-            return "released", device_path
-        except Exception:
-            return "failed", device_path
-
-    def _devices_open(self, device_paths: Optional[list[str]]) -> list[InputDevice]:
-        """
-        Open input devices.
-
-        Args:
-            device_paths: Optional list of device paths
-
-        Returns:
-            List of opened input devices.
-        """
-        devices: list[InputDevice] = []
-        paths = device_paths or [os.path.join("/dev/input", d) for d in os.listdir("/dev/input") if d.startswith("event")]
-        for path in paths:
-            try:
-                dev = InputDevice(path)
-                devices.append(dev)
-            except Exception:
-                continue
-        return devices
-
-    def _device_is_mouse(self, device: InputDevice) -> bool:
-        """
-        Check if device is a mouse/pointer.
-
-        Args:
-            device: Input device to inspect
-
-        Returns:
-            True if device looks like a mouse.
-        """
-        caps = device.capabilities()
-        if ecodes.EV_REL in caps and (ecodes.REL_X in caps[ecodes.EV_REL] or ecodes.REL_Y in caps[ecodes.EV_REL]):
-            return True
-        keys = caps.get(ecodes.EV_KEY, [])
-        return ecodes.BTN_LEFT in keys or ecodes.BTN_RIGHT in keys
-
     def _events_loop(self) -> None:
         """Background loop to read input events."""
         while True:
-            if not self._devices:
+            devices: list[InputDevice] = self._registry.devices_all()
+            if not devices:
                 return
-            rlist, _, _ = select.select(self._devices, [], [], 0.1)
+            rlist, _, _ = select.select(devices, [], [], 0.1)
             for dev in rlist:
                 try:
                     for event in dev.read():
@@ -443,8 +346,8 @@ class InputDeviceManager:
             x: int
             y: int
             x, y = self._pointer_state.position_get()
-            is_mouse_device: bool = device.fd in self._mouse_fds
-            is_keyboard_device: bool = device.fd in self._key_fds
+            is_mouse_device: bool = device.fd in self._registry.mouseFds_get()
+            is_keyboard_device: bool = device.fd in self._registry.keyboardFds_get()
             is_mouse_button: bool = event.code in (
                 ecodes.BTN_LEFT,
                 ecodes.BTN_RIGHT,
@@ -460,7 +363,7 @@ class InputDeviceManager:
                     if event.value
                     else EventType.MOUSE_BUTTON_RELEASE.value
                 )
-                device_path: str = self._fd_to_path.get(device.fd, "unknown")
+                device_path: str = self._registry.pathForFd_get(device.fd)
                 payload: dict[str, Any] = {
                     "event_type": event_type,
                     "x": x,
@@ -487,7 +390,7 @@ class InputDeviceManager:
             pressed: bool = event.value == 1
             self._modifier_state.update(event.code, pressed)
             event_type: str = EventType.KEY_PRESS.value if pressed else EventType.KEY_RELEASE.value
-            device_path = self._fd_to_path.get(device.fd, "unknown")
+            device_path = self._registry.pathForFd_get(device.fd)
             payload: dict[str, Any] = {
                 "event_type": event_type,
                 "keycode": event.code,
@@ -533,8 +436,7 @@ class InputDeviceManager:
         Args:
             payload: Event payload dictionary
         """
-        with self._lock:
-            self._events.append(InputEventRecord(event_type=payload["event_type"], payload=payload))
+        self._event_queue.event_add(payload)
 
     def _button_map(self, code: int) -> int:
         """
