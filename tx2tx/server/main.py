@@ -570,7 +570,7 @@ def _process_polling_loop(
                         if not target_client_name:
                             logger.error(f"No client configured for {new_context.value}")
                             return
-                        target_client = network.clientByName_resolve(target_client_name)
+                        target_client = network.clientByName_get(target_client_name)
                         if target_client is None:
                             connected_names: list[str | None] = [
                                 client.name for client in network.clients

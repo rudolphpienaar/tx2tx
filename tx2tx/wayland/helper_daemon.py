@@ -139,7 +139,7 @@ class InputDeviceManager:
 
         self._devices = self._devices_open(device_paths)
         self._mouse_devices = [d for d in self._devices if self._device_is_mouse(d)]
-        self._key_devices = [d for d in self._devices if self._device_is_keyboard(d)]
+        self._key_devices = [d for d in self._devices if self._keyboardDevice_isCheck(d)]
         self._mouse_fds = {d.fd for d in self._mouse_devices}
         self._key_fds = {d.fd for d in self._key_devices}
         self._fd_to_path = {d.fd: d.path for d in self._devices}
@@ -318,7 +318,7 @@ class InputDeviceManager:
         keys = caps.get(ecodes.EV_KEY, [])
         return ecodes.BTN_LEFT in keys or ecodes.BTN_RIGHT in keys
 
-    def _device_is_keyboard(self, device: InputDevice) -> bool:
+    def _keyboardDevice_isCheck(self, device: InputDevice) -> bool:
         """
         Check if device is a keyboard-like input source.
 

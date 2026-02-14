@@ -291,7 +291,7 @@ class ServerNetwork:
         Returns:
             True if sent, False if client not found
         """
-        target_client: ClientConnection | None = self.clientByName_resolve(client_name)
+        target_client: ClientConnection | None = self.clientByName_get(client_name)
 
         if target_client:
             try:
@@ -303,7 +303,7 @@ class ServerNetwork:
                 return False
         return False
 
-    def clientByName_resolve(self, client_name: str) -> ClientConnection | None:
+    def clientByName_get(self, client_name: str) -> ClientConnection | None:
         """
         Resolve a target client for a configured client name.
 
