@@ -292,6 +292,19 @@ class ServerNetwork:
             True if sent, False if client not found
         """
         target_client = next((c for c in self.clients if c.name == client_name), None)
+        if target_client is None:
+            # Fallback for single-client setups where the client did not send
+            # a name in HELLO. This keeps transitions functional while still
+            # warning about the naming mismatch.
+            unnamed_clients = [c for c in self.clients if c.name is None]
+            if len(self.clients) == 1 and len(unnamed_clients) == 1:
+                target_client = unnamed_clients[0]
+                logger.warning(
+                    "Configured client '%s' not found; routing to sole unnamed client %s",
+                    client_name,
+                    target_client.address,
+                )
+
         if target_client:
             try:
                 target_client.message_send(message)
