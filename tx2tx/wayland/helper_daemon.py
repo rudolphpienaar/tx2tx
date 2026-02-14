@@ -139,9 +139,8 @@ class InputDeviceManager:
 
         self._devices = self._devices_open(device_paths)
         self._mouse_devices = [d for d in self._devices if self._device_is_mouse(d)]
-        self._keyboard_devices = [d for d in self._devices if self._device_is_keyboard(d)]
+        self._key_devices = [d for d in self._devices if ecodes.EV_KEY in d.capabilities()]
         self._mouse_fds = {d.fd for d in self._mouse_devices}
-        self._keyboard_fds = {d.fd for d in self._keyboard_devices}
 
         self._reader = threading.Thread(target=self._events_loop, daemon=True)
         self._reader.start()
@@ -220,7 +219,7 @@ class InputDeviceManager:
         """
         grabbed: int = 0
         failed: int = 0
-        for dev in self._keyboard_devices:
+        for dev in self._key_devices:
             try:
                 dev.grab()
                 grabbed += 1
@@ -237,7 +236,7 @@ class InputDeviceManager:
         """
         released: int = 0
         failed: int = 0
-        for dev in self._keyboard_devices:
+        for dev in self._key_devices:
             try:
                 dev.ungrab()
                 released += 1
@@ -264,31 +263,6 @@ class InputDeviceManager:
             except Exception:
                 continue
         return devices
-
-    def _device_is_keyboard(self, device: InputDevice) -> bool:
-        """
-        Check if device is a keyboard.
-
-        Args:
-            device: Input device to inspect
-
-        Returns:
-            True if device looks like a keyboard.
-        """
-        caps = device.capabilities().get(ecodes.EV_KEY, [])
-        key_codes: set[int] = set()
-        for item in caps:
-            if isinstance(item, int):
-                key_codes.add(item)
-            elif isinstance(item, (list, tuple)):
-                for nested in item:
-                    if isinstance(nested, int):
-                        key_codes.add(nested)
-
-        # KEY_* scancodes occupy values below BTN_MISC (0x100 / 256),
-        # while BTN_* pointer buttons start at BTN_MISC and above.
-        # Treat any device with at least one KEY_* code as keyboard-capable.
-        return any(code < ecodes.BTN_MISC for code in key_codes)
 
     def _device_is_mouse(self, device: InputDevice) -> bool:
         """
