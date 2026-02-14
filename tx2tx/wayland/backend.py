@@ -356,10 +356,13 @@ class WaylandDisplayBackend(DisplayBackend):
             result.get("failed_devices", []),
         )
         if result.get("grabbed", 0) == 0:
-            logger.warning(
+            message: str = (
                 "Wayland keyboard grab did not capture any devices (failed=%s). "
-                "Keystrokes may still execute on the server.",
-                result.get("failed", 0),
+                "Keystrokes may still execute on the server."
+            )
+            logger.error(message, result.get("failed", 0))
+            raise RuntimeError(
+                "Wayland keyboard exclusive grab failed; refusing REMOTE mode without keyboard capture."
             )
 
     def keyboard_ungrab(self) -> None:

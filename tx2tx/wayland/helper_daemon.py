@@ -139,8 +139,9 @@ class InputDeviceManager:
 
         self._devices = self._devices_open(device_paths)
         self._mouse_devices = [d for d in self._devices if self._device_is_mouse(d)]
-        self._key_devices = [d for d in self._devices if ecodes.EV_KEY in d.capabilities()]
+        self._key_devices = [d for d in self._devices if self._device_is_keyboard(d)]
         self._mouse_fds = {d.fd for d in self._mouse_devices}
+        self._key_fds = {d.fd for d in self._key_devices}
         self._fd_to_path = {d.fd: d.path for d in self._devices}
 
         self._reader = threading.Thread(target=self._events_loop, daemon=True)
@@ -317,6 +318,27 @@ class InputDeviceManager:
         keys = caps.get(ecodes.EV_KEY, [])
         return ecodes.BTN_LEFT in keys or ecodes.BTN_RIGHT in keys
 
+    def _device_is_keyboard(self, device: InputDevice) -> bool:
+        """
+        Check if device is a keyboard-like input source.
+
+        Args:
+            device: Input device to inspect
+
+        Returns:
+            True when the device exposes common typing keys.
+        """
+        caps: dict[int, Any] = device.capabilities()
+        keys = caps.get(ecodes.EV_KEY, [])
+        if not keys:
+            return False
+        required_keys: tuple[int, int, int] = (
+            ecodes.KEY_A,
+            ecodes.KEY_SPACE,
+            ecodes.KEY_ENTER,
+        )
+        return all(code in keys for code in required_keys)
+
     def _events_loop(self) -> None:
         """Background loop to read input events."""
         while True:
@@ -354,6 +376,7 @@ class InputDeviceManager:
             y: int
             x, y = self._pointer_state.position_get()
             is_mouse_device: bool = device.fd in self._mouse_fds
+            is_keyboard_device: bool = device.fd in self._key_fds
             is_mouse_button: bool = event.code in (
                 ecodes.BTN_LEFT,
                 ecodes.BTN_RIGHT,
@@ -376,6 +399,9 @@ class InputDeviceManager:
                     "button": self._button_map(event.code),
                 }
                 self._event_record(payload)
+                return
+
+            if not is_keyboard_device:
                 return
 
             # Treat KEY_* codes (< BTN_MISC) as keyboard events even if device
