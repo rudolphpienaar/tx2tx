@@ -157,9 +157,32 @@ class EventInjector:
             if mapped:
                 keycode = mapped
 
+        self.pointerWindow_focus()
+
         if event.event_type == EventType.KEY_PRESS:
             self.key_press(keycode)
         elif event.event_type == EventType.KEY_RELEASE:
             self.key_release(keycode)
 
         display.sync()
+
+    def pointerWindow_focus(self) -> None:
+        """
+        Focus the X11 child window currently under the pointer.
+
+        This helps keep keyboard injection aligned with the user's active remote
+        window instead of the terminal window that launched the client process.
+
+        Returns:
+            None.
+        """
+        display = self._display_manager.display_get()
+        root = display.screen().root
+        try:
+            pointer_reply = root.query_pointer()
+            child_window = getattr(pointer_reply, "child", None)
+            if child_window is None or child_window == 0:
+                return
+            child_window.set_input_focus(X.RevertToParent, X.CurrentTime)
+        except Exception as exc:
+            logger.debug("Could not focus pointer window before key injection: %r", exc)
