@@ -139,7 +139,9 @@ class InputDeviceManager:
 
         self._devices = self._devices_open(device_paths)
         self._mouse_devices = [d for d in self._devices if self._device_is_mouse(d)]
-        self._key_devices = [d for d in self._devices if self._keyboardDevice_isCheck(d)]
+        # Keep keyboard capture broad for suppression reliability:
+        # any EV_KEY-capable device can carry key events on some stacks.
+        self._key_devices = [d for d in self._devices if ecodes.EV_KEY in d.capabilities()]
         self._mouse_fds = {d.fd for d in self._mouse_devices}
         self._key_fds = {d.fd for d in self._key_devices}
         self._fd_to_path = {d.fd: d.path for d in self._devices}
@@ -317,27 +319,6 @@ class InputDeviceManager:
             return True
         keys = caps.get(ecodes.EV_KEY, [])
         return ecodes.BTN_LEFT in keys or ecodes.BTN_RIGHT in keys
-
-    def _keyboardDevice_isCheck(self, device: InputDevice) -> bool:
-        """
-        Check if device is a keyboard-like input source.
-
-        Args:
-            device: Input device to inspect
-
-        Returns:
-            True when the device exposes common typing keys.
-        """
-        caps: dict[int, Any] = device.capabilities()
-        keys = caps.get(ecodes.EV_KEY, [])
-        if not keys:
-            return False
-        required_keys: tuple[int, int, int] = (
-            ecodes.KEY_A,
-            ecodes.KEY_SPACE,
-            ecodes.KEY_ENTER,
-        )
-        return all(code in keys for code in required_keys)
 
     def _events_loop(self) -> None:
         """Background loop to read input events."""

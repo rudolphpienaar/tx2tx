@@ -614,12 +614,9 @@ def _process_polling_loop(
                         logger.info("[TIMING] cursorPosition_set: %.3f sec", time.time() - t0)
                         t0 = time.time()
                         
-                        # Grab input (may fail - handle gracefully)
-                        try:
-                            display_manager.pointer_grab()
-                            display_manager.keyboard_grab()
-                        except RuntimeError as e:
-                            logger.warning(f"Input grab failed: {e}, continuing anyway")
+                        # Grab input. REMOTE mode is invalid without keyboard capture.
+                        display_manager.pointer_grab()
+                        display_manager.keyboard_grab()
                         logger.info("[TIMING] input_grab: %.3f sec", time.time() - t0)
                         t0 = time.time()
 
