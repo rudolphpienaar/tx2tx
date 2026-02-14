@@ -151,7 +151,7 @@ class WaylandHelperClient:
         """Set cursor position via helper."""
         self._request("cursor_position_set", {"x": x, "y": y})
 
-    def pointer_grab(self) -> dict[str, int]:
+    def pointer_grab(self) -> dict[str, Any]:
         """
         Grab pointer via helper.
         
@@ -166,9 +166,11 @@ class WaylandHelperClient:
         return {
             "grabbed": int(result.get("grabbed", 0)),
             "failed": int(result.get("failed", 0)),
+            "grabbed_devices": list(result.get("grabbed_devices", [])),
+            "failed_devices": list(result.get("failed_devices", [])),
         }
 
-    def pointer_ungrab(self) -> dict[str, int]:
+    def pointer_ungrab(self) -> dict[str, Any]:
         """
         Release pointer grab via helper.
         
@@ -183,9 +185,11 @@ class WaylandHelperClient:
         return {
             "released": int(result.get("released", 0)),
             "failed": int(result.get("failed", 0)),
+            "released_devices": list(result.get("released_devices", [])),
+            "failed_devices": list(result.get("failed_devices", [])),
         }
 
-    def keyboard_grab(self) -> dict[str, int]:
+    def keyboard_grab(self) -> dict[str, Any]:
         """
         Grab keyboard via helper.
         
@@ -200,9 +204,11 @@ class WaylandHelperClient:
         return {
             "grabbed": int(result.get("grabbed", 0)),
             "failed": int(result.get("failed", 0)),
+            "grabbed_devices": list(result.get("grabbed_devices", [])),
+            "failed_devices": list(result.get("failed_devices", [])),
         }
 
-    def keyboard_ungrab(self) -> dict[str, int]:
+    def keyboard_ungrab(self) -> dict[str, Any]:
         """
         Release keyboard grab via helper.
         
@@ -217,6 +223,8 @@ class WaylandHelperClient:
         return {
             "released": int(result.get("released", 0)),
             "failed": int(result.get("failed", 0)),
+            "released_devices": list(result.get("released_devices", [])),
+            "failed_devices": list(result.get("failed_devices", [])),
         }
 
     def cursor_hide(self) -> bool:

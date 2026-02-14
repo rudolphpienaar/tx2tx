@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from tx2tx.common.types import EventType, KeyEvent, MouseEvent, Position, Screen
 from tx2tx.input.backend import DisplayBackend, InputCapturer, InputEvent, InputInjector
@@ -309,7 +309,14 @@ class WaylandDisplayBackend(DisplayBackend):
             Result value.
         """
         """Grab pointer via helper."""
-        result: dict[str, int] = self._helper.pointer_grab()
+        result: dict[str, Any] = self._helper.pointer_grab()
+        logger.info(
+            "Wayland pointer grab: grabbed=%s failed=%s grabbed_devices=%s failed_devices=%s",
+            result.get("grabbed", 0),
+            result.get("failed", 0),
+            result.get("grabbed_devices", []),
+            result.get("failed_devices", []),
+        )
         if result.get("grabbed", 0) == 0:
             logger.warning(
                 "Wayland pointer grab did not capture any devices (failed=%s).",
@@ -340,7 +347,14 @@ class WaylandDisplayBackend(DisplayBackend):
             Result value.
         """
         """Grab keyboard via helper."""
-        result: dict[str, int] = self._helper.keyboard_grab()
+        result: dict[str, Any] = self._helper.keyboard_grab()
+        logger.info(
+            "Wayland keyboard grab: grabbed=%s failed=%s grabbed_devices=%s failed_devices=%s",
+            result.get("grabbed", 0),
+            result.get("failed", 0),
+            result.get("grabbed_devices", []),
+            result.get("failed_devices", []),
+        )
         if result.get("grabbed", 0) == 0:
             logger.warning(
                 "Wayland keyboard grab did not capture any devices (failed=%s). "

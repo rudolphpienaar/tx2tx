@@ -141,6 +141,7 @@ class InputDeviceManager:
         self._mouse_devices = [d for d in self._devices if self._device_is_mouse(d)]
         self._key_devices = [d for d in self._devices if ecodes.EV_KEY in d.capabilities()]
         self._mouse_fds = {d.fd for d in self._mouse_devices}
+        self._fd_to_path = {d.fd: d.path for d in self._devices}
 
         self._reader = threading.Thread(target=self._events_loop, daemon=True)
         self._reader.start()
@@ -176,73 +177,109 @@ class InputDeviceManager:
             self._events.clear()
         return events, self._modifier_state.mask_get()
 
-    def pointer_grab(self) -> dict[str, int]:
+    def pointer_grab(self) -> dict[str, Any]:
         """
         Grab pointer devices to capture mouse input exclusively.
 
         Returns:
-            Dictionary containing `grabbed` and `failed` counts.
+            Dictionary containing grab counts and device paths.
         """
         grabbed: int = 0
         failed: int = 0
+        grabbed_devices: list[str] = []
+        failed_devices: list[str] = []
         for dev in self._mouse_devices:
             try:
                 dev.grab()
                 grabbed += 1
+                grabbed_devices.append(self._fd_to_path.get(dev.fd, "unknown"))
             except Exception:
                 failed += 1
-        return {"grabbed": grabbed, "failed": failed}
+                failed_devices.append(self._fd_to_path.get(dev.fd, "unknown"))
+        return {
+            "grabbed": grabbed,
+            "failed": failed,
+            "grabbed_devices": grabbed_devices,
+            "failed_devices": failed_devices,
+        }
 
-    def pointer_ungrab(self) -> dict[str, int]:
+    def pointer_ungrab(self) -> dict[str, Any]:
         """
         Release pointer device grabs.
 
         Returns:
-            Dictionary containing `released` and `failed` counts.
+            Dictionary containing release counts and device paths.
         """
         released: int = 0
         failed: int = 0
+        released_devices: list[str] = []
+        failed_devices: list[str] = []
         for dev in self._mouse_devices:
             try:
                 dev.ungrab()
                 released += 1
+                released_devices.append(self._fd_to_path.get(dev.fd, "unknown"))
             except Exception:
                 failed += 1
-        return {"released": released, "failed": failed}
+                failed_devices.append(self._fd_to_path.get(dev.fd, "unknown"))
+        return {
+            "released": released,
+            "failed": failed,
+            "released_devices": released_devices,
+            "failed_devices": failed_devices,
+        }
 
-    def keyboard_grab(self) -> dict[str, int]:
+    def keyboard_grab(self) -> dict[str, Any]:
         """
         Grab keyboard devices to capture keyboard input exclusively.
 
         Returns:
-            Dictionary containing `grabbed` and `failed` counts.
+            Dictionary containing grab counts and device paths.
         """
         grabbed: int = 0
         failed: int = 0
+        grabbed_devices: list[str] = []
+        failed_devices: list[str] = []
         for dev in self._key_devices:
             try:
                 dev.grab()
                 grabbed += 1
+                grabbed_devices.append(self._fd_to_path.get(dev.fd, "unknown"))
             except Exception:
                 failed += 1
-        return {"grabbed": grabbed, "failed": failed}
+                failed_devices.append(self._fd_to_path.get(dev.fd, "unknown"))
+        return {
+            "grabbed": grabbed,
+            "failed": failed,
+            "grabbed_devices": grabbed_devices,
+            "failed_devices": failed_devices,
+        }
 
-    def keyboard_ungrab(self) -> dict[str, int]:
+    def keyboard_ungrab(self) -> dict[str, Any]:
         """
         Release keyboard device grabs.
 
         Returns:
-            Dictionary containing `released` and `failed` counts.
+            Dictionary containing release counts and device paths.
         """
         released: int = 0
         failed: int = 0
+        released_devices: list[str] = []
+        failed_devices: list[str] = []
         for dev in self._key_devices:
             try:
                 dev.ungrab()
                 released += 1
+                released_devices.append(self._fd_to_path.get(dev.fd, "unknown"))
             except Exception:
                 failed += 1
-        return {"released": released, "failed": failed}
+                failed_devices.append(self._fd_to_path.get(dev.fd, "unknown"))
+        return {
+            "released": released,
+            "failed": failed,
+            "released_devices": released_devices,
+            "failed_devices": failed_devices,
+        }
 
     def _devices_open(self, device_paths: Optional[list[str]]) -> list[InputDevice]:
         """
