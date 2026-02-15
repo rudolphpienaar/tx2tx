@@ -92,6 +92,20 @@ class TestScreen:
         assert npt.x == 1.0
         assert npt.y == 1.0
 
+    def test_normalize_clamps_out_of_bounds(self):
+        """Test normalize clamps coordinates to valid bounds before conversion."""
+        screen = Screen(width=1920, height=1080)
+
+        below_zero = Position(x=-10, y=-5)
+        below_zero_npt = screen.normalize(below_zero)
+        assert below_zero_npt.x == 0.0
+        assert below_zero_npt.y == 0.0
+
+        above_bounds = Position(x=2500, y=1200)
+        above_bounds_npt = screen.normalize(above_bounds)
+        assert above_bounds_npt.x == 1.0
+        assert above_bounds_npt.y == 1.0
+
     def test_denormalize(self):
         """Test normalized to pixel coordinate conversion"""
         screen = Screen(width=1920, height=1080)

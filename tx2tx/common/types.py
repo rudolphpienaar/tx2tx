@@ -143,7 +143,9 @@ class Screen:
             pos = Position(x=960, y=540)  # Center of screen
             npt = screen.coordinates_normalize(pos)   # NormalizedPoint(x=0.5, y=0.5)
         """
-        return NormalizedPoint(x=pos.x / self.width, y=pos.y / self.height)
+        x_clamped: int = max(0, min(pos.x, self.width))
+        y_clamped: int = max(0, min(pos.y, self.height))
+        return NormalizedPoint(x=x_clamped / self.width, y=y_clamped / self.height)
 
     def normalize(self, pos: Position) -> NormalizedPoint:
         """
