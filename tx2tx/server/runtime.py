@@ -120,16 +120,20 @@ class JumpHotkeyRuntimeConfig:
     Attributes:
         enabled: Whether jump hotkeys are enabled.
         prefix_keysym: Keysym for prefix key.
+        prefix_keycodes: Keycode fallbacks for prefix key.
         prefix_modifier_mask: Modifier mask required for prefix.
         timeout_seconds: Sequence timeout window.
         action_keysyms_to_context: Mapping from suffix keysym to target context.
+        action_keycodes_to_context: Mapping from suffix keycode to target context.
     """
 
     enabled: bool
     prefix_keysym: int
+    prefix_keycodes: set[int]
     prefix_modifier_mask: int
     timeout_seconds: float
     action_keysyms_to_context: dict[int, ScreenContext]
+    action_keycodes_to_context: dict[int, ScreenContext]
 
 
 def panicKeyConfig_parse(config: Config) -> tuple[set[int], int]:
@@ -231,7 +235,63 @@ def keysymFromKeyName_get(key_name: str) -> int | None:
     key_name_lower: str = key_name.lower()
     if key_name_lower in KEY_NAME_TO_KEYSYM:
         return KEY_NAME_TO_KEYSYM[key_name_lower]
-    return None
+    try:
+        return int(key_name, 0)
+    except ValueError:
+        return None
+
+
+def keycodeFallbacksFromKeyName_get(key_name: str) -> set[int]:
+    """
+    Resolve likely X11 keycode fallbacks for a configured key token.
+
+    Args:
+        key_name: Configured key token.
+
+    Returns:
+        Candidate X11 keycodes for fallback matching.
+    """
+    normalized_key_name: str = key_name.strip()
+    digit_keycode_map: dict[str, int] = {
+        "1": 10,
+        "2": 11,
+        "3": 12,
+        "4": 13,
+        "5": 14,
+        "6": 15,
+        "7": 16,
+        "8": 17,
+        "9": 18,
+        "0": 19,
+    }
+    if normalized_key_name in digit_keycode_map:
+        return {digit_keycode_map[normalized_key_name]}
+    if normalized_key_name in {"/", "slash", "SLASH"}:
+        return {61, 106}
+    if normalized_key_name in {"KP_Divide", "KPSLASH"}:
+        return {106}
+    return set()
+
+
+def keyEventMatchesJumpToken_check(
+    event: KeyEvent, expected_keysym: int, fallback_keycodes: set[int]
+) -> bool:
+    """
+    Check whether a key event matches expected jump token.
+
+    Args:
+        event: Key event to match.
+        expected_keysym: Expected keysym.
+        fallback_keycodes: Acceptable fallback keycodes.
+
+    Returns:
+        True when event matches token.
+    """
+    if event.keysym is not None and event.keysym == expected_keysym:
+        return True
+    if event.keycode in fallback_keycodes:
+        return True
+    return False
 
 
 def jumpHotkeyConfig_parse(config: Config) -> JumpHotkeyRuntimeConfig:
@@ -249,9 +309,11 @@ def jumpHotkeyConfig_parse(config: Config) -> JumpHotkeyRuntimeConfig:
         return JumpHotkeyRuntimeConfig(
             enabled=False,
             prefix_keysym=0,
+            prefix_keycodes=set(),
             prefix_modifier_mask=0,
             timeout_seconds=0.0,
             action_keysyms_to_context={},
+            action_keycodes_to_context={},
         )
 
     prefix_keysym: int | None = keysymFromKeyName_get(jump_cfg.prefix_key)
@@ -260,9 +322,11 @@ def jumpHotkeyConfig_parse(config: Config) -> JumpHotkeyRuntimeConfig:
         return JumpHotkeyRuntimeConfig(
             enabled=False,
             prefix_keysym=0,
+            prefix_keycodes=set(),
             prefix_modifier_mask=0,
             timeout_seconds=0.0,
             action_keysyms_to_context={},
+            action_keycodes_to_context={},
         )
 
     prefix_modifier_mask: int = 0
@@ -273,6 +337,7 @@ def jumpHotkeyConfig_parse(config: Config) -> JumpHotkeyRuntimeConfig:
             logger.warning("Unknown jump-hotkey modifier '%s' ignored", modifier_name)
 
     action_keysyms_to_context: dict[int, ScreenContext] = {}
+    action_keycodes_to_context: dict[int, ScreenContext] = {}
     action_pairs: list[tuple[str, ScreenContext]] = [
         (jump_cfg.west_key, ScreenContext.WEST),
         (jump_cfg.east_key, ScreenContext.EAST),
@@ -284,15 +349,19 @@ def jumpHotkeyConfig_parse(config: Config) -> JumpHotkeyRuntimeConfig:
             logger.warning("Unknown jump-hotkey action key '%s' ignored", key_name)
             continue
         action_keysyms_to_context[action_keysym] = target_context
+        for fallback_keycode in keycodeFallbacksFromKeyName_get(key_name):
+            action_keycodes_to_context[fallback_keycode] = target_context
 
     if not action_keysyms_to_context:
         logger.warning("Jump hotkey enabled but no valid action keys resolved; disabling")
         return JumpHotkeyRuntimeConfig(
             enabled=False,
             prefix_keysym=0,
+            prefix_keycodes=set(),
             prefix_modifier_mask=0,
             timeout_seconds=0.0,
             action_keysyms_to_context={},
+            action_keycodes_to_context={},
         )
 
     timeout_seconds: float = max(0.1, jump_cfg.timeout_ms / 1000.0)
@@ -305,9 +374,11 @@ def jumpHotkeyConfig_parse(config: Config) -> JumpHotkeyRuntimeConfig:
     return JumpHotkeyRuntimeConfig(
         enabled=True,
         prefix_keysym=prefix_keysym,
+        prefix_keycodes=keycodeFallbacksFromKeyName_get(jump_cfg.prefix_key),
         prefix_modifier_mask=prefix_modifier_mask,
         timeout_seconds=timeout_seconds,
         action_keysyms_to_context=action_keysyms_to_context,
+        action_keycodes_to_context=action_keycodes_to_context,
     )
 
 
@@ -336,6 +407,7 @@ def jumpHotkeyEvents_process(
 
     if now > server_state.jump_hotkey_armed_until:
         server_state.jump_hotkey_armed_until = 0.0
+        server_state.jump_hotkey_pending_target_context = None
 
     for event in input_events:
         if not isinstance(event, KeyEvent):
@@ -344,6 +416,24 @@ def jumpHotkeyEvents_process(
 
         keysym: int | None = event.keysym
         if event.event_type == EventType.KEY_RELEASE:
+            if now <= server_state.jump_hotkey_armed_until:
+                release_context: ScreenContext | None = None
+                if keysym is not None and keysym in jump_hotkey.action_keysyms_to_context:
+                    release_context = jump_hotkey.action_keysyms_to_context[keysym]
+                if event.keycode in jump_hotkey.action_keycodes_to_context:
+                    release_context = jump_hotkey.action_keycodes_to_context[event.keycode]
+
+                if (
+                    server_state.jump_hotkey_pending_target_context is not None
+                    and release_context is not None
+                    and release_context == server_state.jump_hotkey_pending_target_context
+                ):
+                    target_context = release_context
+                    server_state.jump_hotkey_armed_until = 0.0
+                    server_state.jump_hotkey_pending_target_context = None
+                    logger.info("[HOTKEY] Action captured: %s", target_context.value.upper())
+                    continue
+
             if keysym is not None and keysym in server_state.jump_hotkey_swallow_keysyms:
                 server_state.jump_hotkey_swallow_keysyms.discard(keysym)
                 continue
@@ -355,26 +445,33 @@ def jumpHotkeyEvents_process(
             continue
 
         event_state: int = event.state if event.state is not None else modifier_state
-        prefix_matches: bool = (
-            keysym is not None
-            and keysym == jump_hotkey.prefix_keysym
-            and (
-                jump_hotkey.prefix_modifier_mask == 0
-                or (event_state & jump_hotkey.prefix_modifier_mask)
-                == jump_hotkey.prefix_modifier_mask
-            )
+        prefix_matches: bool = keyEventMatchesJumpToken_check(
+            event=event,
+            expected_keysym=jump_hotkey.prefix_keysym,
+            fallback_keycodes=jump_hotkey.prefix_keycodes,
+        ) and (
+            jump_hotkey.prefix_modifier_mask == 0
+            or (event_state & jump_hotkey.prefix_modifier_mask)
+            == jump_hotkey.prefix_modifier_mask
         )
         if prefix_matches:
             server_state.jump_hotkey_armed_until = now + jump_hotkey.timeout_seconds
+            server_state.jump_hotkey_pending_target_context = None
             if keysym is not None:
                 server_state.jump_hotkey_swallow_keysyms.add(keysym)
+            logger.info("[HOTKEY] Prefix captured")
             continue
 
         if now <= server_state.jump_hotkey_armed_until:
+            pressed_context: ScreenContext | None = None
+            if keysym is not None and keysym in jump_hotkey.action_keysyms_to_context:
+                pressed_context = jump_hotkey.action_keysyms_to_context[keysym]
+            if event.keycode in jump_hotkey.action_keycodes_to_context:
+                pressed_context = jump_hotkey.action_keycodes_to_context[event.keycode]
+            if pressed_context is not None:
+                server_state.jump_hotkey_pending_target_context = pressed_context
             if keysym is not None:
                 server_state.jump_hotkey_swallow_keysyms.add(keysym)
-                target_context = jump_hotkey.action_keysyms_to_context.get(keysym, target_context)
-            server_state.jump_hotkey_armed_until = 0.0
             continue
 
         filtered_events.append(event)

@@ -67,6 +67,7 @@ class ServerState:
         # Jump-hotkey state machine fields.
         self.jump_hotkey_armed_until: float = 0.0
         self.jump_hotkey_swallow_keysyms: set[int] = set()
+        self.jump_hotkey_pending_target_context: Optional[ScreenContext] = None
 
         self._initialized = True
 
@@ -90,6 +91,7 @@ class ServerState:
         self.active_remote_client_name = None
         self.jump_hotkey_armed_until = 0.0
         self.jump_hotkey_swallow_keysyms = set()
+        self.jump_hotkey_pending_target_context = None
 
     def boundaryCrossed_set(self, target_position: Position) -> None:
         """
