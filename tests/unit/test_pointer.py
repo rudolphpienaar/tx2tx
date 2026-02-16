@@ -129,10 +129,10 @@ class TestPointerTrackerBoundaryDetection:
         # Setup velocity history (fast leftward movement)
         start_time = time.time()
         tracker._position_history.append((Position(x=200, y=500), start_time))
-        tracker._position_history.append((Position(x=2, y=500), start_time + 0.1))
+        tracker._position_history.append((Position(x=0, y=500), start_time + 0.1))
 
-        # Current position at left edge (x=2, within threshold of 5)
-        position = Position(x=2, y=500)
+        # Current position at strict left edge
+        position = Position(x=0, y=500)
         transition = tracker.boundary_detect(position, screen)
 
         assert transition is not None
@@ -144,10 +144,10 @@ class TestPointerTrackerBoundaryDetection:
         # Setup velocity history (fast rightward movement)
         start_time = time.time()
         tracker._position_history.append((Position(x=1700, y=500), start_time))
-        tracker._position_history.append((Position(x=1918, y=500), start_time + 0.1))
+        tracker._position_history.append((Position(x=1919, y=500), start_time + 0.1))
 
-        # Current position at right edge (1918 >= 1920 - 5 - 1 = 1914)
-        position = Position(x=1918, y=500)
+        # Current position at strict right edge (width - 1)
+        position = Position(x=1919, y=500)
         transition = tracker.boundary_detect(position, screen)
 
         assert transition is not None
@@ -159,9 +159,9 @@ class TestPointerTrackerBoundaryDetection:
         # Setup velocity history (fast upward movement)
         start_time = time.time()
         tracker._position_history.append((Position(x=960, y=200), start_time))
-        tracker._position_history.append((Position(x=960, y=1), start_time + 0.1))
+        tracker._position_history.append((Position(x=960, y=0), start_time + 0.1))
 
-        position = Position(x=960, y=1)
+        position = Position(x=960, y=0)
         transition = tracker.boundary_detect(position, screen)
 
         assert transition is not None
@@ -173,10 +173,10 @@ class TestPointerTrackerBoundaryDetection:
         # Setup velocity history (fast downward movement)
         start_time = time.time()
         tracker._position_history.append((Position(x=960, y=900), start_time))
-        tracker._position_history.append((Position(x=960, y=1078), start_time + 0.1))
+        tracker._position_history.append((Position(x=960, y=1079), start_time + 0.1))
 
-        # Bottom edge: 1078 >= 1080 - 5 - 1 = 1074
-        position = Position(x=960, y=1078)
+        # Bottom edge: y == height - 1
+        position = Position(x=960, y=1079)
         transition = tracker.boundary_detect(position, screen)
 
         assert transition is not None
@@ -188,10 +188,10 @@ class TestPointerTrackerBoundaryDetection:
         # Setup slow movement (velocity < 100 px/s)
         start_time = time.time()
         tracker._position_history.append((Position(x=50, y=500), start_time))
-        tracker._position_history.append((Position(x=2, y=500), start_time + 1.0))  # Only 48 px/s
+        tracker._position_history.append((Position(x=0, y=500), start_time + 1.0))  # Only 50 px/s
 
         # At left edge but moving slowly
-        position = Position(x=2, y=500)
+        position = Position(x=0, y=500)
         transition = tracker.boundary_detect(position, screen)
 
         assert transition is None  # Not enough velocity
@@ -210,21 +210,17 @@ class TestPointerTrackerBoundaryDetection:
         assert transition is None
 
     def test_boundary_detect_exactly_at_threshold(self, tracker, screen):
-        """Test boundary detection at exact threshold distance"""
+        """Test no detection at threshold distance when not at strict edge"""
         # Setup velocity history
         start_time = time.time()
         tracker._position_history.append((Position(x=200, y=500), start_time))
         tracker._position_history.append((Position(x=5, y=500), start_time + 0.1))
 
-        # x=5 is exactly at edge_threshold
+        # x=5 is not strict edge in strict-edge mode
         position = Position(x=5, y=500)
         transition = tracker.boundary_detect(position, screen)
 
-        # Should NOT detect (needs to be <= edge_threshold, and 5 <= 5 is True)
-        # Actually wait, let me check: position.x <= self._edge_threshold
-        # So x=5, threshold=5, 5 <= 5 is True, so it should detect
-        assert transition is not None
-        assert transition.direction == Direction.LEFT
+        assert transition is None
 
     def test_boundary_detect_just_inside_threshold(self, tracker, screen):
         """Test no detection just inside boundary threshold"""
@@ -303,10 +299,10 @@ class TestPointerTrackerEdgeCases:
         # Setup velocity
         start_time = time.time()
         tracker._position_history.append((Position(x=200, y=200), start_time))
-        tracker._position_history.append((Position(x=2, y=2), start_time + 0.1))
+        tracker._position_history.append((Position(x=0, y=0), start_time + 0.1))
 
         # Top-left corner - should detect LEFT (checked before TOP)
-        position = Position(x=2, y=2)
+        position = Position(x=0, y=0)
         transition = tracker.boundary_detect(position, screen)
 
         assert transition is not None

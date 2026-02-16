@@ -102,27 +102,28 @@ class PointerTracker:
         Returns:
             ScreenTransition if at boundary with sufficient velocity, None otherwise
         """
-        # First check if we're at a boundary
+        # First check if we're at a strict screen boundary.
+        # NOTE: Transition requires actual edge contact, not near-edge threshold.
         at_boundary = False
         direction = None
 
         # Check left edge
-        if position.x <= self._edge_threshold:
+        if position.x <= 0:
             at_boundary = True
             direction = Direction.LEFT
 
         # Check right edge
-        elif position.x >= geometry.width - self._edge_threshold - 1:
+        elif position.x >= geometry.width - 1:
             at_boundary = True
             direction = Direction.RIGHT
 
         # Check top edge
-        elif position.y <= self._edge_threshold:
+        elif position.y <= 0:
             at_boundary = True
             direction = Direction.TOP
 
         # Check bottom edge
-        elif position.y >= geometry.height - self._edge_threshold - 1:
+        elif position.y >= geometry.height - 1:
             at_boundary = True
             direction = Direction.BOTTOM
 

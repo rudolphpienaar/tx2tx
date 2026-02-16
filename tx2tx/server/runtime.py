@@ -645,12 +645,34 @@ def remoteContext_process(
     """
     target_client_name: str | None = remoteTargetClientName_get(context_to_client)
 
+    if not target_client_name:
+        _, _ = input_capturer.inputEvents_read()
+        logger.error(
+            f"Active context {server_state.context.value} has no connected client, reverting"
+        )
+        state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
+        return
+
     if remoteWarpEnforcement_apply(
         display_manager=display_manager,
         screen_geometry=screen_geometry,
         position=position,
         x11native=x11native,
     ):
+        input_events, modifier_state = input_capturer.inputEvents_read()
+        if panicKey_check(input_events, panic_keysyms, panic_modifiers, modifier_state):
+            logger.warning("[PANIC] Panic key pressed - forcing return to CENTER")
+            state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
+            return
+        remoteInputEvents_send(
+            network=network,
+            target_client_name=target_client_name,
+            screen_geometry=screen_geometry,
+            input_events=input_events,
+            display_manager=display_manager,
+            pointer_tracker=pointer_tracker,
+            position=position,
+        )
         return
 
     should_return: bool = remoteReturnBoundary_check(server_state.context, position, screen_geometry)
@@ -663,14 +685,6 @@ def remoteContext_process(
             position=position,
             pointer_tracker=pointer_tracker,
         )
-        return
-
-    if not target_client_name:
-        _, _ = input_capturer.inputEvents_read()
-        logger.error(
-            f"Active context {server_state.context.value} has no connected client, reverting"
-        )
-        state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
         return
 
     if not remoteMotionPosition_send(
