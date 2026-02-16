@@ -331,7 +331,12 @@ class InputDeviceManager:
             device: evdev input device emitting the event.
             event: evdev input event
         """
+        is_mouse_device: bool = device.fd in self._registry.mouseFds_get()
+        is_keyboard_device: bool = device.fd in self._registry.keyboardFds_get()
+
         if event.type == ecodes.EV_REL:
+            if not is_mouse_device:
+                return
             if event.code == ecodes.REL_X:
                 self._pointer_state.update_rel(event.value, 0)
             elif event.code == ecodes.REL_Y:
@@ -339,6 +344,8 @@ class InputDeviceManager:
             return
 
         if event.type == ecodes.EV_ABS:
+            if not is_mouse_device:
+                return
             self._abs_event_handle(device, event)
             return
 
@@ -346,8 +353,6 @@ class InputDeviceManager:
             x: int
             y: int
             x, y = self._pointer_state.position_get()
-            is_mouse_device: bool = device.fd in self._registry.mouseFds_get()
-            is_keyboard_device: bool = device.fd in self._registry.keyboardFds_get()
             is_mouse_button: bool = event.code in (
                 ecodes.BTN_LEFT,
                 ecodes.BTN_RIGHT,

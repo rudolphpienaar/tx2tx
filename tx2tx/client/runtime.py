@@ -258,6 +258,8 @@ def mouseEventForInjection_build(
 
     norm_point = mouse_event.normalized_point
     if norm_point.x < 0 or norm_point.y < 0:
+        if software_cursor is not None:
+            software_cursor.hide()
         display_manager.cursor_hide()
         logger.info("Cursor hidden")
         return None
@@ -265,6 +267,7 @@ def mouseEventForInjection_build(
     client_screen = display_manager.screenGeometry_get()
     pixel_position = client_screen.coordinates_denormalize(norm_point)
     if software_cursor is not None:
+        software_cursor.show()
         software_cursor.move(pixel_position.x, pixel_position.y)
     display_manager.cursor_show()
     return MouseEvent(
