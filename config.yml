@@ -25,7 +25,7 @@ server:
   poll_interval_ms: 20
 
   # Maximum number of concurrent clients
-  max_clients: 1
+  max_clients: 2
 
   # Panic key - forces immediate return to CENTER context
   # Provides escape hatch if client dies or user gets stuck in remote mode
@@ -42,6 +42,20 @@ server:
   # For Chromebooks without Scroll Lock, try: "Ctrl+Shift+Escape" or "F12"
   panic_key: "F12"
 
+  # Prefix jump hotkey (optional): Ctrl+/ then target key.
+  # Useful when edge crossing is inconvenient or unreliable.
+  # Mapping example:
+  #   Ctrl+/ 1 -> WEST
+  #   Ctrl+/ 2 -> EAST
+  #   Ctrl+/ 0 -> CENTER
+  jump_hotkey:
+    enabled: true
+    prefix: "Ctrl+/"
+    timeout_ms: 800
+    west: "1"
+    east: "2"
+    center: "0"
+
   # DEPRECATED: client_position (use clients list below instead)
   # Position of client screen relative to server
   # Options: north, northeast, east, southeast, south, southwest, west, northwest
@@ -52,6 +66,8 @@ clients:
   # - name: "phomux"
   #   position: "west"
   # Future clients can be added here with different positions:
+  - name: "tabmux"
+    position: "west"
   - name: "penguin"
     position: "east"
 

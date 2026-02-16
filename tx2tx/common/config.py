@@ -24,6 +24,19 @@ class PanicKeyConfig:
 
 
 @dataclass
+class JumpHotkeyConfig:
+    """Hotkey sequence config for screen jumps."""
+
+    enabled: bool
+    prefix_key: str
+    prefix_modifiers: list[str]
+    timeout_ms: int
+    west_key: str
+    east_key: str
+    center_key: str
+
+
+@dataclass
 class ServerConfig:
     """Server configuration settings"""
 
@@ -37,6 +50,7 @@ class ServerConfig:
     max_clients: int
     client_position: str  # DEPRECATED: Position of client relative to server
     panic_key: PanicKeyConfig  # Panic key to force return to CENTER
+    jump_hotkey: JumpHotkeyConfig  # Prefix jump hotkey for screen switching
     overlay_enabled: bool  # Whether to use overlay window for cursor hiding
 
 
@@ -189,6 +203,34 @@ class ConfigLoader:
                 modifiers=panic_key_data.get("modifiers", []),
             )
 
+        jump_hotkey_data = server_data.get("jump_hotkey", {})
+        if isinstance(jump_hotkey_data, dict):
+            jump_prefix_data: str = str(jump_hotkey_data.get("prefix", "Ctrl+/"))
+            jump_prefix_parts: list[str] = [part for part in jump_prefix_data.split("+") if part]
+            jump_prefix_key: str = jump_prefix_parts[-1] if jump_prefix_parts else "/"
+            jump_prefix_modifiers: list[str] = (
+                jump_prefix_parts[:-1] if len(jump_prefix_parts) > 1 else ["Ctrl"]
+            )
+            jump_hotkey = JumpHotkeyConfig(
+                enabled=bool(jump_hotkey_data.get("enabled", False)),
+                prefix_key=jump_prefix_key,
+                prefix_modifiers=jump_prefix_modifiers,
+                timeout_ms=int(jump_hotkey_data.get("timeout_ms", 800)),
+                west_key=str(jump_hotkey_data.get("west", "1")),
+                east_key=str(jump_hotkey_data.get("east", "2")),
+                center_key=str(jump_hotkey_data.get("center", "0")),
+            )
+        else:
+            jump_hotkey = JumpHotkeyConfig(
+                enabled=False,
+                prefix_key="/",
+                prefix_modifiers=["Ctrl"],
+                timeout_ms=800,
+                west_key="1",
+                east_key="2",
+                center_key="0",
+            )
+
         server = ServerConfig(
             name=server_data.get("name", "TX2TX"),  # Default to TX2TX
             host=server_data["host"],
@@ -202,6 +244,7 @@ class ConfigLoader:
                 "client_position", "west"
             ),  # DEPRECATED: Default to west
             panic_key=panic_key,
+            jump_hotkey=jump_hotkey,
             overlay_enabled=server_data.get("overlay_enabled", False),
         )
 

@@ -7,6 +7,7 @@ from unittest.mock import Mock
 
 from tx2tx.common.types import EventType, KeyEvent, Position, Screen, ScreenContext
 from tx2tx.server import runtime
+from tx2tx.server.runtime import JumpHotkeyRuntimeConfig
 from tx2tx.server.state import server_state
 
 
@@ -58,6 +59,13 @@ class TestRemoteContextProcess:
             input_capturer=input_capturer,
             panic_keysyms=set(),
             panic_modifiers=0,
+            jump_hotkey=JumpHotkeyRuntimeConfig(
+                enabled=False,
+                prefix_keysym=0,
+                prefix_modifier_mask=0,
+                timeout_seconds=0.0,
+                action_keysyms_to_context={},
+            ),
         )
 
         assert input_capturer.inputEvents_read.call_count == 1

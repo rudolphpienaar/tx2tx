@@ -1,6 +1,7 @@
 """tx2tx server main entry point"""
 
 import argparse
+from dataclasses import dataclass
 import logging
 import sys
 import time
@@ -72,6 +73,11 @@ KEY_NAME_TO_KEYSYM = {
     "Enter": 0xFF0D,
     "space": 0x0020,
     "Space": 0x0020,
+    "slash": 0x002F,
+    "/": 0x002F,
+    "0": 0x0030,
+    "1": 0x0031,
+    "2": 0x0032,
     # Arrow keys
     "Left": 0xFF51,
     "Up": 0xFF52,
@@ -104,6 +110,26 @@ MODIFIER_MASKS = {
 
 # Default panic keysyms (used if config parsing fails)
 DEFAULT_PANIC_KEYSYMS = {0xFF14, 0xFF13}  # Scroll_Lock, Pause
+
+
+@dataclass
+class JumpHotkeyRuntimeConfig:
+    """
+    Runtime-resolved jump hotkey configuration.
+
+    Attributes:
+        enabled: Whether jump hotkeys are enabled.
+        prefix_keysym: Keysym for prefix key.
+        prefix_modifier_mask: Modifier mask required for prefix.
+        timeout_seconds: Sequence timeout window.
+        action_keysyms_to_context: Mapping from suffix keysym to target context.
+    """
+
+    enabled: bool
+    prefix_keysym: int
+    prefix_modifier_mask: int
+    timeout_seconds: float
+    action_keysyms_to_context: dict[int, ScreenContext]
 
 
 def panicKeyConfig_parse(config: Config) -> tuple[set[int], int]:
@@ -188,6 +214,172 @@ def panicKey_check(
                 if event.keysym in panic_keysyms:
                     return True
     return False
+
+
+def keysymFromKeyName_get(key_name: str) -> int | None:
+    """
+    Resolve keysym integer from configured key name.
+
+    Args:
+        key_name: Configured key name.
+
+    Returns:
+        Keysym integer or None when unresolved.
+    """
+    if key_name in KEY_NAME_TO_KEYSYM:
+        return KEY_NAME_TO_KEYSYM[key_name]
+    key_name_lower: str = key_name.lower()
+    if key_name_lower in KEY_NAME_TO_KEYSYM:
+        return KEY_NAME_TO_KEYSYM[key_name_lower]
+    return None
+
+
+def jumpHotkeyConfig_parse(config: Config) -> JumpHotkeyRuntimeConfig:
+    """
+    Parse jump-hotkey config into runtime-resolved keysyms/modifiers.
+
+    Args:
+        config: Loaded config.
+
+    Returns:
+        Resolved runtime jump-hotkey configuration.
+    """
+    jump_cfg = config.server.jump_hotkey
+    if not jump_cfg.enabled:
+        return JumpHotkeyRuntimeConfig(
+            enabled=False,
+            prefix_keysym=0,
+            prefix_modifier_mask=0,
+            timeout_seconds=0.0,
+            action_keysyms_to_context={},
+        )
+
+    prefix_keysym: int | None = keysymFromKeyName_get(jump_cfg.prefix_key)
+    if prefix_keysym is None:
+        logger.warning("Unknown jump-hotkey prefix key '%s'; disabling jump hotkey", jump_cfg.prefix_key)
+        return JumpHotkeyRuntimeConfig(
+            enabled=False,
+            prefix_keysym=0,
+            prefix_modifier_mask=0,
+            timeout_seconds=0.0,
+            action_keysyms_to_context={},
+        )
+
+    prefix_modifier_mask: int = 0
+    for modifier_name in jump_cfg.prefix_modifiers:
+        if modifier_name in MODIFIER_MASKS:
+            prefix_modifier_mask |= MODIFIER_MASKS[modifier_name]
+        else:
+            logger.warning("Unknown jump-hotkey modifier '%s' ignored", modifier_name)
+
+    action_keysyms_to_context: dict[int, ScreenContext] = {}
+    action_pairs: list[tuple[str, ScreenContext]] = [
+        (jump_cfg.west_key, ScreenContext.WEST),
+        (jump_cfg.east_key, ScreenContext.EAST),
+        (jump_cfg.center_key, ScreenContext.CENTER),
+    ]
+    for key_name, target_context in action_pairs:
+        action_keysym: int | None = keysymFromKeyName_get(key_name)
+        if action_keysym is None:
+            logger.warning("Unknown jump-hotkey action key '%s' ignored", key_name)
+            continue
+        action_keysyms_to_context[action_keysym] = target_context
+
+    if not action_keysyms_to_context:
+        logger.warning("Jump hotkey enabled but no valid action keys resolved; disabling")
+        return JumpHotkeyRuntimeConfig(
+            enabled=False,
+            prefix_keysym=0,
+            prefix_modifier_mask=0,
+            timeout_seconds=0.0,
+            action_keysyms_to_context={},
+        )
+
+    timeout_seconds: float = max(0.1, jump_cfg.timeout_ms / 1000.0)
+    logger.info(
+        "Jump hotkey enabled: prefix=%s+%s timeout_ms=%s",
+        "+".join(jump_cfg.prefix_modifiers) or "(none)",
+        jump_cfg.prefix_key,
+        jump_cfg.timeout_ms,
+    )
+    return JumpHotkeyRuntimeConfig(
+        enabled=True,
+        prefix_keysym=prefix_keysym,
+        prefix_modifier_mask=prefix_modifier_mask,
+        timeout_seconds=timeout_seconds,
+        action_keysyms_to_context=action_keysyms_to_context,
+    )
+
+
+def jumpHotkeyEvents_process(
+    input_events: list[InputEvent],
+    modifier_state: int,
+    jump_hotkey: JumpHotkeyRuntimeConfig,
+) -> tuple[list[InputEvent], ScreenContext | None]:
+    """
+    Process jump-hotkey prefix sequence and filter consumed key events.
+
+    Args:
+        input_events: Captured input events.
+        modifier_state: Current modifier state fallback.
+        jump_hotkey: Parsed jump-hotkey runtime config.
+
+    Returns:
+        Tuple of (filtered_events, target_context_or_none).
+    """
+    if not jump_hotkey.enabled:
+        return input_events, None
+
+    filtered_events: list[InputEvent] = []
+    target_context: ScreenContext | None = None
+    now: float = time.time()
+
+    if now > server_state.jump_hotkey_armed_until:
+        server_state.jump_hotkey_armed_until = 0.0
+
+    for event in input_events:
+        if not isinstance(event, KeyEvent):
+            filtered_events.append(event)
+            continue
+
+        keysym: int | None = event.keysym
+        if event.event_type == EventType.KEY_RELEASE:
+            if keysym is not None and keysym in server_state.jump_hotkey_swallow_keysyms:
+                server_state.jump_hotkey_swallow_keysyms.discard(keysym)
+                continue
+            filtered_events.append(event)
+            continue
+
+        if event.event_type != EventType.KEY_PRESS:
+            filtered_events.append(event)
+            continue
+
+        event_state: int = event.state if event.state is not None else modifier_state
+        prefix_matches: bool = (
+            keysym is not None
+            and keysym == jump_hotkey.prefix_keysym
+            and (
+                jump_hotkey.prefix_modifier_mask == 0
+                or (event_state & jump_hotkey.prefix_modifier_mask)
+                == jump_hotkey.prefix_modifier_mask
+            )
+        )
+        if prefix_matches:
+            server_state.jump_hotkey_armed_until = now + jump_hotkey.timeout_seconds
+            if keysym is not None:
+                server_state.jump_hotkey_swallow_keysyms.add(keysym)
+            continue
+
+        if now <= server_state.jump_hotkey_armed_until:
+            if keysym is not None:
+                server_state.jump_hotkey_swallow_keysyms.add(keysym)
+                target_context = jump_hotkey.action_keysyms_to_context.get(keysym, target_context)
+            server_state.jump_hotkey_armed_until = 0.0
+            continue
+
+        filtered_events.append(event)
+
+    return filtered_events, target_context
 
 
 def state_revertToCenter(
@@ -447,6 +639,119 @@ def clientMessage_handle(
         logger.warning(f"Unexpected message type: {message.msg_type.value}")
 
 
+def remoteContextEnter_process(
+    network: ServerNetwork,
+    display_manager: DisplayBackend,
+    pointer_tracker: PointerTracker,
+    screen_geometry: Screen,
+    target_context: ScreenContext,
+    position: Position,
+    context_to_client: dict[ScreenContext, str],
+) -> bool:
+    """
+    Enter a specific REMOTE context from CENTER.
+
+    Args:
+        network: Active server network.
+        display_manager: Server display backend.
+        pointer_tracker: Pointer tracker.
+        screen_geometry: Local screen geometry.
+        target_context: Target REMOTE context.
+        position: Current pointer position.
+        context_to_client: Context-to-client routing map.
+
+    Returns:
+        True when transition succeeds, False otherwise.
+    """
+    if target_context == ScreenContext.CENTER:
+        return True
+
+    resolved_target = transitionTargetClient_resolve(network, target_context, context_to_client)
+    if resolved_target is None:
+        return False
+    target_client_name, _ = resolved_target
+
+    warp_pos: Position
+    if target_context == ScreenContext.WEST:
+        warp_pos = Position(x=screen_geometry.width - 30, y=position.y)
+    elif target_context == ScreenContext.EAST:
+        warp_pos = Position(x=30, y=position.y)
+    elif target_context == ScreenContext.NORTH:
+        warp_pos = Position(x=position.x, y=screen_geometry.height - 30)
+    else:  # SOUTH
+        warp_pos = Position(x=position.x, y=30)
+
+    server_state.context = target_context
+    server_state.active_remote_client_name = target_client_name
+    logger.debug(f"[CONTEXT] Changed to {target_context.value.upper()}")
+    logger.info(f"[WARP] Parking cursor at ({warp_pos.x}, {warp_pos.y}) for {target_context.value}")
+
+    display_manager.cursorPosition_set(warp_pos)
+    display_manager.keyboard_grab()
+    display_manager.pointer_grab()
+    display_manager.cursor_hide()
+
+    pointer_tracker.reset()
+    server_state.last_sent_position = None
+    server_state.last_remote_switch_time = time.time()
+    logger.info(f"[STATE] → {target_context.value.upper()} context")
+    return True
+
+
+def jumpHotkeyAction_apply(
+    target_context: ScreenContext,
+    network: ServerNetwork,
+    display_manager: DisplayBackend,
+    pointer_tracker: PointerTracker,
+    screen_geometry: Screen,
+    position: Position,
+    context_to_client: dict[ScreenContext, str],
+) -> bool:
+    """
+    Apply jump-hotkey target context transition.
+
+    Args:
+        target_context: Target context requested by hotkey.
+        network: Active server network.
+        display_manager: Server display backend.
+        pointer_tracker: Pointer tracker.
+        screen_geometry: Local screen geometry.
+        position: Current pointer position.
+        context_to_client: Context-to-client routing map.
+
+    Returns:
+        True when action was handled.
+    """
+    if target_context == ScreenContext.CENTER:
+        if server_state.context != ScreenContext.CENTER:
+            logger.info("[HOTKEY] Jumping to CENTER")
+            state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
+        return True
+
+    if server_state.context != ScreenContext.CENTER and server_state.context != target_context:
+        logger.info(
+            "[HOTKEY] Switching remote context %s -> %s",
+            server_state.context.value.upper(),
+            target_context.value.upper(),
+        )
+        state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
+        position = pointer_tracker.position_query()
+
+    if server_state.context == target_context:
+        return True
+
+    logger.info("[HOTKEY] Jumping to %s", target_context.value.upper())
+    return remoteContextEnter_process(
+        network=network,
+        display_manager=display_manager,
+        pointer_tracker=pointer_tracker,
+        screen_geometry=screen_geometry,
+        target_context=target_context,
+        position=position,
+        context_to_client=context_to_client,
+    )
+
+
 def centerContext_process(
     network: ServerNetwork,
     display_manager: DisplayBackend,
@@ -489,40 +794,18 @@ def centerContext_process(
 
     try:
         t0: float = time.time()
-        resolved_target = transitionTargetClient_resolve(network, new_context, context_to_client)
-        if resolved_target is None:
+        transition_success = remoteContextEnter_process(
+            network=network,
+            display_manager=display_manager,
+            pointer_tracker=pointer_tracker,
+            screen_geometry=screen_geometry,
+            target_context=new_context,
+            position=transition.position,
+            context_to_client=context_to_client,
+        )
+        if not transition_success:
             return
-        target_client_name: str = resolved_target[0]
-        target_client: ClientConnection = resolved_target[1]
-        warp_pos: Position = transitionParkingPosition_get(
-            transition.direction, transition.position, screen_geometry
-        )
-
-        server_state.context = new_context
-        server_state.active_remote_client_name = target_client_name
-        logger.debug(f"[CONTEXT] Changed to {new_context.value.upper()}")
-
-        logger.info(
-            f"[WARP] Parking cursor at ({warp_pos.x}, {warp_pos.y}) near {transition.direction.value} edge"
-        )
-        display_manager.cursorPosition_set(warp_pos)
-        logger.info("[TIMING] cursorPosition_set: %.3f sec", time.time() - t0)
-        t0 = time.time()
-
-        # Grab keyboard first so typing devices that also expose pointer-like
-        # capabilities are owned before pointer-class grabs run.
-        display_manager.keyboard_grab()
-        display_manager.pointer_grab()
-        logger.info("[TIMING] input_grab: %.3f sec", time.time() - t0)
-        t0 = time.time()
-
-        display_manager.cursor_hide()
-        logger.info("[TIMING] cursor_hide: %.3f sec", time.time() - t0)
-
-        pointer_tracker.reset()
-        server_state.last_sent_position = None
-        server_state.last_remote_switch_time = time.time()
-        logger.info(f"[STATE] → {new_context.value.upper()} context")
+        logger.info("[TIMING] transition_enter: %.3f sec", time.time() - t0)
     except Exception as e:
         logger.error(f"Transition failed: {e}", exc_info=True)
         try:
@@ -625,6 +908,7 @@ def remoteContext_process(
     input_capturer: InputCapturer,
     panic_keysyms: set[int],
     panic_modifiers: int,
+    jump_hotkey: JumpHotkeyRuntimeConfig,
 ) -> None:
     """
     Process forwarding/return logic while server is in REMOTE context.
@@ -660,6 +944,22 @@ def remoteContext_process(
         x11native=x11native,
     ):
         input_events, modifier_state = input_capturer.inputEvents_read()
+        input_events, jump_target_context = jumpHotkeyEvents_process(
+            input_events=input_events,
+            modifier_state=modifier_state,
+            jump_hotkey=jump_hotkey,
+        )
+        if jump_target_context is not None:
+            _ = jumpHotkeyAction_apply(
+                target_context=jump_target_context,
+                network=network,
+                display_manager=display_manager,
+                pointer_tracker=pointer_tracker,
+                screen_geometry=screen_geometry,
+                position=position,
+                context_to_client=context_to_client,
+            )
+            return
         if panicKey_check(input_events, panic_keysyms, panic_modifiers, modifier_state):
             logger.warning("[PANIC] Panic key pressed - forcing return to CENTER")
             state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
@@ -698,6 +998,22 @@ def remoteContext_process(
         return
 
     input_events, modifier_state = input_capturer.inputEvents_read()
+    input_events, jump_target_context = jumpHotkeyEvents_process(
+        input_events=input_events,
+        modifier_state=modifier_state,
+        jump_hotkey=jump_hotkey,
+    )
+    if jump_target_context is not None:
+        _ = jumpHotkeyAction_apply(
+            target_context=jump_target_context,
+            network=network,
+            display_manager=display_manager,
+            pointer_tracker=pointer_tracker,
+            screen_geometry=screen_geometry,
+            position=position,
+            context_to_client=context_to_client,
+        )
+        return
     if panicKey_check(input_events, panic_keysyms, panic_modifiers, modifier_state):
         logger.warning("[PANIC] Panic key pressed - forcing return to CENTER")
         state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
@@ -938,6 +1254,7 @@ def _process_polling_loop(
     panic_modifiers: int,
     x11native: bool,
     input_capturer: InputCapturer,
+    jump_hotkey: JumpHotkeyRuntimeConfig,
     die_on_disconnect: bool = False,
 ) -> None:
     """
@@ -954,6 +1271,7 @@ def _process_polling_loop(
         panic_modifiers: panic_modifiers value.
         x11native: x11native value.
         input_capturer: input_capturer value.
+        jump_hotkey: jump_hotkey value.
         die_on_disconnect: die_on_disconnect value.
     
     Returns:
@@ -1019,6 +1337,25 @@ def _process_polling_loop(
             )
 
         if server_state.context == ScreenContext.CENTER:
+            if jump_hotkey.enabled:
+                center_input_events, center_modifier_state = input_capturer.inputEvents_read()
+                _, jump_target_context = jumpHotkeyEvents_process(
+                    input_events=center_input_events,
+                    modifier_state=center_modifier_state,
+                    jump_hotkey=jump_hotkey,
+                )
+                if jump_target_context is not None:
+                    _ = jumpHotkeyAction_apply(
+                        target_context=jump_target_context,
+                        network=network,
+                        display_manager=display_manager,
+                        pointer_tracker=pointer_tracker,
+                        screen_geometry=screen_geometry,
+                        position=position,
+                        context_to_client=context_to_client,
+                    )
+                    time.sleep(config.server.poll_interval_ms / settings.POLL_INTERVAL_DIVISOR)
+                    return
             centerContext_process(
                 network=network,
                 display_manager=display_manager,
@@ -1042,6 +1379,7 @@ def _process_polling_loop(
                 input_capturer=input_capturer,
                 panic_keysyms=panic_keysyms,
                 panic_modifiers=panic_modifiers,
+                jump_hotkey=jump_hotkey,
             )
 
     # Small sleep to prevent busy waiting
@@ -1078,6 +1416,7 @@ def server_run(args: argparse.Namespace) -> None:
         logger.warning("No clients configured in config.yml")
 
     panic_keysyms, panic_modifiers = panicKeyConfig_parse(config)
+    jump_hotkey = jumpHotkeyConfig_parse(config)
 
     backend_options: ServerBackendOptions = backendOptions_resolve(args, config)
     display_manager, input_capturer = serverBackendComponents_create(
@@ -1152,6 +1491,7 @@ def server_run(args: argparse.Namespace) -> None:
                 panic_modifiers,
                 x11native,
                 input_capturer,
+                jump_hotkey,
                 die_on_disconnect,
             )
     except Exception as e:

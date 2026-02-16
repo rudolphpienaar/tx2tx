@@ -7,6 +7,7 @@ from tx2tx.common.config import (
     ConfigLoader,
     ServerConfig,
     ClientReconnectConfig,
+    JumpHotkeyConfig,
     NamedClientConfig,
     PanicKeyConfig,
 )
@@ -135,6 +136,58 @@ class TestConfigLoaderParsing:
         assert config.server.client_position == "west"
         assert config.client.display is None
         assert config.logging.file is None
+        assert config.server.jump_hotkey.enabled is False
+        assert config.server.jump_hotkey.prefix_key == "/"
+        assert config.server.jump_hotkey.prefix_modifiers == ["Ctrl"]
+        assert config.server.jump_hotkey.west_key == "1"
+        assert config.server.jump_hotkey.east_key == "2"
+        assert config.server.jump_hotkey.center_key == "0"
+
+    def test_config_parse_with_jump_hotkey(self):
+        """Test parsing jump hotkey config."""
+        data = {
+            "server": {
+                "host": "0.0.0.0",
+                "port": 25000,
+                "edge_threshold": 5,
+                "poll_interval_ms": 10,
+                "max_clients": 4,
+                "jump_hotkey": {
+                    "enabled": True,
+                    "prefix": "Ctrl+/",
+                    "timeout_ms": 900,
+                    "west": "1",
+                    "east": "2",
+                    "center": "0",
+                },
+            },
+            "client": {
+                "server_address": "server:25000",
+                "reconnect": {
+                    "enabled": True,
+                    "max_attempts": 5,
+                    "delay_seconds": 1.0,
+                },
+            },
+            "protocol": {
+                "version": "2.0.0",
+                "buffer_size": 4096,
+                "keepalive_interval": 30,
+            },
+            "logging": {
+                "level": "INFO",
+                "format": "%(message)s",
+            },
+        }
+
+        config = ConfigLoader.config_parse(data)
+        assert config.server.jump_hotkey.enabled is True
+        assert config.server.jump_hotkey.prefix_key == "/"
+        assert config.server.jump_hotkey.prefix_modifiers == ["Ctrl"]
+        assert config.server.jump_hotkey.timeout_ms == 900
+        assert config.server.jump_hotkey.west_key == "1"
+        assert config.server.jump_hotkey.east_key == "2"
+        assert config.server.jump_hotkey.center_key == "0"
 
     def test_config_parse_with_named_clients(self):
         """Test parsing config with named clients list"""
@@ -415,6 +468,15 @@ class TestConfigDataclasses:
             max_clients=4,
             client_position="west",
             panic_key=PanicKeyConfig(key="F12", modifiers=[]),
+            jump_hotkey=JumpHotkeyConfig(
+                enabled=False,
+                prefix_key="/",
+                prefix_modifiers=["Ctrl"],
+                timeout_ms=800,
+                west_key="1",
+                east_key="2",
+                center_key="0",
+            ),
             overlay_enabled=True,
         )
 

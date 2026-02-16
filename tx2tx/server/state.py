@@ -64,6 +64,10 @@ class ServerState:
         # Active remote target client name for current non-CENTER context.
         self.active_remote_client_name: Optional[str] = None
 
+        # Jump-hotkey state machine fields.
+        self.jump_hotkey_armed_until: float = 0.0
+        self.jump_hotkey_swallow_keysyms: set[int] = set()
+
         self._initialized = True
 
     def reset(self) -> None:
@@ -84,6 +88,8 @@ class ServerState:
         self.target_warp_position = None
         self.last_sent_position = None
         self.active_remote_client_name = None
+        self.jump_hotkey_armed_until = 0.0
+        self.jump_hotkey_swallow_keysyms = set()
 
     def boundaryCrossed_set(self, target_position: Position) -> None:
         """
