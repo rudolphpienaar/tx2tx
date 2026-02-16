@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import threading
+from collections import deque
 from typing import Any, Optional
 
 from evdev import InputDevice, ecodes
@@ -185,10 +186,10 @@ class GrabRefCounter:
 class InputEventQueue:
     """Thread-safe queue of helper event payloads."""
 
-    def __init__(self) -> None:
+    def __init__(self, max_events: int = 8192) -> None:
         """Initialize queue."""
         self._lock: threading.Lock = threading.Lock()
-        self._events: list[dict[str, Any]] = []
+        self._events: deque[dict[str, Any]] = deque(maxlen=max_events)
 
     def event_add(self, payload: dict[str, Any]) -> None:
         """
@@ -211,3 +212,13 @@ class InputEventQueue:
             events: list[dict[str, Any]] = list(self._events)
             self._events.clear()
         return events
+
+    def events_clear(self) -> None:
+        """
+        Clear all queued payloads.
+
+        Returns:
+            None.
+        """
+        with self._lock:
+            self._events.clear()

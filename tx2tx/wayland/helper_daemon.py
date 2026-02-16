@@ -61,6 +61,15 @@ class ModifierState:
             mask |= 0x40
         return mask
 
+    def state_reset(self) -> None:
+        """
+        Reset tracked modifier state.
+
+        Returns:
+            None.
+        """
+        self._pressed.clear()
+
 
 class PointerState:
     """Tracks pointer position based on relative events."""
@@ -133,7 +142,7 @@ class InputDeviceManager:
         """
         self._pointer_state = PointerState(width=width, height=height)
         self._modifier_state = ModifierState()
-        self._event_queue: InputEventQueue = InputEventQueue()
+        self._event_queue: InputEventQueue = InputEventQueue(max_events=8192)
         self._registry: DeviceRegistry = DeviceRegistry(device_paths)
         self._grab_refcounter: GrabRefCounter = GrabRefCounter(self._registry)
 
@@ -176,6 +185,8 @@ class InputDeviceManager:
         Returns:
             Dictionary containing grab counts and device paths.
         """
+        self._event_queue.events_clear()
+        self._modifier_state.state_reset()
         grabbed: int = 0
         already_grabbed: int = 0
         failed: int = 0
@@ -246,6 +257,8 @@ class InputDeviceManager:
         Returns:
             Dictionary containing grab counts and device paths.
         """
+        self._event_queue.events_clear()
+        self._modifier_state.state_reset()
         grabbed: int = 0
         already_grabbed: int = 0
         failed: int = 0
@@ -333,7 +346,6 @@ class InputDeviceManager:
         """
         is_mouse_device: bool = device.fd in self._registry.mouseFds_get()
         is_keyboard_device: bool = device.fd in self._registry.keyboardFds_get()
-        is_device_grabbed: bool = self._grab_refcounter.grabbed_check(device.fd)
 
         if event.type == ecodes.EV_REL:
             if not is_mouse_device:
@@ -363,7 +375,7 @@ class InputDeviceManager:
             )
 
             # Mouse buttons: only from pointer-class devices.
-            if is_mouse_button and is_mouse_device and is_device_grabbed:
+            if is_mouse_button and is_mouse_device:
                 event_type: str = (
                     EventType.MOUSE_BUTTON_PRESS.value
                     if event.value
@@ -380,7 +392,7 @@ class InputDeviceManager:
                 self._event_record(payload)
                 return
 
-            if not is_keyboard_device or not is_device_grabbed:
+            if not is_keyboard_device:
                 return
 
             # Treat KEY_* codes (< BTN_MISC) as keyboard events even if device
