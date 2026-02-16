@@ -212,6 +212,7 @@ class WaylandHelperClient:
             "grabbed_devices": list(result.get("grabbed_devices", [])),
             "already_grabbed_devices": list(result.get("already_grabbed_devices", [])),
             "failed_devices": list(result.get("failed_devices", [])),
+            "typing_grabbed": int(result.get("typing_grabbed", 0)),
             "required_failed": int(result.get("required_failed", 0)),
             "required_failed_devices": list(result.get("required_failed_devices", [])),
         }

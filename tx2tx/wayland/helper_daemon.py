@@ -262,6 +262,7 @@ class InputDeviceManager:
         grabbed: int = 0
         already_grabbed: int = 0
         failed: int = 0
+        typing_grabbed: int = 0
         required_failed: int = 0
         grabbed_devices: list[str] = []
         already_grabbed_devices: list[str] = []
@@ -275,9 +276,13 @@ class InputDeviceManager:
             if status == "grabbed":
                 grabbed += 1
                 grabbed_devices.append(device_path)
+                if dev.fd in typing_keyboard_fds:
+                    typing_grabbed += 1
             elif status == "already_grabbed":
                 already_grabbed += 1
                 already_grabbed_devices.append(device_path)
+                if dev.fd in typing_keyboard_fds:
+                    typing_grabbed += 1
             else:
                 failed += 1
                 failed_devices.append(device_path)
@@ -291,6 +296,7 @@ class InputDeviceManager:
             "grabbed_devices": grabbed_devices,
             "already_grabbed_devices": already_grabbed_devices,
             "failed_devices": failed_devices,
+            "typing_grabbed": typing_grabbed,
             "required_failed": required_failed,
             "required_failed_devices": required_failed_devices,
         }
