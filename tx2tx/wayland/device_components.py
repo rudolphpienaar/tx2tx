@@ -27,8 +27,14 @@ class DeviceRegistry:
         self._keyboard_devices: list[InputDevice] = [
             device for device in self._devices if ecodes.EV_KEY in device.capabilities()
         ]
+        self._typing_keyboard_devices: list[InputDevice] = [
+            device for device in self._keyboard_devices if self._deviceIsTypingKeyboard_check(device)
+        ]
         self._mouse_fds: set[int] = {device.fd for device in self._mouse_devices}
         self._keyboard_fds: set[int] = {device.fd for device in self._keyboard_devices}
+        self._typing_keyboard_fds: set[int] = {
+            device.fd for device in self._typing_keyboard_devices
+        }
         self._path_by_fd: dict[int, str] = {device.fd: device.path for device in self._devices}
 
     def devices_all(self) -> list[InputDevice]:
@@ -50,6 +56,10 @@ class DeviceRegistry:
     def keyboardFds_get(self) -> set[int]:
         """Return keyboard device file descriptors."""
         return self._keyboard_fds
+
+    def typingKeyboardFds_get(self) -> set[int]:
+        """Return typing-keyboard device file descriptors."""
+        return self._typing_keyboard_fds
 
     def pathForFd_get(self, fd: int) -> str:
         """
@@ -107,6 +117,20 @@ class DeviceRegistry:
             return True
         key_caps = capabilities.get(ecodes.EV_KEY, [])
         return ecodes.BTN_LEFT in key_caps or ecodes.BTN_RIGHT in key_caps
+
+    def _deviceIsTypingKeyboard_check(self, device: InputDevice) -> bool:
+        """
+        Determine whether device is a typing keyboard.
+
+        Args:
+            device: Input device.
+
+        Returns:
+            True when the device exposes alphanumeric typing keys.
+        """
+        capabilities: dict[int, Any] = device.capabilities()
+        key_caps = capabilities.get(ecodes.EV_KEY, [])
+        return ecodes.KEY_A in key_caps and ecodes.KEY_ENTER in key_caps
 
 
 class GrabRefCounter:

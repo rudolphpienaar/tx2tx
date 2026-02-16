@@ -213,14 +213,22 @@ class WaylandDisplayBackend(DisplayBackend):
             result.get("already_grabbed", 0)
         )
         logger.info(
-            "Wayland keyboard grab: grabbed=%s already_grabbed=%s failed=%s grabbed_devices=%s already_grabbed_devices=%s failed_devices=%s",
+            "Wayland keyboard grab: grabbed=%s already_grabbed=%s failed=%s required_failed=%s grabbed_devices=%s already_grabbed_devices=%s failed_devices=%s required_failed_devices=%s",
             result.get("grabbed", 0),
             result.get("already_grabbed", 0),
             result.get("failed", 0),
+            result.get("required_failed", 0),
             result.get("grabbed_devices", []),
             result.get("already_grabbed_devices", []),
             result.get("failed_devices", []),
+            result.get("required_failed_devices", []),
         )
+        if int(result.get("required_failed", 0)) > 0:
+            raise RuntimeError(
+                "Wayland keyboard grab failed on required typing keyboard device(s): "
+                f"{result.get('required_failed_devices', [])}. "
+                "Refusing REMOTE mode to prevent local-only keystrokes."
+            )
         if effective_grabbed == 0:
             message: str = (
                 "Wayland keyboard grab did not capture any devices (failed=%s). "

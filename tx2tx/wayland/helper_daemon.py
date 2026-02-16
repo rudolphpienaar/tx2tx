@@ -262,9 +262,12 @@ class InputDeviceManager:
         grabbed: int = 0
         already_grabbed: int = 0
         failed: int = 0
+        required_failed: int = 0
         grabbed_devices: list[str] = []
         already_grabbed_devices: list[str] = []
         failed_devices: list[str] = []
+        required_failed_devices: list[str] = []
+        typing_keyboard_fds: set[int] = self._registry.typingKeyboardFds_get()
         for dev in self._registry.devices_keyboard():
             status: str
             device_path: str
@@ -278,6 +281,9 @@ class InputDeviceManager:
             else:
                 failed += 1
                 failed_devices.append(device_path)
+                if dev.fd in typing_keyboard_fds:
+                    required_failed += 1
+                    required_failed_devices.append(device_path)
         return {
             "grabbed": grabbed,
             "already_grabbed": already_grabbed,
@@ -285,6 +291,8 @@ class InputDeviceManager:
             "grabbed_devices": grabbed_devices,
             "already_grabbed_devices": already_grabbed_devices,
             "failed_devices": failed_devices,
+            "required_failed": required_failed,
+            "required_failed_devices": required_failed_devices,
         }
 
     def keyboard_ungrab(self) -> dict[str, Any]:
