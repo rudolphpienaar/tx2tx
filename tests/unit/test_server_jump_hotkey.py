@@ -41,6 +41,7 @@ class TestJumpHotkeyConfigParse:
 
         assert parsed.enabled is True
         assert parsed.prefix_keysym == 0x2F
+        assert 0x1F in parsed.prefix_alt_keysyms
         assert 61 in parsed.prefix_keycodes
         assert parsed.prefix_modifier_mask == 0x4
         assert parsed.action_keysyms_to_context[0x31] == ScreenContext.WEST
@@ -73,6 +74,7 @@ class TestJumpHotkeyEventsProcess:
         config = JumpHotkeyRuntimeConfig(
             enabled=True,
             prefix_keysym=0x2F,
+            prefix_alt_keysyms={0x1F},
             prefix_keycodes={61},
             prefix_modifier_mask=0x4,
             timeout_seconds=0.8,
@@ -112,6 +114,7 @@ class TestJumpHotkeyEventsProcess:
         config = JumpHotkeyRuntimeConfig(
             enabled=True,
             prefix_keysym=0x2F,
+            prefix_alt_keysyms={0x1F},
             prefix_keycodes={61},
             prefix_modifier_mask=0x4,
             timeout_seconds=0.8,
@@ -139,6 +142,7 @@ class TestJumpHotkeyEventsProcess:
         config = JumpHotkeyRuntimeConfig(
             enabled=True,
             prefix_keysym=0x2F,
+            prefix_alt_keysyms={0x1F},
             prefix_keycodes={61},
             prefix_modifier_mask=0x4,
             timeout_seconds=0.8,
@@ -159,6 +163,38 @@ class TestJumpHotkeyEventsProcess:
         assert target_context is None
         assert filtered_events == []
 
+    def test_ctrl_slash_control_char_prefix_matches(self) -> None:
+        """
+        Ctrl+/ control-char prefix (^_, 0x1f) should arm sequence.
+
+        Returns:
+            None.
+        """
+        config = JumpHotkeyRuntimeConfig(
+            enabled=True,
+            prefix_keysym=0x2F,
+            prefix_alt_keysyms={0x1F},
+            prefix_keycodes={61},
+            prefix_modifier_mask=0x4,
+            timeout_seconds=0.8,
+            action_keysyms_to_context={0x32: ScreenContext.EAST},
+            action_keycodes_to_context={11: ScreenContext.EAST},
+        )
+        events = [
+            KeyEvent(event_type=EventType.KEY_PRESS, keycode=0, keysym=0x1F, state=0x4),
+            KeyEvent(event_type=EventType.KEY_PRESS, keycode=11, keysym=None, state=0x0),
+            KeyEvent(event_type=EventType.KEY_RELEASE, keycode=11, keysym=None, state=0x0),
+        ]
+
+        filtered_events, target_context = jumpHotkeyEvents_process(
+            input_events=events,
+            modifier_state=0x4,
+            jump_hotkey=config,
+        )
+
+        assert target_context == ScreenContext.EAST
+        assert filtered_events == []
+
     def test_keycode_fallback_matches_when_keysym_missing(self) -> None:
         """
         Keycode fallback should resolve action when keysym is missing.
@@ -169,6 +205,7 @@ class TestJumpHotkeyEventsProcess:
         config = JumpHotkeyRuntimeConfig(
             enabled=True,
             prefix_keysym=0x2F,
+            prefix_alt_keysyms={0x1F},
             prefix_keycodes={61},
             prefix_modifier_mask=0x4,
             timeout_seconds=0.8,

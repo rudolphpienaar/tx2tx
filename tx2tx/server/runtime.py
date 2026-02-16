@@ -120,6 +120,7 @@ class JumpHotkeyRuntimeConfig:
     Attributes:
         enabled: Whether jump hotkeys are enabled.
         prefix_keysym: Keysym for prefix key.
+        prefix_alt_keysyms: Alternate keysyms for prefix matching.
         prefix_keycodes: Keycode fallbacks for prefix key.
         prefix_modifier_mask: Modifier mask required for prefix.
         timeout_seconds: Sequence timeout window.
@@ -129,6 +130,7 @@ class JumpHotkeyRuntimeConfig:
 
     enabled: bool
     prefix_keysym: int
+    prefix_alt_keysyms: set[int]
     prefix_keycodes: set[int]
     prefix_modifier_mask: int
     timeout_seconds: float
@@ -273,8 +275,25 @@ def keycodeFallbacksFromKeyName_get(key_name: str) -> set[int]:
     return set()
 
 
+def prefixAltKeysymsFromKeyName_get(key_name: str) -> set[int]:
+    """
+    Resolve alternate keysyms accepted for jump prefix key.
+
+    Args:
+        key_name: Configured prefix key token.
+
+    Returns:
+        Alternate keysyms set.
+    """
+    normalized_key_name: str = key_name.strip()
+    if normalized_key_name in {"/", "slash", "SLASH"}:
+        # Ctrl+/ is commonly emitted as Ctrl+underscore in terminals (^_, 0x1f).
+        return {0x1F}
+    return set()
+
+
 def keyEventMatchesJumpToken_check(
-    event: KeyEvent, expected_keysym: int, fallback_keycodes: set[int]
+    event: KeyEvent, expected_keysym: int, alt_keysyms: set[int], fallback_keycodes: set[int]
 ) -> bool:
     """
     Check whether a key event matches expected jump token.
@@ -282,12 +301,15 @@ def keyEventMatchesJumpToken_check(
     Args:
         event: Key event to match.
         expected_keysym: Expected keysym.
+        alt_keysyms: Alternate accepted keysyms.
         fallback_keycodes: Acceptable fallback keycodes.
 
     Returns:
         True when event matches token.
     """
     if event.keysym is not None and event.keysym == expected_keysym:
+        return True
+    if event.keysym is not None and event.keysym in alt_keysyms:
         return True
     if event.keycode in fallback_keycodes:
         return True
@@ -309,6 +331,7 @@ def jumpHotkeyConfig_parse(config: Config) -> JumpHotkeyRuntimeConfig:
         return JumpHotkeyRuntimeConfig(
             enabled=False,
             prefix_keysym=0,
+            prefix_alt_keysyms=set(),
             prefix_keycodes=set(),
             prefix_modifier_mask=0,
             timeout_seconds=0.0,
@@ -322,6 +345,7 @@ def jumpHotkeyConfig_parse(config: Config) -> JumpHotkeyRuntimeConfig:
         return JumpHotkeyRuntimeConfig(
             enabled=False,
             prefix_keysym=0,
+            prefix_alt_keysyms=set(),
             prefix_keycodes=set(),
             prefix_modifier_mask=0,
             timeout_seconds=0.0,
@@ -357,6 +381,7 @@ def jumpHotkeyConfig_parse(config: Config) -> JumpHotkeyRuntimeConfig:
         return JumpHotkeyRuntimeConfig(
             enabled=False,
             prefix_keysym=0,
+            prefix_alt_keysyms=set(),
             prefix_keycodes=set(),
             prefix_modifier_mask=0,
             timeout_seconds=0.0,
@@ -374,6 +399,7 @@ def jumpHotkeyConfig_parse(config: Config) -> JumpHotkeyRuntimeConfig:
     return JumpHotkeyRuntimeConfig(
         enabled=True,
         prefix_keysym=prefix_keysym,
+        prefix_alt_keysyms=prefixAltKeysymsFromKeyName_get(jump_cfg.prefix_key),
         prefix_keycodes=keycodeFallbacksFromKeyName_get(jump_cfg.prefix_key),
         prefix_modifier_mask=prefix_modifier_mask,
         timeout_seconds=timeout_seconds,
@@ -448,6 +474,7 @@ def jumpHotkeyEvents_process(
         prefix_matches: bool = keyEventMatchesJumpToken_check(
             event=event,
             expected_keysym=jump_hotkey.prefix_keysym,
+            alt_keysyms=jump_hotkey.prefix_alt_keysyms,
             fallback_keycodes=jump_hotkey.prefix_keycodes,
         ) and (
             jump_hotkey.prefix_modifier_mask == 0

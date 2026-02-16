@@ -62,6 +62,7 @@ class TestRemoteContextProcess:
             jump_hotkey=JumpHotkeyRuntimeConfig(
                 enabled=False,
                 prefix_keysym=0,
+                prefix_alt_keysyms=set(),
                 prefix_keycodes=set(),
                 prefix_modifier_mask=0,
                 timeout_seconds=0.0,
