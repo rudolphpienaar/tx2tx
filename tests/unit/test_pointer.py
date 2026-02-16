@@ -129,6 +129,7 @@ class TestPointerTrackerBoundaryDetection:
         # Setup velocity history (fast leftward movement)
         start_time = time.time()
         tracker._position_history.append((Position(x=200, y=500), start_time))
+        tracker._position_history.append((Position(x=0, y=500), start_time + 0.09))
         tracker._position_history.append((Position(x=0, y=500), start_time + 0.1))
 
         # Current position at strict left edge
@@ -144,6 +145,7 @@ class TestPointerTrackerBoundaryDetection:
         # Setup velocity history (fast rightward movement)
         start_time = time.time()
         tracker._position_history.append((Position(x=1700, y=500), start_time))
+        tracker._position_history.append((Position(x=1919, y=500), start_time + 0.09))
         tracker._position_history.append((Position(x=1919, y=500), start_time + 0.1))
 
         # Current position at strict right edge (width - 1)
@@ -159,6 +161,7 @@ class TestPointerTrackerBoundaryDetection:
         # Setup velocity history (fast upward movement)
         start_time = time.time()
         tracker._position_history.append((Position(x=960, y=200), start_time))
+        tracker._position_history.append((Position(x=960, y=0), start_time + 0.09))
         tracker._position_history.append((Position(x=960, y=0), start_time + 0.1))
 
         position = Position(x=960, y=0)
@@ -173,6 +176,7 @@ class TestPointerTrackerBoundaryDetection:
         # Setup velocity history (fast downward movement)
         start_time = time.time()
         tracker._position_history.append((Position(x=960, y=900), start_time))
+        tracker._position_history.append((Position(x=960, y=1079), start_time + 0.09))
         tracker._position_history.append((Position(x=960, y=1079), start_time + 0.1))
 
         # Bottom edge: y == height - 1
@@ -235,6 +239,20 @@ class TestPointerTrackerBoundaryDetection:
 
         assert transition is None
 
+    def test_boundary_detect_requires_two_consecutive_edge_samples(self, tracker, screen):
+        """Test edge transition requires confirmation sample."""
+        start_time = time.time()
+        tracker._position_history.append((Position(x=200, y=500), start_time))
+        tracker._position_history.append((Position(x=0, y=500), start_time + 0.1))
+
+        first_transition = tracker.boundary_detect(Position(x=0, y=500), screen)
+        assert first_transition is None
+
+        tracker._position_history.append((Position(x=0, y=500), start_time + 0.12))
+        second_transition = tracker.boundary_detect(Position(x=0, y=500), screen)
+        assert second_transition is not None
+        assert second_transition.direction == Direction.LEFT
+
 
 class TestPointerTrackerEdgeCases:
     """Test edge cases and special scenarios"""
@@ -273,6 +291,7 @@ class TestPointerTrackerEdgeCases:
         # Setup velocity
         start_time = time.time()
         tracker._position_history.append((Position(x=200, y=500), start_time))
+        tracker._position_history.append((Position(x=0, y=500), start_time + 0.09))
         tracker._position_history.append((Position(x=0, y=500), start_time + 0.1))
 
         # Should detect at x=0
@@ -299,6 +318,7 @@ class TestPointerTrackerEdgeCases:
         # Setup velocity
         start_time = time.time()
         tracker._position_history.append((Position(x=200, y=200), start_time))
+        tracker._position_history.append((Position(x=0, y=0), start_time + 0.09))
         tracker._position_history.append((Position(x=0, y=0), start_time + 0.1))
 
         # Top-left corner - should detect LEFT (checked before TOP)

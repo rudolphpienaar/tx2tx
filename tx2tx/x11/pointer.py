@@ -102,41 +102,56 @@ class PointerTracker:
         Returns:
             ScreenTransition if at boundary with sufficient velocity, None otherwise
         """
-        # First check if we're at a strict screen boundary.
-        # NOTE: Transition requires actual edge contact, not near-edge threshold.
-        at_boundary = False
-        direction = None
+        direction: Direction | None = self.boundaryDirectionFromPosition_get(position, geometry)
+        if direction is None:
+            return None
 
-        # Check left edge
-        if position.x <= 0:
-            at_boundary = True
-            direction = Direction.LEFT
-
-        # Check right edge
-        elif position.x >= geometry.width - 1:
-            at_boundary = True
-            direction = Direction.RIGHT
-
-        # Check top edge
-        elif position.y <= 0:
-            at_boundary = True
-            direction = Direction.TOP
-
-        # Check bottom edge
-        elif position.y >= geometry.height - 1:
-            at_boundary = True
-            direction = Direction.BOTTOM
+        if settings.EDGE_CONFIRMATION_SAMPLES > 1 and len(self._position_history) >= 2:
+            previous_position: Position = self._position_history[-2][0]
+            previous_direction: Direction | None = self.boundaryDirectionFromPosition_get(
+                previous_position, geometry
+            )
+            if previous_direction != direction:
+                logger.debug(
+                    "Boundary %s seen but awaiting confirmation sample (prev=%s)",
+                    direction.value,
+                    previous_direction.value if previous_direction else "none",
+                )
+                return None
 
         # If at boundary, check velocity (momentum/edge resistance)
-        if at_boundary and direction is not None:
-            velocity = self.velocity_calculate()
-            logger.info(
-                f"At boundary {direction.value}: velocity={velocity:.1f}, threshold={self._velocity_threshold}"
-            )
-            if velocity >= self._velocity_threshold:
-                return ScreenTransition(direction=direction, position=position)
-            # else: At boundary but not enough momentum - don't transition
+        velocity = self.velocity_calculate()
+        logger.info(
+            f"At boundary {direction.value}: velocity={velocity:.1f}, threshold={self._velocity_threshold}"
+        )
+        if velocity >= self._velocity_threshold:
+            return ScreenTransition(direction=direction, position=position)
+        # else: At boundary but not enough momentum - don't transition
 
+        return None
+
+    @staticmethod
+    def boundaryDirectionFromPosition_get(
+        position: Position, geometry: ScreenGeometry
+    ) -> Direction | None:
+        """
+        Resolve strict boundary direction for a position.
+
+        Args:
+            position: Pointer position.
+            geometry: Screen geometry.
+
+        Returns:
+            Boundary direction if at strict edge, else None.
+        """
+        if position.x <= 0:
+            return Direction.LEFT
+        if position.x >= geometry.width - 1:
+            return Direction.RIGHT
+        if position.y <= 0:
+            return Direction.TOP
+        if position.y >= geometry.height - 1:
+            return Direction.BOTTOM
         return None
 
     def reset(self) -> None:

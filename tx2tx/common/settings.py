@@ -145,6 +145,13 @@ class Settings:
     In practice, this value comes from config.yml server.velocity_threshold.
     """
 
+    EDGE_CONFIRMATION_SAMPLES: int = 2
+    """Consecutive edge samples required before boundary transition.
+
+    This helps suppress premature crossings from a single noisy or jumped
+    pointer coordinate sample at high pointer velocity.
+    """
+
     # =========================================================================
     # Runtime Configuration Access
     # These properties delegate to the loaded config.yml
