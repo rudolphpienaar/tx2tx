@@ -391,9 +391,14 @@ def logging_setup(level: str, log_format: str, log_file: Optional[str]) -> None:
     # Format: "%(asctime)s [v2.0.3.c0f8] - %(name)s - %(levelname)s - %(message)s"
     enhanced_format = log_format.replace("%(asctime)s", f"%(asctime)s [v{__version__}]")
 
+    resolved_level: int = getattr(logging, level.upper())
     logging.basicConfig(
-        level=getattr(logging, level.upper()), format=enhanced_format, handlers=handlers
+        level=resolved_level,
+        format=enhanced_format,
+        handlers=handlers,
+        force=True,
     )
+    logging.getLogger().setLevel(resolved_level)
 
 
 def clientMessage_handle(
