@@ -209,6 +209,14 @@ class WaylandDisplayBackend(DisplayBackend):
         """
         """Grab keyboard via helper."""
         result: dict[str, Any] = self._helper.keyboard_grab()
+        if int(result.get("required_failed", 0)) > 0:
+            logger.warning(
+                "Wayland keyboard grab missing required devices %s; restarting helper and retrying once",
+                result.get("required_failed_devices", []),
+            )
+            self._helper.connection_restart()
+            result = self._helper.keyboard_grab()
+
         effective_grabbed: int = int(result.get("grabbed", 0)) + int(
             result.get("already_grabbed", 0)
         )

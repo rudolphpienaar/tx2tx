@@ -78,9 +78,27 @@ class WaylandHelperClient:
                 self._process.terminate()
             except Exception:
                 pass
+            try:
+                self._process.wait(timeout=1.0)
+            except Exception:
+                try:
+                    self._process.kill()
+                    self._process.wait(timeout=1.0)
+                except Exception:
+                    pass
             self._process = None
             self._stdin = None
             self._stdout = None
+
+    def connection_restart(self) -> None:
+        """
+        Restart helper process and re-run handshake.
+
+        Returns:
+            None.
+        """
+        self.connection_close()
+        self.connection_establish()
 
     def _request(self, cmd: str, payload: dict[str, Any]) -> Any:
         """

@@ -509,8 +509,10 @@ def centerContext_process(
         logger.info("[TIMING] cursorPosition_set: %.3f sec", time.time() - t0)
         t0 = time.time()
 
-        display_manager.pointer_grab()
+        # Grab keyboard first so typing devices that also expose pointer-like
+        # capabilities are owned before pointer-class grabs run.
         display_manager.keyboard_grab()
+        display_manager.pointer_grab()
         logger.info("[TIMING] input_grab: %.3f sec", time.time() - t0)
         t0 = time.time()
 
