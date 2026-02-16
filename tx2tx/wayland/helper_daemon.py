@@ -333,6 +333,7 @@ class InputDeviceManager:
         """
         is_mouse_device: bool = device.fd in self._registry.mouseFds_get()
         is_keyboard_device: bool = device.fd in self._registry.keyboardFds_get()
+        is_device_grabbed: bool = self._grab_refcounter.grabbed_check(device.fd)
 
         if event.type == ecodes.EV_REL:
             if not is_mouse_device:
@@ -362,7 +363,7 @@ class InputDeviceManager:
             )
 
             # Mouse buttons: only from pointer-class devices.
-            if is_mouse_button and is_mouse_device:
+            if is_mouse_button and is_mouse_device and is_device_grabbed:
                 event_type: str = (
                     EventType.MOUSE_BUTTON_PRESS.value
                     if event.value
@@ -379,7 +380,7 @@ class InputDeviceManager:
                 self._event_record(payload)
                 return
 
-            if not is_keyboard_device:
+            if not is_keyboard_device or not is_device_grabbed:
                 return
 
             # Treat KEY_* codes (< BTN_MISC) as keyboard events even if device

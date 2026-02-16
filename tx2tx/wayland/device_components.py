@@ -169,6 +169,18 @@ class GrabRefCounter:
         except Exception:
             return "failed", path
 
+    def grabbed_check(self, fd: int) -> bool:
+        """
+        Check whether a device fd is currently grabbed.
+
+        Args:
+            fd: Device file descriptor.
+
+        Returns:
+            True when refcount indicates an active grab.
+        """
+        return self._refcount_by_fd.get(fd, 0) > 0
+
 
 class InputEventQueue:
     """Thread-safe queue of helper event payloads."""
