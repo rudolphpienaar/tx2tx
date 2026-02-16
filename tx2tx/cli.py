@@ -203,16 +203,16 @@ def logLevelOverride_get(args: argparse.Namespace) -> str | None:
     Returns:
         Selected log level or None.
     """
-    if args.debug:
-        return "DEBUG"
-    if args.info:
-        return "INFO"
-    if args.warning:
-        return "WARNING"
-    if args.error:
-        return "ERROR"
     if args.critical:
         return "CRITICAL"
+    if args.error:
+        return "ERROR"
+    if args.warning:
+        return "WARNING"
+    if args.info:
+        return "INFO"
+    if args.debug:
+        return "DEBUG"
     return None
 
 
