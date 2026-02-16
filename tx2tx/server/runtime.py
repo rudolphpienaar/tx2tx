@@ -499,7 +499,7 @@ def centerContext_process(
         )
 
         server_state.context = new_context
-        server_state.active_remote_client_name = target_client.name or target_client_name
+        server_state.active_remote_client_name = target_client_name
         logger.debug(f"[CONTEXT] Changed to {new_context.value.upper()}")
 
         logger.info(
@@ -710,7 +710,19 @@ def remoteTargetClientName_get(context_to_client: dict[ScreenContext, str]) -> s
     Returns:
         Target client name or None.
     """
-    return server_state.active_remote_client_name or context_to_client.get(server_state.context)
+    context_target_client_name: str | None = context_to_client.get(server_state.context)
+    if context_target_client_name is not None:
+        if server_state.active_remote_client_name != context_target_client_name:
+            if server_state.active_remote_client_name is not None:
+                logger.warning(
+                    "Correcting stale remote target '%s' -> '%s' for context '%s'",
+                    server_state.active_remote_client_name,
+                    context_target_client_name,
+                    server_state.context.value,
+                )
+            server_state.active_remote_client_name = context_target_client_name
+        return context_target_client_name
+    return server_state.active_remote_client_name
 
 
 def remoteWarpEnforcement_apply(
