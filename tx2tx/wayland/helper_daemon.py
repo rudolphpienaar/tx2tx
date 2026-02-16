@@ -590,11 +590,44 @@ class WaylandHelperDaemon:
             height: Screen height in pixels
             devices: Optional list of device paths
         """
-        self._width = width
-        self._height = height
-        self._device_manager = InputDeviceManager(device_paths=devices, width=width, height=height)
-        self._uinput = UInputManager(width=width, height=height)
+        resolved_width: Optional[int]
+        resolved_height: Optional[int]
+        resolved_width, resolved_height = self._screenGeometryWithFallback_resolve(width, height)
+        self._width = resolved_width
+        self._height = resolved_height
+        self._device_manager = InputDeviceManager(
+            device_paths=devices, width=resolved_width, height=resolved_height
+        )
+        self._uinput = UInputManager(width=resolved_width, height=resolved_height)
         self._command_handlers = self._commandHandlers_get()
+
+    def _screenGeometryWithFallback_resolve(
+        self, width: Optional[int], height: Optional[int]
+    ) -> tuple[Optional[int], Optional[int]]:
+        """
+        Resolve startup geometry with fb0 fallback.
+
+        Args:
+            width: Optional explicit width.
+            height: Optional explicit height.
+
+        Returns:
+            Tuple of resolved `(width, height)` values (possibly None when
+            neither explicit nor fallback geometry is available).
+        """
+        if width is not None and height is not None:
+            return width, height
+
+        fallback: Optional[tuple[int, int]] = self._fb0_geometry_get()
+        if fallback is None:
+            return width, height
+
+        fallback_width: int
+        fallback_height: int
+        fallback_width, fallback_height = fallback
+        resolved_width: int = width if width is not None else fallback_width
+        resolved_height: int = height if height is not None else fallback_height
+        return resolved_width, resolved_height
 
     def run(self) -> None:
         """
