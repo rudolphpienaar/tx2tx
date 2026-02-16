@@ -15,6 +15,7 @@ from tx2tx.common.settings import settings
 from tx2tx.common.types import Screen
 from tx2tx.input.backend import DisplayBackend, InputInjector
 from tx2tx.x11.backend import X11DisplayBackend
+from tx2tx.x11.hint_overlay import HintOverlay
 from tx2tx.x11.software_cursor import SoftwareCursor
 
 logger = logging.getLogger(__name__)
@@ -149,6 +150,23 @@ def softwareCursor_create(
     return software_cursor
 
 
+def hintOverlay_create(backend_name: str, display_manager: DisplayBackend) -> HintOverlay | None:
+    """
+    Create hint overlay for supported backends.
+
+    Args:
+        backend_name: Selected backend.
+        display_manager: Display backend.
+
+    Returns:
+        Hint overlay or None.
+    """
+    if backend_name.lower() != "x11":
+        return None
+    x11_display: X11DisplayBackend = cast(X11DisplayBackend, display_manager)
+    return HintOverlay(x11_display.displayManager_get())
+
+
 def clientSession_run(
     network: ClientNetwork,
     screen_geometry: Screen,
@@ -157,6 +175,7 @@ def clientSession_run(
     event_injector: InputInjector,
     display_manager: DisplayBackend,
     software_cursor: SoftwareCursor | None,
+    hint_overlay: HintOverlay | None,
     reconnect_enabled: bool,
 ) -> None:
     """
@@ -170,6 +189,7 @@ def clientSession_run(
         event_injector: Input injector.
         display_manager: Display backend.
         software_cursor: Optional software cursor.
+        hint_overlay: Optional hint overlay.
         reconnect_enabled: Reconnect policy.
     """
     network.connection_establish(
@@ -183,5 +203,6 @@ def clientSession_run(
         event_injector=event_injector,
         display_manager=display_manager,
         software_cursor=software_cursor,
+        hint_overlay=hint_overlay,
         reconnect_enabled=reconnect_enabled,
     )

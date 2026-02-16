@@ -26,6 +26,8 @@ class MessageType(Enum):
     MOUSE_EVENT = "mouse_event"
     KEY_EVENT = "key_event"
     KEEPALIVE = "keepalive"
+    HINT_SHOW = "hint_show"
+    HINT_HIDE = "hint_hide"
     ERROR = "error"
 
 
@@ -230,6 +232,33 @@ class MessageBuilder:
         """
         """Create error message"""
         return Message(msg_type=MessageType.ERROR, payload={"error": error})
+
+    @staticmethod
+    def hintShowMessage_create(label: str, timeout_ms: int) -> Message:
+        """
+        Create hint-show message.
+
+        Args:
+            label: Overlay label text.
+            timeout_ms: Hide timeout in milliseconds.
+
+        Returns:
+            Hint-show message.
+        """
+        return Message(
+            msg_type=MessageType.HINT_SHOW,
+            payload={"label": label, "timeout_ms": timeout_ms},
+        )
+
+    @staticmethod
+    def hintHideMessage_create() -> Message:
+        """
+        Create hint-hide message.
+
+        Returns:
+            Hint-hide message.
+        """
+        return Message(msg_type=MessageType.HINT_HIDE, payload={})
 
 
 class MessageParser:
