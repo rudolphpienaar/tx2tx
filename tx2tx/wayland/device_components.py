@@ -168,6 +168,9 @@ class GrabRefCounter:
             self._refcount_by_fd.pop(fd, None)
             return "released", path
         except Exception:
+            # Recover from stale userspace state: if kernel ungrab fails,
+            # drop local refcount so future grab attempts re-issue a real grab.
+            self._refcount_by_fd.pop(fd, None)
             return "failed", path
 
     def grabbed_check(self, fd: int) -> bool:
