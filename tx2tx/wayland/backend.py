@@ -224,6 +224,12 @@ class WaylandDisplayBackend(DisplayBackend):
             result.get("failed_devices", []),
             result.get("required_failed_devices", []),
         )
+        if int(result.get("required_failed", 0)) > 0:
+            raise RuntimeError(
+                "Wayland keyboard grab failed on required typing keyboard device(s): "
+                f"{result.get('required_failed_devices', [])}. "
+                "Refusing REMOTE mode to prevent local-only keystrokes."
+            )
         if int(result.get("typing_grabbed", 0)) <= 0:
             raise RuntimeError(
                 "Wayland keyboard grab captured zero typing keyboards. "
