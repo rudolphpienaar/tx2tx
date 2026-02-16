@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Optional
 
 from tx2tx.common.types import EventType, KeyEvent, MouseEvent, Position, Screen
@@ -208,50 +209,60 @@ class WaylandDisplayBackend(DisplayBackend):
             Result value.
         """
         """Grab keyboard via helper."""
-        result: dict[str, Any] = self._helper.keyboard_grab()
-        if int(result.get("required_failed", 0)) > 0:
-            logger.warning(
-                "Wayland keyboard grab missing required devices %s; restarting helper and retrying once",
+        max_attempts: int = 3
+        last_result: dict[str, Any] | None = None
+
+        for attempt in range(1, max_attempts + 1):
+            result: dict[str, Any] = self._helper.keyboard_grab()
+            last_result = result
+            effective_grabbed: int = int(result.get("grabbed", 0)) + int(
+                result.get("already_grabbed", 0)
+            )
+            logger.info(
+                "Wayland keyboard grab (attempt %s/%s): grabbed=%s already_grabbed=%s failed=%s typing_grabbed=%s required_failed=%s grabbed_devices=%s already_grabbed_devices=%s failed_devices=%s required_failed_devices=%s",
+                attempt,
+                max_attempts,
+                result.get("grabbed", 0),
+                result.get("already_grabbed", 0),
+                result.get("failed", 0),
+                result.get("typing_grabbed", 0),
+                result.get("required_failed", 0),
+                result.get("grabbed_devices", []),
+                result.get("already_grabbed_devices", []),
+                result.get("failed_devices", []),
                 result.get("required_failed_devices", []),
             )
-            self._helper.connection_restart()
-            result = self._helper.keyboard_grab()
 
-        effective_grabbed: int = int(result.get("grabbed", 0)) + int(
-            result.get("already_grabbed", 0)
-        )
-        logger.info(
-            "Wayland keyboard grab: grabbed=%s already_grabbed=%s failed=%s typing_grabbed=%s required_failed=%s grabbed_devices=%s already_grabbed_devices=%s failed_devices=%s required_failed_devices=%s",
-            result.get("grabbed", 0),
-            result.get("already_grabbed", 0),
-            result.get("failed", 0),
-            result.get("typing_grabbed", 0),
-            result.get("required_failed", 0),
-            result.get("grabbed_devices", []),
-            result.get("already_grabbed_devices", []),
-            result.get("failed_devices", []),
-            result.get("required_failed_devices", []),
-        )
-        if int(result.get("required_failed", 0)) > 0:
+            required_failed: int = int(result.get("required_failed", 0))
+            typing_grabbed: int = int(result.get("typing_grabbed", 0))
+            if required_failed <= 0 and typing_grabbed > 0 and effective_grabbed > 0:
+                return
+
+            if attempt < max_attempts:
+                logger.warning(
+                    "Wayland keyboard grab incomplete on attempt %s; restarting helper and retrying",
+                    attempt,
+                )
+                self._helper.connection_restart()
+                time.sleep(0.05)
+
+        if last_result is None:
+            raise RuntimeError("Wayland keyboard grab did not return a result")
+
+        if int(last_result.get("required_failed", 0)) > 0:
             raise RuntimeError(
                 "Wayland keyboard grab failed on required typing keyboard device(s): "
-                f"{result.get('required_failed_devices', [])}. "
+                f"{last_result.get('required_failed_devices', [])}. "
                 "Refusing REMOTE mode to prevent local-only keystrokes."
             )
-        if int(result.get("typing_grabbed", 0)) <= 0:
+        if int(last_result.get("typing_grabbed", 0)) <= 0:
             raise RuntimeError(
                 "Wayland keyboard grab captured zero typing keyboards. "
                 "Refusing REMOTE mode to prevent local-only keystrokes."
             )
-        if effective_grabbed == 0:
-            message: str = (
-                "Wayland keyboard grab did not capture any devices (failed=%s). "
-                "Keystrokes may still execute on the server."
-            )
-            logger.error(message, result.get("failed", 0))
-            raise RuntimeError(
-                "Wayland keyboard exclusive grab failed; refusing REMOTE mode without keyboard capture."
-            )
+        raise RuntimeError(
+            "Wayland keyboard exclusive grab failed after retries; refusing REMOTE mode."
+        )
 
     def keyboard_ungrab(self) -> None:
         """
