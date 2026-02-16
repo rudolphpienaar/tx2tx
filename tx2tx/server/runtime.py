@@ -316,6 +316,20 @@ def keyEventMatchesJumpToken_check(
     return False
 
 
+def keyEventMatchesAltJumpPrefix_check(event: KeyEvent, alt_keysyms: set[int]) -> bool:
+    """
+    Check whether event matches alternate jump prefix keysym variant.
+
+    Args:
+        event: Key event to match.
+        alt_keysyms: Alternate accepted keysyms.
+
+    Returns:
+        True when event keysym matches an alternate prefix keysym.
+    """
+    return event.keysym is not None and event.keysym in alt_keysyms
+
+
 def jumpHotkeyConfig_parse(config: Config) -> JumpHotkeyRuntimeConfig:
     """
     Parse jump-hotkey config into runtime-resolved keysyms/modifiers.
@@ -475,16 +489,22 @@ def jumpHotkeyEvents_process(
             continue
 
         event_state: int = event.state if event.state is not None else modifier_state
-        prefix_matches: bool = keyEventMatchesJumpToken_check(
+        prefix_token_matches: bool = keyEventMatchesJumpToken_check(
             event=event,
             expected_keysym=jump_hotkey.prefix_keysym,
             alt_keysyms=jump_hotkey.prefix_alt_keysyms,
             fallback_keycodes=jump_hotkey.prefix_keycodes,
-        ) and (
+        )
+        modifier_matches: bool = (
             jump_hotkey.prefix_modifier_mask == 0
             or (event_state & jump_hotkey.prefix_modifier_mask)
             == jump_hotkey.prefix_modifier_mask
         )
+        alt_prefix_matches: bool = keyEventMatchesAltJumpPrefix_check(
+            event=event,
+            alt_keysyms=jump_hotkey.prefix_alt_keysyms,
+        )
+        prefix_matches: bool = (prefix_token_matches and modifier_matches) or alt_prefix_matches
         if prefix_matches:
             server_state.jump_hotkey_armed_until = now + jump_hotkey.timeout_seconds
             server_state.jump_hotkey_pending_target_context = None

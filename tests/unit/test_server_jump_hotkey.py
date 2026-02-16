@@ -200,6 +200,40 @@ class TestJumpHotkeyEventsProcess:
 
         assert target_context == ScreenContext.EAST
         assert filtered_events == []
+
+    def test_ctrl_slash_control_char_prefix_without_modifier_state(self) -> None:
+        """
+        Ctrl+/ control-char prefix should arm even when state mask misses Ctrl.
+
+        Returns:
+            None.
+        """
+        config = JumpHotkeyRuntimeConfig(
+            enabled=True,
+            prefix_keysym=0x2F,
+            prefix_alt_keysyms={0x1F},
+            prefix_keycodes={61},
+            prefix_modifier_mask=0x4,
+            timeout_seconds=0.8,
+            action_keysyms_to_context={0x31: ScreenContext.WEST},
+            action_keycodes_to_context={10: ScreenContext.WEST},
+        )
+        events = [
+            KeyEvent(event_type=EventType.KEY_PRESS, keycode=0, keysym=0x1F, state=0x0),
+            KeyEvent(event_type=EventType.KEY_PRESS, keycode=10, keysym=None, state=0x0),
+            KeyEvent(event_type=EventType.KEY_RELEASE, keycode=10, keysym=None, state=0x0),
+        ]
+
+        filtered_events, target_context, hint_show, hint_hide = jumpHotkeyEvents_process(
+            input_events=events,
+            modifier_state=0x0,
+            jump_hotkey=config,
+        )
+
+        assert target_context == ScreenContext.WEST
+        assert filtered_events == []
+        assert hint_show is True
+        assert hint_hide is True
         assert hint_show is True
         assert hint_hide is True
 
