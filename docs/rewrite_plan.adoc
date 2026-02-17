@@ -200,3 +200,5 @@ If an agent restarts:
 == Progress Log
 
 - 2026-02-17: Plan established. No rewrite code started yet.
+- 2026-02-17: Phase 0 baseline scenarios documented in `docs/rewrite_baseline.adoc`.
+- 2026-02-17: Phase 1 scaffolding started by extracting polling-loop orchestration to `tx2tx/server/runtime_loop.py` without intended behavior change.

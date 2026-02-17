@@ -1,4 +1,16 @@
-"""tx2tx server main entry point"""
+"""
+tx2tx server runtime orchestration and transition policy.
+
+This module defines the server-side runtime behavior for mixed-display input
+sharing. It is responsible for:
+1. Parsing runtime key policy (panic and jump hotkeys).
+2. Resolving context transitions between CENTER and REMOTE logical screens.
+3. Forwarding normalized pointer and keyboard/mouse events to active clients.
+4. Enforcing safety invariants that prevent stuck grabs or local-only input.
+
+The polling mechanics are delegated to `tx2tx.server.runtime_loop`; this module
+provides the context-specific behavior callbacks consumed by that loop.
+"""
 
 import argparse
 from dataclasses import dataclass
@@ -32,6 +44,12 @@ from tx2tx.server.bootstrap import (
     serverBackendComponents_create,
 )
 from tx2tx.server.network import ClientConnection, ServerNetwork
+from tx2tx.server.runtime_loop import (
+    JumpHotkeyConfigProtocol,
+    PollingLoopCallbacks,
+    PollingLoopDependencies,
+    pollingLoop_process,
+)
 from tx2tx.server.state import server_state
 from tx2tx.x11.pointer import PointerTracker
 
@@ -140,13 +158,17 @@ class JumpHotkeyRuntimeConfig:
 
 def panicKeyConfig_parse(config: Config) -> tuple[set[int], int]:
     """
-    Parse panic key configuration into keysym set and modifier mask.
-    
+    Parse panic-key configuration into executable runtime values.
+
+    The panic key is a safety escape that forces immediate return to CENTER
+    context when remote control becomes unstable or disconnected.
+
     Args:
-        config: The loaded Config object
-    
+        config:
+            Loaded server configuration.
+
     Returns:
-        Tuple of (keysym_set, required_modifier_mask)
+        Tuple of `(panic_keysyms, required_modifier_mask)`.
     """
     try:
         panic_cfg = config.server.panic_key
@@ -189,22 +211,23 @@ def panicKey_check(
     current_modifiers: int,
 ) -> bool:
     """
-    Check if any event in the list is a panic key press.
-    
-    
-    
-    
-    The panic key forces immediate return to CENTER context, providing
-    an escape hatch if the client dies or the user gets stuck.
-    
+    Evaluate input events for panic-key activation.
+
+    Panic activation is matched on key press events, with optional required
+    modifiers. Event-local modifier state is preferred when available.
+
     Args:
-        events: List of input events to check
-        panic_keysyms: Set of keysyms that trigger panic
-        required_modifiers: Modifier mask that must be active
-        current_modifiers: Currently active modifier mask (fallback)
-    
+        events:
+            Input events to inspect.
+        panic_keysyms:
+            Keysyms that trigger panic mode.
+        required_modifiers:
+            Modifier mask that must be present for activation.
+        current_modifiers:
+            Fallback modifier mask when event state is unavailable.
+
     Returns:
-        True if a panic key press was detected
+        `True` when panic trigger is detected, otherwise `False`.
     """
     for event in events:
         if isinstance(event, KeyEvent):
@@ -411,7 +434,7 @@ def jumpHotkeyConfig_parse(config: Config) -> JumpHotkeyRuntimeConfig:
 def jumpHotkeyEvents_process(
     input_events: list[InputEvent],
     modifier_state: int,
-    jump_hotkey: JumpHotkeyRuntimeConfig,
+    jump_hotkey: JumpHotkeyConfigProtocol,
 ) -> tuple[list[InputEvent], ScreenContext | None]:
     """
     Process jump-hotkey prefix sequence and filter consumed key events.
@@ -593,13 +616,10 @@ def state_revertToCenter(
 
 def arguments_parse() -> argparse.Namespace:
     """
-    Parse command line arguments
-    
-    Args:
-        None.
-    
+    Parse server command-line arguments.
+
     Returns:
-        Parsed CLI arguments.
+        Parsed argparse namespace for server startup.
     """
     parser = argparse.ArgumentParser(
         description="tx2tx server - captures and broadcasts input events"
@@ -688,15 +708,15 @@ def arguments_parse() -> argparse.Namespace:
 
 def logging_setup(level: str, log_format: str, log_file: Optional[str]) -> None:
     """
-    Setup logging configuration with version injection
-    
+    Configure logging handlers and version-tagged format string.
+
     Args:
-        level: level value.
-        log_format: log_format value.
-        log_file: log_file value.
-    
-    Returns:
-        Result value.
+        level:
+            Effective log level token (for example `INFO` or `DEBUG`).
+        log_format:
+            Base log formatter string.
+        log_file:
+            Optional log file path; when set, file logging is added.
     """
     handlers: list[logging.Handler] = [logging.StreamHandler()]
 
@@ -716,15 +736,19 @@ def clientMessage_handle(
     client: ClientConnection, message: Message, network: ServerNetwork
 ) -> None:
     """
-    Handle message received from client
-    
+    Handle one message received from a connected client.
+
+    This handler resolves handshake metadata (name, screen dimensions),
+    de-duplicates zombie clients by logical name, and applies control-plane
+    messages such as explicit return-to-center requests.
+
     Args:
-        client: client value.
-        message: message value.
-        network: network value.
-    
-    Returns:
-        Result value.
+        client:
+            Client connection that originated the message.
+        message:
+            Decoded protocol message.
+        network:
+            Server network state/controller.
     """
     logger.info(f"Received {message.msg_type.value} from {client.address}")
 
@@ -1032,7 +1056,7 @@ def remoteContext_process(
     input_capturer: InputCapturer,
     panic_keysyms: set[int],
     panic_modifiers: int,
-    jump_hotkey: JumpHotkeyRuntimeConfig,
+    jump_hotkey: JumpHotkeyConfigProtocol,
 ) -> None:
     """
     Process forwarding/return logic while server is in REMOTE context.
@@ -1382,143 +1406,81 @@ def _process_polling_loop(
     die_on_disconnect: bool = False,
 ) -> None:
     """
-    Processes events in the polling loop (fallback mode).
-    
+    Bridge runtime policies into the polling-loop orchestrator.
+
+    This adapter constructs callback/dependency bundles for
+    `runtime_loop.pollingLoop_process`, preserving backward compatibility with
+    existing `server_run` wiring while centralizing loop mechanics.
+
     Args:
-        network: network value.
-        display_manager: display_manager value.
-        pointer_tracker: pointer_tracker value.
-        screen_geometry: screen_geometry value.
-        config: config value.
-        context_to_client: context_to_client value.
-        panic_keysyms: panic_keysyms value.
-        panic_modifiers: panic_modifiers value.
-        x11native: x11native value.
-        input_capturer: input_capturer value.
-        jump_hotkey: jump_hotkey value.
-        die_on_disconnect: die_on_disconnect value.
-    
-    Returns:
-        Result value.
+        network:
+            Network controller for connected clients.
+        display_manager:
+            Active display backend implementation.
+        pointer_tracker:
+            Pointer telemetry and edge detector.
+        screen_geometry:
+            Local screen dimensions.
+        config:
+            Loaded runtime configuration.
+        context_to_client:
+            Mapping from logical contexts to configured client names.
+        panic_keysyms:
+            Panic key keysyms.
+        panic_modifiers:
+            Panic key required modifier mask.
+        x11native:
+            Whether session is native X11.
+        input_capturer:
+            Input-event capture backend.
+        jump_hotkey:
+            Parsed jump-hotkey runtime config.
+        die_on_disconnect:
+            Whether server exits after disconnect.
     """
-    # Accept new connections
-    network.connections_accept()
-
-    # Track client count for --die-on-disconnect
-    initial_client_count = network.clients_count()
-
-    # Receive messages from clients
-    def message_handler(client: ClientConnection, message: Message) -> None:
-        """
-        Handle a single client message within the polling loop.
-        
-        Args:
-            client: client value.
-            message: message value.
-        
-        Returns:
-            Result value.
-        """
-        clientMessage_handle(client, message, network)
-
-    network.clientData_receive(message_handler)
-
-    # If --die-on-disconnect is set and a client disconnected, shut down
-    if die_on_disconnect and network.clients_count() < initial_client_count:
-        logger.warning(
-            "[NETWORK] Client disconnected and --die-on-disconnect is set. Shutting down."
-        )
-        network.is_running = False
-        return
-
-    # Track pointer when we have clients
-    if network.clients_count() > 0:
-        # Poll pointer position
-        position = pointer_tracker.position_query()
-        velocity = pointer_tracker.velocity_calculate()
-        now = time.time()
-        last_pos_log = getattr(_process_polling_loop, "_last_pos_log_time", 0.0)
-        if (now - last_pos_log) >= 0.5:
-            logger.debug(
-                "[POS] x=%s/%s y=%s/%s",
-                position.x,
-                screen_geometry.width - 1,
-                position.y,
-                screen_geometry.height - 1,
-            )
-            _process_polling_loop._last_pos_log_time = now
-        if (
-            position.x >= screen_geometry.width - 5
-            or position.x <= 4
-            or position.y >= screen_geometry.height - 5
-            or position.y <= 4
-        ):
-            logger.debug(
-                "[EDGE] pos=(%s,%s) vel=%.1f",
-                position.x,
-                position.y,
-                velocity,
-            )
-
-        if server_state.context == ScreenContext.CENTER:
-            if jump_hotkey.enabled:
-                center_input_events, center_modifier_state = input_capturer.inputEvents_read()
-                _, jump_target_context = jumpHotkeyEvents_process(
-                    input_events=center_input_events,
-                    modifier_state=center_modifier_state,
-                    jump_hotkey=jump_hotkey,
-                )
-                if jump_target_context is not None:
-                    _ = jumpHotkeyAction_apply(
-                        target_context=jump_target_context,
-                        network=network,
-                        display_manager=display_manager,
-                        pointer_tracker=pointer_tracker,
-                        screen_geometry=screen_geometry,
-                        position=position,
-                        context_to_client=context_to_client,
-                    )
-                    time.sleep(config.server.poll_interval_ms / settings.POLL_INTERVAL_DIVISOR)
-                    return
-            centerContext_process(
-                network=network,
-                display_manager=display_manager,
-                pointer_tracker=pointer_tracker,
-                screen_geometry=screen_geometry,
-                position=position,
-                velocity=velocity,
-                context_to_client=context_to_client,
-            )
-        else:
-            remoteContext_process(
-                network=network,
-                display_manager=display_manager,
-                pointer_tracker=pointer_tracker,
-                screen_geometry=screen_geometry,
-                config=config,
-                position=position,
-                velocity=velocity,
-                context_to_client=context_to_client,
-                x11native=x11native,
-                input_capturer=input_capturer,
-                panic_keysyms=panic_keysyms,
-                panic_modifiers=panic_modifiers,
-                jump_hotkey=jump_hotkey,
-            )
-
-    # Small sleep to prevent busy waiting
-    time.sleep(config.server.poll_interval_ms / settings.POLL_INTERVAL_DIVISOR)
+    callbacks = PollingLoopCallbacks(
+        clientMessage_handle=clientMessage_handle,
+        centerContext_process=centerContext_process,
+        remoteContext_process=remoteContext_process,
+        jumpHotkeyEvents_process=jumpHotkeyEvents_process,
+        jumpHotkeyAction_apply=jumpHotkeyAction_apply,
+    )
+    deps = PollingLoopDependencies(
+        network=network,
+        display_manager=display_manager,
+        pointer_tracker=pointer_tracker,
+        screen_geometry=screen_geometry,
+        config=config,
+        context_to_client=context_to_client,
+        panic_keysyms=panic_keysyms,
+        panic_modifiers=panic_modifiers,
+        x11native=x11native,
+        input_capturer=input_capturer,
+        jump_hotkey=jump_hotkey,
+        die_on_disconnect=die_on_disconnect,
+    )
+    pollingLoop_process(
+        deps=deps,
+        callbacks=callbacks,
+        server_state=server_state,
+        logger=logger,
+    )
 
 
 def server_run(args: argparse.Namespace) -> None:
     """
-    Run tx2tx server
-    
+    Initialize and run the tx2tx server main loop.
+
+    Startup sequence:
+    1. Load config and configure logging.
+    2. Resolve backend/display/input components.
+    3. Establish display connection and pointer tracker.
+    4. Validate client positioning and initialize network transport.
+    5. Enter polling loop until shutdown or fatal error.
+
     Args:
-        args: args value.
-    
-    Returns:
-        Result value.
+        args:
+            Parsed CLI argument namespace.
     """
     config = configWithSettings_load(args)
     loggingWithConfig_setup(args, config, logging_setup)

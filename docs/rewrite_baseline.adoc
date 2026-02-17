@@ -1,0 +1,125 @@
+= tx2tx Rewrite Baseline Scenarios (Phase 0)
+
+== Purpose
+
+This document captures the manual baseline scenarios that must remain runnable while the foundational rewrite is in progress.
+
+The goal is not to prove perfection at Phase 0, but to preserve reproducible behavior checks that can be run before and after each rewrite checkpoint.
+
+== Environment Assumptions
+
+- Server host: `mercury` (`192.168.86.27`)
+- East client: `penguin`
+- West client: `tabmux`
+- Server backend: Wayland helper mode
+- Clients: X11 backends
+
+== Server Startup (Baseline Command)
+
+[source,bash]
+----
+sudo --preserve-env=PATH,WAYLAND_DISPLAY,XDG_RUNTIME_DIR,DBUS_SESSION_BUS_ADDRESS,DISPLAY \
+  ./.venv/bin/tx2tx \
+  --backend wayland \
+  --host 192.168.86.27 \
+  --port 24800 \
+  --info \
+  --wayland-pointer-provider helper \
+  --wayland-calibrate \
+  --wayland-helper "./.venv/bin/tx2tx-wayland-helper"
+----
+
+== Client Startup (Baseline Command Pattern)
+
+[source,bash]
+----
+./.venv/bin/tx2tx \
+  --client 192.168.86.27:24800 \
+  --name <client_name> \
+  --info
+----
+
+Use:
+
+- `--name penguin` on EAST client host
+- `--name tabmux` on WEST client host
+
+== Baseline Scenario Matrix
+
+=== Scenario B1: Basic EAST Transition
+
+Steps:
+
+1. Start server and `penguin`.
+2. Move pointer across EAST boundary.
+3. Verify remote pointer motion on `penguin`.
+4. Type short sequence and verify key delivery on `penguin`.
+5. Return to CENTER and verify local typing.
+
+Expected:
+
+- No server crash.
+- Context switches to EAST then back to CENTER.
+- Key routing follows active context.
+
+=== Scenario B2: EAST <-> WEST Alternation
+
+Steps:
+
+1. Start server, `penguin`, and `tabmux`.
+2. Transition EAST, type sequence, return CENTER.
+3. Transition WEST, type sequence, return CENTER.
+4. Repeat quickly for at least 5 alternations.
+
+Expected:
+
+- Mouse and keyboard route to the same active remote target.
+- No stale key routing to previously active client.
+
+=== Scenario B3: Hotkey Jump Sequence
+
+Precondition:
+
+- `server.jump_hotkey.enabled: true`
+- Prefix/action keys configured in `config.yml`.
+
+Steps:
+
+1. Trigger hotkey jump to EAST.
+2. Type sequence on EAST.
+3. Trigger hotkey jump to CENTER.
+4. Trigger hotkey jump to WEST.
+
+Expected:
+
+- Jump actions perform context switch.
+- No stuck repeating key behavior.
+
+=== Scenario B4: Long-Run Drift Probe
+
+Steps:
+
+1. Keep server and both clients running for >= 30 minutes.
+2. Perform periodic transitions every few minutes.
+3. Observe whether crossing point moves inward over time.
+
+Expected:
+
+- Crossing remains stable relative to configured boundary logic.
+- No progressive keyboard misrouting.
+
+== Baseline Logging Markers
+
+Minimum markers that should appear during healthy transitions:
+
+- `Boundary crossed ... CENTER -> <DIRECTION>`
+- `[STATE] -> <DIRECTION> context`
+- `[STATE] -> CENTER (revert)` or equivalent return marker
+
+== Phase 0 Exit Rule
+
+Phase 0 is complete when:
+
+- This document is present and current.
+- All four baseline scenarios are runnable from these instructions.
+- Deviations are recorded before Phase 1 behavior changes are accepted.

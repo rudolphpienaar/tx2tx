@@ -8,15 +8,15 @@
 
 | P0
 | Baseline scenarios documented and runnable
-| pending
-| unassigned
-| -
+| completed
+| codex
+| 2026-02-17
 
 | P1
 | Runtime decomposed into telemetry/context/dispatch/ownership modules (no behavior delta)
-| pending
-| unassigned
-| -
+| in_progress
+| codex
+| 2026-02-17
 
 | P2
 | Epoch tagging + queue barriers integrated with tests
@@ -45,9 +45,10 @@
 
 == Current Focus
 
-- Phase: `P0`
-- Next checkpoint: `Baseline scenarios documented and runnable`
+- Phase: `P1`
+- Next checkpoint: `Runtime decomposed into telemetry/context/dispatch/ownership modules (no behavior delta)`
 
 == Notes
 
 - This file is the restart-safe single source of progress state.
+- Baseline scenario doc: `docs/rewrite_baseline.adoc`.
