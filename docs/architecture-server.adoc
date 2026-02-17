@@ -1,0 +1,108 @@
+= tx2tx Server Architecture
+
+== 1. Problem Scope
+
+The server is the causal root of the system. Physical keyboard and mouse are attached here, so server behavior determines whether remote control is coherent or degraded. The server must maintain three truths at all times: current context, current ownership state (grab/ungrab), and current dispatch target. Any ambiguity between these truths creates drift or misrouting.
+
+== 2. Core Design
+
+The current design separates orchestration from policy.
+
+Orchestration modules execute ordered runtime steps; policy modules make localized decisions. This split prevents monolithic control flow and keeps each function focused.
+
+== 3. Module Graph
+
+[source,text]
+----
+server/main.py
+  -> runtime.arguments_parse
+  -> runtime.server_run
+
+runtime.server_run
+  -> server_runtime_coordinator.server_run
+
+server_runtime_coordinator
+  -> bootstrap (config/backend wiring)
+  -> runtime._process_polling_loop (loop adapter)
+
+runtime._process_polling_loop
+  -> runtime_loop.pollingLoop_process
+
+runtime_loop (orchestration)
+  -> handshake callback
+  -> center callback
+  -> remote callback
+  -> jump-hotkey callbacks
+
+policy modules (called via callbacks):
+  - server_handshake
+  - transition_state
+  - jump_hotkey_state
+  - recovery_state
+  - server_logging
+  - server_cli
+----
+
+== 4. Runtime Flow
+
+[source,text]
+----
+tick:
+  network accept/read
+  disconnect policy
+  pointer sample/log
+  if context == CENTER:
+    center policy
+  else:
+    remote policy
+  sleep
+----
+
+Within REMOTE policy:
+
+[source,text]
+----
+resolve target
+  -> optional warp enforcement branch
+  -> optional return-to-center branch
+  -> pointer move send
+  -> input phase (jump hotkey, panic, event forwarding)
+----
+
+== 5. State Ownership
+
+`RuntimeStateProtocol` is the explicit state contract used by runtime and policy modules. The singleton instance remains a binding point for compatibility, but core logic consumes the protocol so state dependencies are explicit and testable.
+
+== 6. Transition and Recovery Semantics
+
+Transition logic is isolated in `transition_state.py`. Recovery to CENTER is isolated in `recovery_state.py`. This enforces a single recovery pathway and prevents divergent rollback behavior.
+
+[source,text]
+----
+CENTER --(intent)--> REMOTE
+REMOTE --(boundary/panic/failure)--> CENTER
+----
+
+== 7. Handshake and Identity Semantics
+
+Handshake processing and duplicate-name eviction are isolated in `server_handshake.py`. This keeps control-plane behavior independent from pointer/keyboard routing policy and preserves explicit zombie-client handling.
+
+== 8. Public Compatibility API
+
+`runtime.py` retains stable entrypoints used by existing callers:
+
+- `arguments_parse`
+- `clientMessage_handle`
+- `logging_setup`
+- `server_run`
+
+Additional compatibility seams remain where tests and integration paths depend on runtime-level monkeypatching (`remoteContext_process`, `remoteWarpEnforcement_apply`, `remoteInputEvents_send`).
+
+== 9. Verification Standard
+
+Every server-side change is expected to satisfy both:
+
+- static type check (`pyright`) on touched server modules
+- targeted unit tests for handshake, transition, recovery, jump hotkey, and runtime routing
+
+This is mandatory because server regressions are high-impact and often nonlinear over session time.

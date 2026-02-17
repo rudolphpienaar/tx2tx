@@ -1,7 +1,43 @@
-"""Server state management - singleton pattern"""
+"""Server runtime-state model and singleton binding."""
 
-from typing import Optional
+from typing import Optional, Protocol
 from tx2tx.common.types import Position, ScreenContext
+
+
+class RuntimeStateProtocol(Protocol):
+    """
+    Runtime-state contract consumed by server runtime and transition policy.
+
+    This protocol allows runtime policy code to depend on explicit state
+    capabilities instead of a concrete singleton implementation.
+    """
+
+    context: ScreenContext
+    last_center_switch_time: float
+    last_remote_switch_time: float
+    boundary_crossed: bool
+    target_warp_position: Position | None
+    last_sent_position: Position | None
+    active_remote_client_name: str | None
+    jump_hotkey_armed_until: float
+    jump_hotkey_swallow_keysyms: set[int]
+    jump_hotkey_pending_target_context: ScreenContext | None
+
+    def reset(self) -> None:
+        """Reset runtime state to initial values."""
+        ...
+
+    def boundaryCrossed_clear(self) -> None:
+        """Clear boundary-crossed marker."""
+        ...
+
+    def positionChanged_check(self, current_position: Position) -> bool:
+        """Check if position changed relative to last sent sample."""
+        ...
+
+    def lastSentPosition_update(self, position: Position) -> None:
+        """Store last sent position."""
+        ...
 
 
 class ServerState:

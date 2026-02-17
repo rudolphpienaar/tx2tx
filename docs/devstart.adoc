@@ -53,6 +53,14 @@ Thin CLI entry modules:
 Runtime logic modules:
 
 - `tx2tx/server/runtime.py`
+- `tx2tx/server/server_runtime_coordinator.py`
+- `tx2tx/server/runtime_loop.py`
+- `tx2tx/server/transition_state.py`
+- `tx2tx/server/jump_hotkey_state.py`
+- `tx2tx/server/recovery_state.py`
+- `tx2tx/server/server_handshake.py`
+- `tx2tx/server/server_cli.py`
+- `tx2tx/server/server_logging.py`
 - `tx2tx/server/bootstrap.py`
 - `tx2tx/client/runtime.py`
 - `tx2tx/client/bootstrap.py`
@@ -128,6 +136,8 @@ Before proposing changes:
 
 - `docs/overview.adoc`
 - `docs/architecture.adoc`
+- `docs/architecture-server.adoc`
+- `docs/architecture-client.adoc`
 - `docs/problem.adoc`
 - `docs/limitations.adoc`
 - `docs/REFACTOR_MAP.md`

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+
 from tx2tx.common.types import ScreenContext
-from tx2tx.server.runtime import remoteTargetClientName_get
+from tx2tx.server import transition_state
 from tx2tx.server.state import server_state
 
 
@@ -33,7 +35,11 @@ class TestRemoteTargetRouting:
         server_state.context = ScreenContext.WEST
         server_state.active_remote_client_name = "penguin"
 
-        resolved_target_client_name: str | None = remoteTargetClientName_get(context_to_client)
+        resolved_target_client_name: str | None = transition_state.remoteTargetClientName_get(
+            context_to_client=context_to_client,
+            server_state=server_state,
+            logger=logging.getLogger(__name__),
+        )
 
         assert resolved_target_client_name == "tabmux"
         assert server_state.active_remote_client_name == "tabmux"
@@ -52,7 +58,11 @@ class TestRemoteTargetRouting:
         server_state.context = ScreenContext.EAST
         server_state.active_remote_client_name = None
 
-        resolved_target_client_name: str | None = remoteTargetClientName_get(context_to_client)
+        resolved_target_client_name: str | None = transition_state.remoteTargetClientName_get(
+            context_to_client=context_to_client,
+            server_state=server_state,
+            logger=logging.getLogger(__name__),
+        )
 
         assert resolved_target_client_name == "penguin"
         assert server_state.active_remote_client_name == "penguin"
@@ -71,6 +81,10 @@ class TestRemoteTargetRouting:
         server_state.context = ScreenContext.NORTH
         server_state.active_remote_client_name = "penguin"
 
-        resolved_target_client_name: str | None = remoteTargetClientName_get(context_to_client)
+        resolved_target_client_name: str | None = transition_state.remoteTargetClientName_get(
+            context_to_client=context_to_client,
+            server_state=server_state,
+            logger=logging.getLogger(__name__),
+        )
 
         assert resolved_target_client_name == "penguin"

@@ -1,0 +1,68 @@
+= tx2tx Client Architecture
+
+== 1. Problem Scope
+
+The client is the event application endpoint. It does not decide global context; it receives server messages and applies them deterministically through the selected backend. Its main correctness requirement is faithful replay of remote intent without local state drift.
+
+== 2. Module Structure
+
+The client path is intentionally narrower than the server path.
+
+[source,text]
+----
+client/main.py
+  -> client.runtime (loop + handlers)
+  -> client.network (transport)
+  -> backend adapter (x11 or wayland)
+
+shared dependencies:
+  - protocol/message.py
+  - common/types.py
+  - input/backend interfaces
+----
+
+== 3. Runtime Flow
+
+[source,text]
+----
+connect -> handshake
+while connected:
+  receive message
+  decode by message type
+  dispatch to injector/display handling
+----
+
+Representative message classes:
+
+- pointer motion / button events
+- key events
+- control-plane messages (enter/leave, keepalive, etc.)
+
+== 4. Injection Responsibilities
+
+Client injection logic is backend-specific but architecturally consistent:
+
+1. decode protocol payload into typed event model
+2. translate to backend-native operation
+3. apply operation with minimal side effects
+
+The client should not reinterpret server context; it applies received intent.
+
+== 5. Software Cursor Behavior
+
+When software cursor mode is active, cursor rendering is local to the client and must respond to server position events and hide commands. Cursor lifecycle belongs to client runtime/UI handling, not server transition policy.
+
+== 6. Failure Semantics
+
+Client failures are handled as endpoint failures: connection loss, injection exceptions, or backend unavailability should close/tear down cleanly and report state to logs. Recovery authority remains server-side.
+
+== 7. Testing Focus
+
+Client-side tests should prioritize:
+
+- message decode correctness
+- injection mapping correctness
+- connection lifecycle robustness
+- software cursor behavior consistency
+
+These concerns are intentionally orthogonal to server transition-state tests.

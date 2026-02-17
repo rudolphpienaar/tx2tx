@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
+from typing import cast
 
+from tx2tx.common.config import Config
 from tx2tx.common.types import EventType, KeyEvent, ScreenContext
+from tx2tx.input.backend import InputEvent
 from tx2tx.server.runtime import (
     JumpHotkeyRuntimeConfig,
     jumpHotkeyConfig_parse,
@@ -23,7 +27,9 @@ class TestJumpHotkeyConfigParse:
         Returns:
             None.
         """
-        config = SimpleNamespace(
+        config = cast(
+            Config,
+            SimpleNamespace(
             server=SimpleNamespace(
                 jump_hotkey=SimpleNamespace(
                     enabled=True,
@@ -35,6 +41,7 @@ class TestJumpHotkeyConfigParse:
                     center_key="0",
                 )
             )
+            ),
         )
 
         parsed = jumpHotkeyConfig_parse(config)
@@ -89,7 +96,7 @@ class TestJumpHotkeyEventsProcess:
                 19: ScreenContext.CENTER,
             },
         )
-        events = [
+        events: list[InputEvent] = [
             KeyEvent(event_type=EventType.KEY_PRESS, keycode=0, keysym=0x2F, state=0x4),
             KeyEvent(event_type=EventType.KEY_PRESS, keycode=0, keysym=0x31, state=0x0),
             KeyEvent(event_type=EventType.KEY_RELEASE, keycode=0, keysym=0x31, state=0x0),
@@ -149,7 +156,7 @@ class TestJumpHotkeyEventsProcess:
             action_keysyms_to_context={0x31: ScreenContext.WEST},
             action_keycodes_to_context={10: ScreenContext.WEST},
         )
-        events = [
+        events: list[InputEvent] = [
             KeyEvent(event_type=EventType.KEY_PRESS, keycode=61, keysym=0x2F, state=0x4),
             KeyEvent(event_type=EventType.KEY_PRESS, keycode=10, keysym=0x31, state=0x0),
         ]
@@ -180,7 +187,7 @@ class TestJumpHotkeyEventsProcess:
             action_keysyms_to_context={0x32: ScreenContext.EAST},
             action_keycodes_to_context={11: ScreenContext.EAST},
         )
-        events = [
+        events: list[InputEvent] = [
             KeyEvent(event_type=EventType.KEY_PRESS, keycode=0, keysym=0x1F, state=0x4),
             KeyEvent(event_type=EventType.KEY_PRESS, keycode=11, keysym=None, state=0x0),
             KeyEvent(event_type=EventType.KEY_RELEASE, keycode=11, keysym=None, state=0x0),
@@ -212,7 +219,7 @@ class TestJumpHotkeyEventsProcess:
             action_keysyms_to_context={0x31: ScreenContext.WEST},
             action_keycodes_to_context={10: ScreenContext.WEST},
         )
-        events = [
+        events: list[InputEvent] = [
             KeyEvent(event_type=EventType.KEY_PRESS, keycode=61, keysym=None, state=0x4),
             KeyEvent(event_type=EventType.KEY_PRESS, keycode=10, keysym=None, state=0x0),
             KeyEvent(event_type=EventType.KEY_RELEASE, keycode=10, keysym=None, state=0x0),
@@ -226,3 +233,38 @@ class TestJumpHotkeyEventsProcess:
 
         assert target_context == ScreenContext.WEST
         assert filtered_events == []
+
+    def test_expired_arm_state_does_not_consume_action_key(self) -> None:
+        """
+        Expired armed state should not consume unrelated action press.
+
+        Returns:
+            None.
+        """
+        config = JumpHotkeyRuntimeConfig(
+            enabled=True,
+            prefix_keysym=0x2F,
+            prefix_alt_keysyms={0x1F},
+            prefix_keycodes={61},
+            prefix_modifier_mask=0x4,
+            timeout_seconds=0.8,
+            action_keysyms_to_context={0x31: ScreenContext.WEST},
+            action_keycodes_to_context={10: ScreenContext.WEST},
+        )
+        server_state.jump_hotkey_armed_until = time.time() - 1.0
+        server_state.jump_hotkey_pending_target_context = ScreenContext.WEST
+        action_press_event = KeyEvent(
+            event_type=EventType.KEY_PRESS,
+            keycode=10,
+            keysym=0x31,
+            state=0x0,
+        )
+
+        filtered_events, target_context = jumpHotkeyEvents_process(
+            input_events=[action_press_event],
+            modifier_state=0x0,
+            jump_hotkey=config,
+        )
+
+        assert target_context is None
+        assert filtered_events == [action_press_event]

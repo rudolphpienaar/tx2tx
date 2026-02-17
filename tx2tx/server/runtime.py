@@ -10,39 +10,32 @@ sharing. It is responsible for:
 
 The polling mechanics are delegated to `tx2tx.server.runtime_loop`; this module
 provides the context-specific behavior callbacks consumed by that loop.
+
+Compatibility API:
+1. `arguments_parse`
+2. `clientMessage_handle`
+3. `logging_setup`
+4. `server_run`
+
+All other symbols are internal runtime wiring helpers or policy adapters.
 """
 
 import argparse
 from dataclasses import dataclass
+from functools import partial
 import logging
-import sys
-import time
 from typing import Optional
 
-from tx2tx import __version__
 from tx2tx.common.config import Config
-from tx2tx.common.layout import ClientPosition
-from tx2tx.common.runtime_models import ServerBackendOptions
-from tx2tx.common.settings import settings
 from tx2tx.common.types import (
-    Direction,
     EventType,
     KeyEvent,
-    MouseEvent,
-    NormalizedPoint,
     Position,
     Screen,
     ScreenContext,
 )
 from tx2tx.input.backend import DisplayBackend, InputCapturer, InputEvent
-from tx2tx.protocol.message import Message, MessageBuilder, MessageType
-from tx2tx.server.bootstrap import (
-    backendOptions_resolve,
-    configWithSettings_load,
-    contextToClientMap_build,
-    loggingWithConfig_setup,
-    serverBackendComponents_create,
-)
+from tx2tx.protocol.message import Message, MessageBuilder
 from tx2tx.server.network import ClientConnection, ServerNetwork
 from tx2tx.server.runtime_loop import (
     JumpHotkeyConfigProtocol,
@@ -50,10 +43,35 @@ from tx2tx.server.runtime_loop import (
     PollingLoopDependencies,
     pollingLoop_process,
 )
-from tx2tx.server.state import server_state
+from tx2tx.server.state import RuntimeStateProtocol, server_state
+from tx2tx.server import transition_state as transitionPolicy
+from tx2tx.server import jump_hotkey_state as jumpHotkeyStatePolicy
+from tx2tx.server import recovery_state as recoveryStatePolicy
+from tx2tx.server import server_cli as serverCliPolicy
+from tx2tx.server import server_handshake as serverHandshakePolicy
+from tx2tx.server import server_logging as serverLoggingPolicy
+from tx2tx.server import server_runtime_coordinator as runtimeCoordinatorPolicy
+from tx2tx.server.transition_state import TransitionCallbacks
+from tx2tx.server.server_runtime_coordinator import ServerRunCallbacks
 from tx2tx.x11.pointer import PointerTracker
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "JumpHotkeyRuntimeConfig",
+    "arguments_parse",
+    "clientMessage_handle",
+    "jumpHotkeyConfig_parse",
+    "jumpHotkeyEvents_process",
+    "logging_setup",
+    "panicKeyConfig_parse",
+    "panicKey_check",
+    "remoteContext_process",
+    "remoteInputEvents_send",
+    "remoteWarpEnforcement_apply",
+    "server_run",
+    "state_revertToCenter",
+]
 
 # Keysym lookup table for common key names
 # See /usr/include/X11/keysymdef.h for full list
@@ -315,30 +333,6 @@ def prefixAltKeysymsFromKeyName_get(key_name: str) -> set[int]:
     return set()
 
 
-def keyEventMatchesJumpToken_check(
-    event: KeyEvent, expected_keysym: int, alt_keysyms: set[int], fallback_keycodes: set[int]
-) -> bool:
-    """
-    Check whether a key event matches expected jump token.
-
-    Args:
-        event: Key event to match.
-        expected_keysym: Expected keysym.
-        alt_keysyms: Alternate accepted keysyms.
-        fallback_keycodes: Acceptable fallback keycodes.
-
-    Returns:
-        True when event matches token.
-    """
-    if event.keysym is not None and event.keysym == expected_keysym:
-        return True
-    if event.keysym is not None and event.keysym in alt_keysyms:
-        return True
-    if event.keycode in fallback_keycodes:
-        return True
-    return False
-
-
 def jumpHotkeyConfig_parse(config: Config) -> JumpHotkeyRuntimeConfig:
     """
     Parse jump-hotkey config into runtime-resolved keysyms/modifiers.
@@ -435,6 +429,7 @@ def jumpHotkeyEvents_process(
     input_events: list[InputEvent],
     modifier_state: int,
     jump_hotkey: JumpHotkeyConfigProtocol,
+    runtime_state: RuntimeStateProtocol = server_state,
 ) -> tuple[list[InputEvent], ScreenContext | None]:
     """
     Process jump-hotkey prefix sequence and filter consumed key events.
@@ -447,86 +442,13 @@ def jumpHotkeyEvents_process(
     Returns:
         Tuple of (filtered_events, target_context_or_none).
     """
-    if not jump_hotkey.enabled:
-        return input_events, None
-
-    filtered_events: list[InputEvent] = []
-    target_context: ScreenContext | None = None
-    now: float = time.time()
-
-    if now > server_state.jump_hotkey_armed_until:
-        server_state.jump_hotkey_armed_until = 0.0
-        server_state.jump_hotkey_pending_target_context = None
-
-    for event in input_events:
-        if not isinstance(event, KeyEvent):
-            filtered_events.append(event)
-            continue
-
-        keysym: int | None = event.keysym
-        if event.event_type == EventType.KEY_RELEASE:
-            if now <= server_state.jump_hotkey_armed_until:
-                release_context: ScreenContext | None = None
-                if keysym is not None and keysym in jump_hotkey.action_keysyms_to_context:
-                    release_context = jump_hotkey.action_keysyms_to_context[keysym]
-                if event.keycode in jump_hotkey.action_keycodes_to_context:
-                    release_context = jump_hotkey.action_keycodes_to_context[event.keycode]
-
-                if (
-                    server_state.jump_hotkey_pending_target_context is not None
-                    and release_context is not None
-                    and release_context == server_state.jump_hotkey_pending_target_context
-                ):
-                    target_context = release_context
-                    server_state.jump_hotkey_armed_until = 0.0
-                    server_state.jump_hotkey_pending_target_context = None
-                    logger.info("[HOTKEY] Action captured: %s", target_context.value.upper())
-                    continue
-
-            if keysym is not None and keysym in server_state.jump_hotkey_swallow_keysyms:
-                server_state.jump_hotkey_swallow_keysyms.discard(keysym)
-                continue
-            filtered_events.append(event)
-            continue
-
-        if event.event_type != EventType.KEY_PRESS:
-            filtered_events.append(event)
-            continue
-
-        event_state: int = event.state if event.state is not None else modifier_state
-        prefix_matches: bool = keyEventMatchesJumpToken_check(
-            event=event,
-            expected_keysym=jump_hotkey.prefix_keysym,
-            alt_keysyms=jump_hotkey.prefix_alt_keysyms,
-            fallback_keycodes=jump_hotkey.prefix_keycodes,
-        ) and (
-            jump_hotkey.prefix_modifier_mask == 0
-            or (event_state & jump_hotkey.prefix_modifier_mask)
-            == jump_hotkey.prefix_modifier_mask
-        )
-        if prefix_matches:
-            server_state.jump_hotkey_armed_until = now + jump_hotkey.timeout_seconds
-            server_state.jump_hotkey_pending_target_context = None
-            if keysym is not None:
-                server_state.jump_hotkey_swallow_keysyms.add(keysym)
-            logger.info("[HOTKEY] Prefix captured")
-            continue
-
-        if now <= server_state.jump_hotkey_armed_until:
-            pressed_context: ScreenContext | None = None
-            if keysym is not None and keysym in jump_hotkey.action_keysyms_to_context:
-                pressed_context = jump_hotkey.action_keysyms_to_context[keysym]
-            if event.keycode in jump_hotkey.action_keycodes_to_context:
-                pressed_context = jump_hotkey.action_keycodes_to_context[event.keycode]
-            if pressed_context is not None:
-                server_state.jump_hotkey_pending_target_context = pressed_context
-            if keysym is not None:
-                server_state.jump_hotkey_swallow_keysyms.add(keysym)
-            continue
-
-        filtered_events.append(event)
-
-    return filtered_events, target_context
+    return jumpHotkeyStatePolicy.jumpHotkeyEvents_process(
+        input_events=input_events,
+        modifier_state=modifier_state,
+        jump_hotkey=jump_hotkey,
+        runtime_state=runtime_state,
+        logger=logger,
+    )
 
 
 def state_revertToCenter(
@@ -534,84 +456,31 @@ def state_revertToCenter(
     screen_geometry: Screen,
     position: Position,
     pointer_tracker: PointerTracker,
+    runtime_state: RuntimeStateProtocol = server_state,
 ) -> None:
     """
-    Emergency revert to CENTER context (restore input and cursor)
-    
+    Emergency revert to CENTER context (restore input and cursor).
+
     Args:
-        display_manager: display_manager value.
-        screen_geometry: screen_geometry value.
-        position: position value.
-        pointer_tracker: pointer_tracker value.
-    
-    Returns:
-        Result value.
+        display_manager:
+            Active display backend.
+        screen_geometry:
+            Local screen geometry.
+        position:
+            Current pointer position.
+        pointer_tracker:
+            Pointer tracker.
+        runtime_state:
+            Runtime-state instance.
     """
-    if server_state.context == ScreenContext.CENTER:
-        return
-
-    logger.warning(f"[SAFETY] Reverting from {server_state.context.value.upper()} to CENTER")
-
-    # Clear boundary crossing state and last sent position
-    server_state.boundaryCrossed_clear()
-    server_state.last_sent_position = None  # Reset so next context sends first position
-    server_state.active_remote_client_name = None
-
-    prev_context = server_state.context
-    server_state.context = ScreenContext.CENTER
-    server_state.last_center_switch_time = time.time()
-
-    # Calculate Entry Position (Inverse of Exit)
-    # Use a safe offset (30px) to ensure we are clearly 'inside' the screen.
-    offset = 30
-    if prev_context == ScreenContext.WEST:
-        entry_pos = Position(x=offset, y=position.y)
-    elif prev_context == ScreenContext.EAST:
-        entry_pos = Position(x=screen_geometry.width - offset, y=position.y)
-    elif prev_context == ScreenContext.NORTH:
-        entry_pos = Position(x=position.x, y=offset)
-    else:  # SOUTH
-        entry_pos = Position(x=position.x, y=screen_geometry.height - offset)
-
-    try:
-        # 1. Ungrab FIRST: Release control back to the OS.
-        try:
-            display_manager.keyboard_ungrab()
-            display_manager.pointer_ungrab()
-            display_manager.connection_sync()
-            # Give OS a moment to 'register' the ungrabbed state.
-            time.sleep(0.05)
-        except Exception as e:
-            logger.warning(f"Ungrab failed: {e}")
-
-        # 2. Show cursor: Ensure it is visible before we move it.
-        # This prevents WMs from ignoring warps on hidden cursors.
-        display_manager.cursor_show()
-        display_manager.connection_sync()
-        time.sleep(0.05)
-
-        # 3. Final Warp: Teleport to the correct edge.
-        # Now that we are ungrabbed and visible, this is guaranteed to work.
-        try:
-            logger.info(f"[WARP RETURN] Teleporting to entry position ({entry_pos.x}, {entry_pos.y})")
-            display_manager.cursorPosition_set(entry_pos)
-            display_manager.connection_sync()
-        except Exception as e:
-            logger.error(f"Warp failed during revert: {e}")
-
-        # Reset tracker to prevent velocity spike from triggering immediate re-entry
-        pointer_tracker.reset()
-
-        logger.info(f"[STATE] → CENTER (revert) - Cursor at ({entry_pos.x}, {entry_pos.y})")
-    except Exception as e:
-        logger.error(f"Emergency revert failed: {e}")
-        # Last ditch effort to unlock desktop
-        try:
-            display_manager.cursor_show()
-            display_manager.keyboard_ungrab()
-            display_manager.pointer_ungrab()
-        except Exception:
-            pass
+    recoveryStatePolicy.state_revertToCenter(
+        display_manager=display_manager,
+        screen_geometry=screen_geometry,
+        position=position,
+        pointer_tracker=pointer_tracker,
+        runtime_state=runtime_state,
+        logger=logger,
+    )
 
 
 def arguments_parse() -> argparse.Namespace:
@@ -621,89 +490,7 @@ def arguments_parse() -> argparse.Namespace:
     Returns:
         Parsed argparse namespace for server startup.
     """
-    parser = argparse.ArgumentParser(
-        description="tx2tx server - captures and broadcasts input events"
-    )
-
-    parser.add_argument("--version", action="version", version=f"tx2tx {__version__}")
-
-    parser.add_argument(
-        "--config",
-        type=str,
-        default=None,
-        help="Path to config file (default: search standard locations)",
-    )
-
-    parser.add_argument(
-        "--host", type=str, default=None, help="Host address to bind to (overrides config)"
-    )
-
-    parser.add_argument(
-        "--port", type=int, default=None, help="Port to listen on (overrides config)"
-    )
-
-    parser.add_argument(
-        "--edge-threshold",
-        type=int,
-        default=None,
-        dest="edge_threshold",
-        help="Pixels from edge to trigger screen transition (overrides config)",
-    )
-
-    parser.add_argument(
-        "--display", type=str, default=None, help="X11 display name (overrides config)"
-    )
-
-    parser.add_argument(
-        "--backend",
-        type=str,
-        default=None,
-        help="Input backend to use (e.g., x11, wayland). Defaults to x11.",
-    )
-
-    parser.add_argument(
-        "--wayland-helper",
-        type=str,
-        default=None,
-        help="Wayland helper command for privileged input operations.",
-    )
-
-    parser.add_argument(
-        "--wayland-screen-width",
-        type=int,
-        default=None,
-        help="Wayland screen width override (pixels).",
-    )
-
-    parser.add_argument(
-        "--wayland-screen-height",
-        type=int,
-        default=None,
-        help="Wayland screen height override (pixels).",
-    )
-
-    parser.add_argument(
-        "--wayland-calibrate",
-        action="store_true",
-        help="Wayland: warp cursor to center on startup to sync helper state.",
-    )
-
-    parser.add_argument(
-        "--wayland-pointer-provider",
-        type=str,
-        choices=["helper", "gnome"],
-        default=None,
-        help="Wayland pointer coordinate provider (default: helper).",
-    )
-
-    parser.add_argument(
-        "--name",
-        type=str,
-        default=None,
-        help="Server name for logging and identification (default: from config)",
-    )
-
-    return parser.parse_args()
+    return serverCliPolicy.arguments_parse()
 
 
 def logging_setup(level: str, log_format: str, log_file: Optional[str]) -> None:
@@ -718,17 +505,10 @@ def logging_setup(level: str, log_format: str, log_file: Optional[str]) -> None:
         log_file:
             Optional log file path; when set, file logging is added.
     """
-    handlers: list[logging.Handler] = [logging.StreamHandler()]
-
-    if log_file:
-        handlers.append(logging.FileHandler(log_file))
-
-    # Inject version and commit hash into log format after timestamp
-    # Format: "%(asctime)s [v2.0.3.c0f8] - %(name)s - %(levelname)s - %(message)s"
-    enhanced_format = log_format.replace("%(asctime)s", f"%(asctime)s [v{__version__}]")
-
-    logging.basicConfig(
-        level=getattr(logging, level.upper()), format=enhanced_format, handlers=handlers
+    serverLoggingPolicy.logging_setup(
+        level=level,
+        log_format=log_format,
+        log_file=log_file,
     )
 
 
@@ -750,297 +530,116 @@ def clientMessage_handle(
         network:
             Server network state/controller.
     """
-    logger.info(f"Received {message.msg_type.value} from {client.address}")
-
-    if message.msg_type == MessageType.HELLO:
-        # Parse and store client screen geometry from handshake
-        payload = message.payload
-        if "screen_width" in payload and "screen_height" in payload:
-            client.screen_width = payload["screen_width"]
-            client.screen_height = payload["screen_height"]
-
-        if "client_name" in payload:
-            # Normalize name to lowercase for consistent matching
-            new_name = payload["client_name"].lower()
-            client.name = new_name
-
-            # Check for existing clients with same name (Zombie detection)
-            # We iterate over a copy since we might modify the list
-            for existing_client in list(network.clients):
-                if existing_client is not client and existing_client.name == new_name:
-                    logger.warning(
-                        f"Duplicate client name '{new_name}' detected. "
-                        f"Disconnecting old connection from {existing_client.address}."
-                    )
-                    network.client_disconnect(existing_client)
-
-        logger.info(
-            f"Client handshake: version={payload.get('version')}, "
-            f"screen={client.screen_width}x{client.screen_height}, "
-            f"name={client.name}"
-        )
-    elif message.msg_type == MessageType.KEEPALIVE:
-        logger.debug("Keepalive received")
-    elif message.msg_type == MessageType.SCREEN_ENTER:
-        logger.warning("Received deprecated SCREEN_ENTER message from client (ignored)")
-    else:
-        logger.warning(f"Unexpected message type: {message.msg_type.value}")
-
-
-def remoteContextEnter_process(
-    network: ServerNetwork,
-    display_manager: DisplayBackend,
-    pointer_tracker: PointerTracker,
-    screen_geometry: Screen,
-    target_context: ScreenContext,
-    position: Position,
-    context_to_client: dict[ScreenContext, str],
-) -> bool:
-    """
-    Enter a specific REMOTE context from CENTER.
-
-    Args:
-        network: Active server network.
-        display_manager: Server display backend.
-        pointer_tracker: Pointer tracker.
-        screen_geometry: Local screen geometry.
-        target_context: Target REMOTE context.
-        position: Current pointer position.
-        context_to_client: Context-to-client routing map.
-
-    Returns:
-        True when transition succeeds, False otherwise.
-    """
-    if target_context == ScreenContext.CENTER:
-        return True
-
-    resolved_target = transitionTargetClient_resolve(network, target_context, context_to_client)
-    if resolved_target is None:
-        return False
-    target_client_name, _ = resolved_target
-
-    warp_pos: Position
-    if target_context == ScreenContext.WEST:
-        warp_pos = Position(x=screen_geometry.width - 30, y=position.y)
-    elif target_context == ScreenContext.EAST:
-        warp_pos = Position(x=30, y=position.y)
-    elif target_context == ScreenContext.NORTH:
-        warp_pos = Position(x=position.x, y=screen_geometry.height - 30)
-    else:  # SOUTH
-        warp_pos = Position(x=position.x, y=30)
-
-    server_state.context = target_context
-    server_state.active_remote_client_name = target_client_name
-    logger.debug(f"[CONTEXT] Changed to {target_context.value.upper()}")
-    logger.info(f"[WARP] Parking cursor at ({warp_pos.x}, {warp_pos.y}) for {target_context.value}")
-
-    display_manager.cursorPosition_set(warp_pos)
-    display_manager.keyboard_grab()
-    display_manager.pointer_grab()
-    display_manager.cursor_hide()
-
-    pointer_tracker.reset()
-    server_state.last_sent_position = None
-    server_state.last_remote_switch_time = time.time()
-    logger.info(f"[STATE] → {target_context.value.upper()} context")
-    return True
-
-
-def jumpHotkeyAction_apply(
-    target_context: ScreenContext,
-    network: ServerNetwork,
-    display_manager: DisplayBackend,
-    pointer_tracker: PointerTracker,
-    screen_geometry: Screen,
-    position: Position,
-    context_to_client: dict[ScreenContext, str],
-) -> bool:
-    """
-    Apply jump-hotkey target context transition.
-
-    Args:
-        target_context: Target context requested by hotkey.
-        network: Active server network.
-        display_manager: Server display backend.
-        pointer_tracker: Pointer tracker.
-        screen_geometry: Local screen geometry.
-        position: Current pointer position.
-        context_to_client: Context-to-client routing map.
-
-    Returns:
-        True when action was handled.
-    """
-    if target_context == ScreenContext.CENTER:
-        if server_state.context != ScreenContext.CENTER:
-            logger.info("[HOTKEY] Jumping to CENTER")
-            state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
-        return True
-
-    if server_state.context != ScreenContext.CENTER and server_state.context != target_context:
-        logger.info(
-            "[HOTKEY] Switching remote context %s -> %s",
-            server_state.context.value.upper(),
-            target_context.value.upper(),
-        )
-        state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
-        position = pointer_tracker.position_query()
-
-    if server_state.context == target_context:
-        return True
-
-    logger.info("[HOTKEY] Jumping to %s", target_context.value.upper())
-    return remoteContextEnter_process(
+    serverHandshakePolicy.clientMessage_handle(
+        client=client,
+        message=message,
         network=network,
-        display_manager=display_manager,
-        pointer_tracker=pointer_tracker,
-        screen_geometry=screen_geometry,
-        target_context=target_context,
-        position=position,
-        context_to_client=context_to_client,
+        logger=logger,
     )
 
 
-def centerContext_process(
-    network: ServerNetwork,
+def transitionCallbacksWithState_create(runtime_state: RuntimeStateProtocol) -> TransitionCallbacks:
+    """
+    Create transition-policy callbacks bound to one runtime-state instance.
+
+    Args:
+        runtime_state: Explicit runtime-state instance.
+
+    Returns:
+        Transition callback bundle bound to provided state.
+    """
+    return TransitionCallbacks(
+        panicKey_check=panicKey_check,
+        jumpHotkeyEvents_process=partial(
+            jumpHotkeyEventsProcessWithState_bound,
+            runtime_state=runtime_state,
+        ),
+        jumpHotkeyAction_apply=partial(
+            jumpHotkeyActionApplyWithState_bound,
+            runtime_state=runtime_state,
+        ),
+        state_revertToCenter=partial(
+            stateRevertToCenterWithState_bound,
+            runtime_state=runtime_state,
+        ),
+        remoteWarpEnforcement_apply=partial(
+            remoteWarpEnforcementApplyWithState_bound,
+            runtime_state=runtime_state,
+        ),
+        remoteInputEvents_send=partial(
+            remoteInputEventsSendWithState_bound,
+            runtime_state=runtime_state,
+        ),
+    )
+
+
+def remoteWarpEnforcement_apply(
     display_manager: DisplayBackend,
-    pointer_tracker: PointerTracker,
     screen_geometry: Screen,
     position: Position,
-    velocity: float,
-    context_to_client: dict[ScreenContext, str],
+    x11native: bool,
+    runtime_state: RuntimeStateProtocol = server_state,
+) -> bool:
+    """
+    Test seam and adapter for REMOTE warp-enforcement policy.
+
+    Args:
+        display_manager: Active display backend.
+        screen_geometry: Local screen geometry.
+        position: Current pointer position.
+        x11native: Native X11 mode flag.
+        runtime_state: Runtime-state instance.
+
+    Returns:
+        True when enforcement consumed current step.
+    """
+    return transitionPolicy.remoteWarpEnforcement_apply(
+        display_manager=display_manager,
+        screen_geometry=screen_geometry,
+        position=position,
+        x11native=x11native,
+        server_state=runtime_state,
+        logger=logger,
+    )
+
+
+def remoteInputEvents_send(
+    network: ServerNetwork,
+    target_client_name: str,
+    screen_geometry: Screen,
+    input_events: list[InputEvent],
+    display_manager: DisplayBackend,
+    pointer_tracker: PointerTracker,
+    position: Position,
+    runtime_state: RuntimeStateProtocol = server_state,
 ) -> None:
     """
-    Process boundary transition logic while server is in CENTER context.
+    Test seam and adapter for REMOTE input-forwarding policy.
 
     Args:
         network: Active server network.
-        display_manager: Server display backend.
-        pointer_tracker: Pointer tracker.
+        target_client_name: Destination client name.
         screen_geometry: Local screen geometry.
+        input_events: Captured input events.
+        display_manager: Active display backend.
+        pointer_tracker: Pointer tracker instance.
         position: Current pointer position.
-        velocity: Current pointer velocity.
-        context_to_client: Context-to-client routing map.
+        runtime_state: Runtime-state instance.
     """
-    time_since_center_switch: float = time.time() - server_state.last_center_switch_time
-    if time_since_center_switch < settings.HYSTERESIS_DELAY_SEC:
-        return
-
-    transition = pointer_tracker.boundary_detect(position, screen_geometry)
-    if transition is None:
-        return
-
-    new_context: ScreenContext | None = contextFromDirection_get(transition.direction)
-    if new_context is None:
-        logger.error(f"Invalid transition direction: {transition.direction}")
-        return
-
-    logger.info(
-        f"[TRANSITION] Boundary crossed: pos=({transition.position.x},{transition.position.y}), "
-        f"velocity={velocity:.1f}px/s, direction={transition.direction.value.upper()}, "
-        f"CENTER → {new_context.value.upper()}"
+    transitionPolicy.remoteInputEvents_send(
+        network=network,
+        target_client_name=target_client_name,
+        screen_geometry=screen_geometry,
+        input_events=input_events,
+        display_manager=display_manager,
+        pointer_tracker=pointer_tracker,
+        position=position,
+        state_revertToCenter=partial(
+            stateRevertToCenterWithState_bound,
+            runtime_state=runtime_state,
+        ),
+        logger=logger,
     )
-
-    try:
-        t0: float = time.time()
-        transition_success = remoteContextEnter_process(
-            network=network,
-            display_manager=display_manager,
-            pointer_tracker=pointer_tracker,
-            screen_geometry=screen_geometry,
-            target_context=new_context,
-            position=transition.position,
-            context_to_client=context_to_client,
-        )
-        if not transition_success:
-            return
-        logger.info("[TIMING] transition_enter: %.3f sec", time.time() - t0)
-    except Exception as e:
-        logger.error(f"Transition failed: {e}", exc_info=True)
-        try:
-            display_manager.keyboard_ungrab()
-            display_manager.pointer_ungrab()
-            display_manager.cursor_show()
-        except Exception:
-            pass
-        server_state.context = ScreenContext.CENTER
-        server_state.active_remote_client_name = None
-        server_state.last_center_switch_time = time.time()
-        logger.warning("Reverted to CENTER after failed transition")
-
-
-def contextFromDirection_get(direction: Direction) -> ScreenContext | None:
-    """
-    Map pointer boundary direction to screen context.
-
-    Args:
-        direction: Transition direction.
-
-    Returns:
-        Target screen context or None.
-    """
-    direction_to_context: dict[Direction, ScreenContext] = {
-        Direction.LEFT: ScreenContext.WEST,
-        Direction.RIGHT: ScreenContext.EAST,
-        Direction.TOP: ScreenContext.NORTH,
-        Direction.BOTTOM: ScreenContext.SOUTH,
-    }
-    return direction_to_context.get(direction)
-
-
-def transitionTargetClient_resolve(
-    network: ServerNetwork,
-    new_context: ScreenContext,
-    context_to_client: dict[ScreenContext, str],
-) -> tuple[str, ClientConnection] | None:
-    """
-    Resolve target client for a context transition.
-
-    Args:
-        network: Active server network.
-        new_context: Transition target context.
-        context_to_client: Context-to-client routing map.
-
-    Returns:
-        Tuple of (target_client_name, target_connection) or None.
-    """
-    target_client_name: str | None = context_to_client.get(new_context)
-    if not target_client_name:
-        logger.error(f"No client configured for {new_context.value}")
-        return None
-    target_client: ClientConnection | None = network.clientByName_get(target_client_name)
-    if target_client is None:
-        connected_names: list[str | None] = [client.name for client in network.clients]
-        logger.error(
-            "Transition blocked: target '%s' unresolved. Connected clients: %s",
-            target_client_name,
-            connected_names,
-        )
-        return None
-    return target_client_name, target_client
-
-
-def transitionParkingPosition_get(
-    direction: Direction, transition_position: Position, screen_geometry: Screen
-) -> Position:
-    """
-    Compute local parking position after CENTER->REMOTE transition.
-
-    Args:
-        direction: Transition direction.
-        transition_position: Position at transition edge.
-        screen_geometry: Local screen geometry.
-
-    Returns:
-        Parking cursor position.
-    """
-    parking_offset: int = 30
-    if direction == Direction.LEFT:
-        return Position(x=screen_geometry.width - parking_offset, y=transition_position.y)
-    if direction == Direction.RIGHT:
-        return Position(x=parking_offset, y=transition_position.y)
-    if direction == Direction.TOP:
-        return Position(x=transition_position.x, y=screen_geometry.height - parking_offset)
-    return Position(x=transition_position.x, y=parking_offset)
 
 
 def remoteContext_process(
@@ -1057,116 +656,125 @@ def remoteContext_process(
     panic_keysyms: set[int],
     panic_modifiers: int,
     jump_hotkey: JumpHotkeyConfigProtocol,
+    runtime_state: RuntimeStateProtocol = server_state,
 ) -> None:
     """
-    Process forwarding/return logic while server is in REMOTE context.
+    Compatibility wrapper for one REMOTE-context processing step.
 
     Args:
         network: Active server network.
-        display_manager: Server display backend.
+        display_manager: Active display backend.
         pointer_tracker: Pointer tracker.
         screen_geometry: Local screen geometry.
-        config: Loaded config.
+        config: Loaded server config.
         position: Current pointer position.
         velocity: Current pointer velocity.
         context_to_client: Context-to-client routing map.
         x11native: Native X11 mode flag.
         input_capturer: Input capture backend.
-        panic_keysyms: Panic key keysyms.
-        panic_modifiers: Panic key modifier mask.
+        panic_keysyms: Panic-key keysyms.
+        panic_modifiers: Panic-key modifier mask.
+        jump_hotkey: Parsed jump-hotkey config.
+        runtime_state: Runtime-state instance.
     """
-    target_client_name: str | None = remoteTargetClientName_get(context_to_client)
+    transitionPolicy.remoteContext_process(
+        network=network,
+        display_manager=display_manager,
+        pointer_tracker=pointer_tracker,
+        screen_geometry=screen_geometry,
+        config=config,
+        position=position,
+        velocity=velocity,
+        context_to_client=context_to_client,
+        x11native=x11native,
+        input_capturer=input_capturer,
+        panic_keysyms=panic_keysyms,
+        panic_modifiers=panic_modifiers,
+        jump_hotkey=jump_hotkey,
+        callbacks=transitionCallbacksWithState_create(runtime_state),
+        server_state=runtime_state,
+        logger=logger,
+    )
 
-    if not target_client_name:
-        _, _ = input_capturer.inputEvents_read()
-        logger.error(
-            f"Active context {server_state.context.value} has no connected client, reverting"
-        )
-        state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
-        return
 
-    if remoteWarpEnforcement_apply(
+def stateRevertToCenterWithState_bound(
+    display_manager: DisplayBackend,
+    screen_geometry: Screen,
+    position: Position,
+    pointer_tracker: PointerTracker,
+    runtime_state: RuntimeStateProtocol,
+) -> None:
+    """
+    Bind CENTER revert operation to explicit runtime state.
+
+    Args:
+        display_manager: Active display backend.
+        screen_geometry: Local screen geometry.
+        position: Current pointer position.
+        pointer_tracker: Pointer tracker instance.
+        runtime_state: Explicit runtime-state instance.
+    """
+    state_revertToCenter(
+        display_manager=display_manager,
+        screen_geometry=screen_geometry,
+        position=position,
+        pointer_tracker=pointer_tracker,
+        runtime_state=runtime_state,
+    )
+
+
+def remoteWarpEnforcementApplyWithState_bound(
+    display_manager: DisplayBackend,
+    screen_geometry: Screen,
+    position: Position,
+    x11native: bool,
+    runtime_state: RuntimeStateProtocol,
+) -> bool:
+    """
+    Bind REMOTE warp enforcement operation to explicit runtime state.
+
+    Args:
+        display_manager: Active display backend.
+        screen_geometry: Local screen geometry.
+        position: Current pointer position.
+        x11native: Native X11 mode flag.
+        runtime_state: Explicit runtime-state instance.
+
+    Returns:
+        True when warp enforcement handled current step.
+    """
+    return remoteWarpEnforcement_apply(
         display_manager=display_manager,
         screen_geometry=screen_geometry,
         position=position,
         x11native=x11native,
-    ):
-        input_events, modifier_state = input_capturer.inputEvents_read()
-        input_events, jump_target_context = jumpHotkeyEvents_process(
-            input_events=input_events,
-            modifier_state=modifier_state,
-            jump_hotkey=jump_hotkey,
-        )
-        if jump_target_context is not None:
-            _ = jumpHotkeyAction_apply(
-                target_context=jump_target_context,
-                network=network,
-                display_manager=display_manager,
-                pointer_tracker=pointer_tracker,
-                screen_geometry=screen_geometry,
-                position=position,
-                context_to_client=context_to_client,
-            )
-            return
-        if panicKey_check(input_events, panic_keysyms, panic_modifiers, modifier_state):
-            logger.warning("[PANIC] Panic key pressed - forcing return to CENTER")
-            state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
-            return
-        remoteInputEvents_send(
-            network=network,
-            target_client_name=target_client_name,
-            screen_geometry=screen_geometry,
-            input_events=input_events,
-            display_manager=display_manager,
-            pointer_tracker=pointer_tracker,
-            position=position,
-        )
-        return
-
-    should_return: bool = remoteReturnBoundary_check(server_state.context, position, screen_geometry)
-    if should_return and velocity >= (config.server.velocity_threshold * 0.5):
-        remoteReturn_process(
-            network=network,
-            target_client_name=target_client_name,
-            display_manager=display_manager,
-            screen_geometry=screen_geometry,
-            position=position,
-            pointer_tracker=pointer_tracker,
-        )
-        return
-
-    if not remoteMotionPosition_send(
-        network=network,
-        target_client_name=target_client_name,
-        screen_geometry=screen_geometry,
-        position=position,
-        display_manager=display_manager,
-        pointer_tracker=pointer_tracker,
-    ):
-        return
-
-    input_events, modifier_state = input_capturer.inputEvents_read()
-    input_events, jump_target_context = jumpHotkeyEvents_process(
-        input_events=input_events,
-        modifier_state=modifier_state,
-        jump_hotkey=jump_hotkey,
+        runtime_state=runtime_state,
     )
-    if jump_target_context is not None:
-        _ = jumpHotkeyAction_apply(
-            target_context=jump_target_context,
-            network=network,
-            display_manager=display_manager,
-            pointer_tracker=pointer_tracker,
-            screen_geometry=screen_geometry,
-            position=position,
-            context_to_client=context_to_client,
-        )
-        return
-    if panicKey_check(input_events, panic_keysyms, panic_modifiers, modifier_state):
-        logger.warning("[PANIC] Panic key pressed - forcing return to CENTER")
-        state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
-        return
 
+
+def remoteInputEventsSendWithState_bound(
+    network: ServerNetwork,
+    target_client_name: str,
+    screen_geometry: Screen,
+    input_events: list[InputEvent],
+    display_manager: DisplayBackend,
+    pointer_tracker: PointerTracker,
+    position: Position,
+    runtime_state: RuntimeStateProtocol,
+) -> None:
+    """
+    Bind REMOTE input forwarding operation to explicit runtime state.
+
+    Args:
+        network: Active server network.
+        target_client_name: Destination client name.
+        screen_geometry: Local screen geometry.
+        input_events: Captured input events.
+        display_manager: Active display backend.
+        pointer_tracker: Pointer tracker instance.
+        position: Current pointer position.
+        runtime_state: Explicit runtime-state instance.
+    """
     remoteInputEvents_send(
         network=network,
         target_client_name=target_client_name,
@@ -1175,220 +783,168 @@ def remoteContext_process(
         display_manager=display_manager,
         pointer_tracker=pointer_tracker,
         position=position,
+        runtime_state=runtime_state,
     )
 
 
-def remoteTargetClientName_get(context_to_client: dict[ScreenContext, str]) -> str | None:
+def centerContextProcessWithState_bound(
+    network: ServerNetwork,
+    display_manager: DisplayBackend,
+    pointer_tracker: PointerTracker,
+    screen_geometry: Screen,
+    position: Position,
+    velocity: float,
+    context_to_client: dict[ScreenContext, str],
+    runtime_state: RuntimeStateProtocol,
+) -> None:
     """
-    Resolve active remote target client name from server state.
+    Bind CENTER context processing to explicit runtime state.
 
     Args:
+        network: Active server network.
+        display_manager: Active display backend.
+        pointer_tracker: Pointer tracker instance.
+        screen_geometry: Local screen geometry.
+        position: Current pointer position.
+        velocity: Current pointer velocity.
         context_to_client: Context-to-client routing map.
-
-    Returns:
-        Target client name or None.
+        runtime_state: Explicit runtime state instance.
     """
-    context_target_client_name: str | None = context_to_client.get(server_state.context)
-    if context_target_client_name is not None:
-        if server_state.active_remote_client_name != context_target_client_name:
-            if server_state.active_remote_client_name is not None:
-                logger.warning(
-                    "Correcting stale remote target '%s' -> '%s' for context '%s'",
-                    server_state.active_remote_client_name,
-                    context_target_client_name,
-                    server_state.context.value,
-                )
-            server_state.active_remote_client_name = context_target_client_name
-        return context_target_client_name
-    return server_state.active_remote_client_name
+    transitionPolicy.centerContext_process(
+        network=network,
+        display_manager=display_manager,
+        pointer_tracker=pointer_tracker,
+        screen_geometry=screen_geometry,
+        position=position,
+        velocity=velocity,
+        context_to_client=context_to_client,
+        server_state=runtime_state,
+        logger=logger,
+    )
 
 
-def remoteWarpEnforcement_apply(
+def remoteContextProcessWithState_bound(
+    network: ServerNetwork,
     display_manager: DisplayBackend,
+    pointer_tracker: PointerTracker,
     screen_geometry: Screen,
+    config: Config,
     position: Position,
+    velocity: float,
+    context_to_client: dict[ScreenContext, str],
     x11native: bool,
-) -> bool:
+    input_capturer: InputCapturer,
+    panic_keysyms: set[int],
+    panic_modifiers: int,
+    jump_hotkey: JumpHotkeyConfigProtocol,
+    runtime_state: RuntimeStateProtocol,
+) -> None:
     """
-    Apply early REMOTE warp enforcement when compositor may drift pointer.
+    Bind REMOTE context processing to explicit runtime state.
 
     Args:
-        display_manager: Server display backend.
+        network: Active server network.
+        display_manager: Active display backend.
+        pointer_tracker: Pointer tracker instance.
         screen_geometry: Local screen geometry.
+        config: Loaded server config.
         position: Current pointer position.
+        velocity: Current pointer velocity.
+        context_to_client: Context-to-client routing map.
         x11native: Native X11 mode flag.
-
-    Returns:
-        True when enforcement warped and caller should return early.
+        input_capturer: Input capture backend.
+        panic_keysyms: Panic-key keysyms.
+        panic_modifiers: Panic-key modifier mask.
+        jump_hotkey: Runtime jump-hotkey config.
+        runtime_state: Explicit runtime state instance.
     """
-    if x11native or display_manager.session_isNative_check():
-        return False
-    if (time.time() - server_state.last_remote_switch_time) >= 0.5:
-        return False
-    target_pos: Position | None = None
-    if server_state.context == ScreenContext.WEST:
-        target_pos = Position(x=screen_geometry.width - 3, y=position.y)
-    elif server_state.context == ScreenContext.EAST:
-        target_pos = Position(x=2, y=position.y)
-    if target_pos is None or abs(position.x - target_pos.x) <= 100:
-        return False
-    logger.info(
-        f"[ENFORCE] Cursor at ({position.x},{position.y}), enforcing warp to ({target_pos.x},{target_pos.y})"
+    transitionPolicy.remoteContext_process(
+        network=network,
+        display_manager=display_manager,
+        pointer_tracker=pointer_tracker,
+        screen_geometry=screen_geometry,
+        config=config,
+        position=position,
+        velocity=velocity,
+        context_to_client=context_to_client,
+        x11native=x11native,
+        input_capturer=input_capturer,
+        panic_keysyms=panic_keysyms,
+        panic_modifiers=panic_modifiers,
+        jump_hotkey=jump_hotkey,
+        callbacks=transitionCallbacksWithState_create(runtime_state),
+        server_state=runtime_state,
+        logger=logger,
     )
-    display_manager.cursorPosition_set(target_pos)
-    time.sleep(0.01)
-    return True
 
 
-def remoteReturn_process(
-    network: ServerNetwork,
-    target_client_name: str | None,
-    display_manager: DisplayBackend,
-    screen_geometry: Screen,
-    position: Position,
-    pointer_tracker: PointerTracker,
-) -> None:
-    """
-    Process REMOTE->CENTER return sequence.
-
-    Args:
-        network: Active server network.
-        target_client_name: Active target client name.
-        display_manager: Server display backend.
-        screen_geometry: Local screen geometry.
-        position: Current pointer position.
-        pointer_tracker: Pointer tracker.
-    """
-    logger.info(
-        f"[BOUNDARY] Returning from {server_state.context.value.upper()} at ({position.x}, {position.y})"
-    )
-    try:
-        if target_client_name:
-            hide_event = MouseEvent(
-                event_type=EventType.MOUSE_MOVE,
-                normalized_point=NormalizedPoint(x=-1.0, y=-1.0),
-            )
-            hide_msg = MessageBuilder.mouseEventMessage_create(hide_event)
-            network.messageToClient_send(target_client_name, hide_msg)
-        state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
-    except Exception as e:
-        logger.error(f"Return transition failed: {e}", exc_info=True)
-        server_state.context = ScreenContext.CENTER
-        try:
-            display_manager.cursor_show()
-            display_manager.keyboard_ungrab()
-            display_manager.pointer_ungrab()
-        except Exception:
-            pass
-
-
-def remoteMotionPosition_send(
-    network: ServerNetwork,
-    target_client_name: str,
-    screen_geometry: Screen,
-    position: Position,
-    display_manager: DisplayBackend,
-    pointer_tracker: PointerTracker,
-) -> bool:
-    """
-    Send pointer position update to active remote client if changed.
-
-    Args:
-        network: Active server network.
-        target_client_name: Destination client name.
-        screen_geometry: Local screen geometry.
-        position: Current pointer position.
-        display_manager: Server display backend.
-        pointer_tracker: Pointer tracker.
-
-    Returns:
-        True when caller can continue processing.
-    """
-    if not server_state.positionChanged_check(position):
-        return True
-    logger.debug(f"[MOUSE] Sending pos ({position.x}, {position.y}) to {target_client_name}")
-    normalized_point = screen_geometry.coordinates_normalize(position)
-    mouse_event = MouseEvent(
-        event_type=EventType.MOUSE_MOVE,
-        normalized_point=normalized_point,
-    )
-    move_msg = MessageBuilder.mouseEventMessage_create(mouse_event)
-    if network.messageToClient_send(target_client_name, move_msg):
-        server_state.lastSentPosition_update(position)
-        return True
-    connected_names = [client.name for client in network.clients]
-    logger.error(
-        f"Failed to send movement to '{target_client_name}'. Connected clients: {connected_names}. Reverting."
-    )
-    state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
-    return False
-
-
-def remoteReturnBoundary_check(
-    context: ScreenContext, position: Position, screen_geometry: Screen
-) -> bool:
-    """
-    Check whether current pointer position hits return boundary for active context.
-
-    Args:
-        context: Active remote context.
-        position: Current pointer position.
-        screen_geometry: Local screen geometry.
-
-    Returns:
-        True when return boundary is reached.
-    """
-    if context == ScreenContext.WEST:
-        return position.x >= screen_geometry.width - 1
-    if context == ScreenContext.EAST:
-        return position.x <= 0
-    if context == ScreenContext.NORTH:
-        return position.y >= screen_geometry.height - 1
-    if context == ScreenContext.SOUTH:
-        return position.y <= 0
-    return False
-
-
-def remoteInputEvents_send(
-    network: ServerNetwork,
-    target_client_name: str,
-    screen_geometry: Screen,
+def jumpHotkeyEventsProcessWithState_bound(
     input_events: list[InputEvent],
-    display_manager: DisplayBackend,
-    pointer_tracker: PointerTracker,
-    position: Position,
-) -> None:
+    modifier_state: int,
+    jump_hotkey: JumpHotkeyConfigProtocol,
+    runtime_state: RuntimeStateProtocol,
+) -> tuple[list[InputEvent], ScreenContext | None]:
     """
-    Forward captured mouse/key input events to active remote client.
+    Bind jump-hotkey event parsing to explicit runtime state.
 
     Args:
-        network: Active server network.
-        target_client_name: Destination client name.
-        screen_geometry: Local screen geometry.
-        input_events: Captured input event list.
-        display_manager: Server display backend.
-        pointer_tracker: Pointer tracker.
-        position: Current pointer position.
-    """
-    for event in input_events:
-        msg: Message | None = None
-        if isinstance(event, MouseEvent) and event.position:
-            norm_pos = screen_geometry.coordinates_normalize(event.position)
-            norm_event = MouseEvent(
-                event_type=event.event_type,
-                normalized_point=norm_pos,
-                button=event.button,
-            )
-            msg = MessageBuilder.mouseEventMessage_create(norm_event)
-            logger.debug(f"[BUTTON] {event.event_type.value} button={event.button}")
-        elif isinstance(event, KeyEvent):
-            msg = MessageBuilder.keyEventMessage_create(event)
-            logger.debug(f"[KEY] {event.event_type.value} keycode={event.keycode}")
+        input_events: Captured input events.
+        modifier_state: Fallback modifier state.
+        jump_hotkey: Runtime jump-hotkey config.
+        runtime_state: Explicit runtime state instance.
 
-        if msg and not network.messageToClient_send(target_client_name, msg):
-            logger.error(f"Failed to send {event.event_type.value} to {target_client_name}")
-            state_revertToCenter(display_manager, screen_geometry, position, pointer_tracker)
-            break
+    Returns:
+        Filtered input events and optional target context.
+    """
+    return jumpHotkeyEvents_process(
+        input_events=input_events,
+        modifier_state=modifier_state,
+        jump_hotkey=jump_hotkey,
+        runtime_state=runtime_state,
+    )
+
+
+def jumpHotkeyActionApplyWithState_bound(
+    target_context: ScreenContext,
+    network: ServerNetwork,
+    display_manager: DisplayBackend,
+    pointer_tracker: PointerTracker,
+    screen_geometry: Screen,
+    position: Position,
+    context_to_client: dict[ScreenContext, str],
+    runtime_state: RuntimeStateProtocol,
+) -> bool:
+    """
+    Bind jump-hotkey action application to explicit runtime state.
+
+    Args:
+        target_context: Requested destination context.
+        network: Active server network.
+        display_manager: Active display backend.
+        pointer_tracker: Pointer tracker instance.
+        screen_geometry: Local screen geometry.
+        position: Current pointer position.
+        context_to_client: Context-to-client routing map.
+        runtime_state: Explicit runtime state instance.
+
+    Returns:
+        True when action is handled.
+    """
+    return transitionPolicy.jumpHotkeyAction_apply(
+        target_context=target_context,
+        network=network,
+        display_manager=display_manager,
+        pointer_tracker=pointer_tracker,
+        screen_geometry=screen_geometry,
+        position=position,
+        context_to_client=context_to_client,
+        server_state=runtime_state,
+        logger=logger,
+        state_revertToCenter=partial(
+            stateRevertToCenterWithState_bound,
+            runtime_state=runtime_state,
+        ),
+    )
 
 
 def _process_polling_loop(
@@ -1402,8 +958,9 @@ def _process_polling_loop(
     panic_modifiers: int,
     x11native: bool,
     input_capturer: InputCapturer,
-    jump_hotkey: JumpHotkeyRuntimeConfig,
+    jump_hotkey: JumpHotkeyConfigProtocol,
     die_on_disconnect: bool = False,
+    runtime_state: RuntimeStateProtocol = server_state,
 ) -> None:
     """
     Bridge runtime policies into the polling-loop orchestrator.
@@ -1440,10 +997,22 @@ def _process_polling_loop(
     """
     callbacks = PollingLoopCallbacks(
         clientMessage_handle=clientMessage_handle,
-        centerContext_process=centerContext_process,
-        remoteContext_process=remoteContext_process,
-        jumpHotkeyEvents_process=jumpHotkeyEvents_process,
-        jumpHotkeyAction_apply=jumpHotkeyAction_apply,
+        centerContext_process=partial(
+            centerContextProcessWithState_bound,
+            runtime_state=runtime_state,
+        ),
+        remoteContext_process=partial(
+            remoteContextProcessWithState_bound,
+            runtime_state=runtime_state,
+        ),
+        jumpHotkeyEvents_process=partial(
+            jumpHotkeyEventsProcessWithState_bound,
+            runtime_state=runtime_state,
+        ),
+        jumpHotkeyAction_apply=partial(
+            jumpHotkeyActionApplyWithState_bound,
+            runtime_state=runtime_state,
+        ),
     )
     deps = PollingLoopDependencies(
         network=network,
@@ -1462,7 +1031,7 @@ def _process_polling_loop(
     pollingLoop_process(
         deps=deps,
         callbacks=callbacks,
-        server_state=server_state,
+        server_state=runtime_state,
         logger=logger,
     )
 
@@ -1482,107 +1051,15 @@ def server_run(args: argparse.Namespace) -> None:
         args:
             Parsed CLI argument namespace.
     """
-    config = configWithSettings_load(args)
-    loggingWithConfig_setup(args, config, logging_setup)
-
-    logger.info(f"tx2tx server v{__version__}")
-    logger.info(f"Server name: {config.server.name}")
-    logger.info(f"Listening on {config.server.host}:{config.server.port}")
-    logger.info(f"Edge threshold: {config.server.edge_threshold} pixels")
-    logger.info(f"Velocity threshold: {config.server.velocity_threshold} px/s (edge resistance)")
-    logger.info(f"Display: {config.server.display or '$DISPLAY'}")
-    logger.info(f"Max clients: {config.server.max_clients}")
-
-    # Log configured clients
-    if config.clients:
-        logger.info(f"Configured clients: {len(config.clients)}")
-        for client in config.clients:
-            logger.info(f"  - {client.name} (position: {client.position})")
-    else:
-        logger.warning("No clients configured in config.yml")
-
-    panic_keysyms, panic_modifiers = panicKeyConfig_parse(config)
-    jump_hotkey = jumpHotkeyConfig_parse(config)
-
-    backend_options: ServerBackendOptions = backendOptions_resolve(args, config)
-    display_manager, input_capturer = serverBackendComponents_create(
-        config=config, backend_options=backend_options
+    callbacks: ServerRunCallbacks = ServerRunCallbacks(
+        panicKeyConfig_parse=panicKeyConfig_parse,
+        jumpHotkeyConfig_parse=jumpHotkeyConfig_parse,
+        pollingLoop_process=_process_polling_loop,
+        logging_setup=logging_setup,
     )
-    backend_name: str = backend_options.backend_name
-    wayland_calibrate: bool = backend_options.wayland_calibrate
-    x11native: bool = backend_options.x11native
-
-    try:
-        display_manager.connection_establish()
-        screen_geometry = display_manager.screenGeometry_get()
-        logger.info(f"Screen geometry: {screen_geometry.width}x{screen_geometry.height}")
-        if backend_name.lower() == "wayland" and wayland_calibrate:
-            center = Position(
-                x=screen_geometry.width // 2,
-                y=screen_geometry.height // 2,
-            )
-            logger.info(
-                "[CALIBRATE] Warping cursor to (%s, %s) to sync helper state",
-                center.x,
-                center.y,
-            )
-            display_manager.cursorPosition_set(center)
-    except Exception as e:
-        logger.error(f"Failed to connect to X11 display: {e}")
-        sys.exit(1)
-
-    # Initialize pointer tracker
-    pointer_tracker = PointerTracker(
-        display_manager=display_manager,
-        edge_threshold=config.server.edge_threshold,
-        velocity_threshold=config.server.velocity_threshold,
+    runtimeCoordinatorPolicy.server_run(
+        args=args,
+        callbacks=callbacks,
+        runtime_state=server_state,
+        logger=logger,
     )
-    logger.info(
-        f"Pointer tracker initialized (velocity_threshold={config.server.velocity_threshold})"
-    )
-
-    # Validate configured client position
-    try:
-        client_position = ClientPosition(config.server.client_position)
-        logger.info(f"Client position: {client_position.value}")
-    except ValueError:
-        logger.error(f"Invalid client_position in config: {config.server.client_position}")
-        sys.exit(1)
-
-    # Initialize network server
-    network = ServerNetwork(
-        host=config.server.host, port=config.server.port, max_clients=config.server.max_clients
-    )
-
-    context_to_client: dict[ScreenContext, str] = contextToClientMap_build(config)
-
-    # Reset server state singleton to initial values
-    server_state.reset()
-
-    die_on_disconnect = getattr(args, "die_on_disconnect", False)
-
-    try:
-        network.server_start()
-        logger.info("Server running. Press Ctrl+C to stop.")
-
-        while network.is_running:
-            _process_polling_loop(
-                network,
-                display_manager,
-                pointer_tracker,
-                screen_geometry,
-                config,
-                context_to_client,
-                panic_keysyms,
-                panic_modifiers,
-                x11native,
-                input_capturer,
-                jump_hotkey,
-                die_on_disconnect,
-            )
-    except Exception as e:
-        logger.error(f"Server error: {e}", exc_info=True)
-        raise
-    finally:
-        network.server_stop()
-        display_manager.connection_close()

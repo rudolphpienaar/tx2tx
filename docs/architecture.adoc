@@ -1,144 +1,37 @@
-= tx2tx Architecture: A Causal Redesign for Deterministic Input Routing
+= tx2tx Architecture
 
-== 1. Introduction
+The architecture is now split into two first-class documents because the server and client solve different classes of problems with different invariants.
 
-The practical problem solved by `tx2tx` is deceptively simple: a user should be able to move from a local server display into one of several remote displays and continue interacting as if the keyboard and mouse had physically moved with them. In operational terms, this means that spatial transition, pointer motion, keyboard routing, and return behavior must stay coherent across long sessions, heterogeneous display stacks, and imperfect transport conditions. In particular, the server machine is always the physical anchor of input devices, while remote machines are logical execution targets.
+The server owns physical input truth, transition state, and remote routing policy. The client owns transport decode, local backend injection, and optional software cursor rendering. Treating them as one architecture obscures failure boundaries and encourages mixed-concern reasoning.
 
-In early and mid-stage implementations, the system could often appear correct in short runs yet degrade in longer sessions. The observed pathologies were not random; they formed a recognizable failure family: boundary crossings appearing progressively early, keyboard streams routed to stale targets after context switches, and “stuck” behavior where local and remote interpretation diverged. These symptoms indicate not a tuning deficit but a model deficit: the runtime was mixing observation, decision, and side effect in ways that permitted temporal inconsistency to accumulate.
+== Document Map
 
-This document presents the architectural response to that model deficit. It defines not merely component placement, but the causal contract by which correctness is obtained. The central thesis is that input sharing is fundamentally a state-consistency problem under time, and therefore requires explicit truth ownership, transaction boundaries, and epoch separation.
+Server-side architecture and invariants:
 
-== 2. Problem Context and Failure Analysis
+- `docs/architecture-server.adoc`
 
-The historical runtime concentrated most behavior inside orchestration code in `tx2tx/server/runtime.py`, with global coordination through `tx2tx/server/state.py`. This approach had pragmatic advantages for early delivery but made the control surface broad: telemetry acquisition, transition interpretation, device ownership operations, routing, and recovery all interacted in the same execution corridor. As complexity increased, local patches could remove one symptom while altering coupling elsewhere, because the underlying issue was architectural commingling.
+Client-side architecture and invariants:
 
-The old model failed primarily because it allowed ambiguity in three distinct truths that should never diverge: where the pointer is, who currently owns input, and who should receive events. When those truths are derived through partially ordered operations rather than a strict causal pipeline, the system can transiently enter impossible states. For example, a context may advance before event buffers are safely isolated from the prior epoch, or a dispatch target may remain logically stale while motion remains apparently correct. This is why empirical “fixes” based on thresholds or retries sometimes produced improvement followed by relapse; they reduced probability, not possibility.
+- `docs/architecture-client.adoc`
 
-From an engineering standpoint, the old system lacked three hard guarantees. First, captured events were not guarded by a rigorous epoch barrier, so stale events could leak across transition boundaries. Second, transitions were not represented as explicit transactions with a single commit point and rollback law. Third, routing authority was not enforced as a pure function of current context at dispatch time. Without these guarantees, correctness could not be compositional.
-
-== 3. Design Objective
-
-The redesign objective is not to add features but to make the runtime mathematically boring. “Boring” here means that each event has one origin truth, each transition has one legal commit path, and each dispatch decision can be explained by current state alone. The resulting architecture must remain stable over long duration, rapid context alternation, and transient failure injection. It must also support restart-safe development by making progress checkpoints and invariants explicit.
-
-== 4. Methods
-
-The method used in this redesign is decomposition by causal responsibility. Instead of treating the server loop as one behavioral organism, the system is divided into planes with sharply bounded duties: telemetry, context reduction, ownership transaction, and dispatch. Each plane has allowed outputs and forbidden side effects. Correctness emerges from the composition of these constraints.
-
-=== 4.1 System Decomposition
-
-At the highest level, the server runtime is factored into four cooperating modules. Telemetry is responsible for observation and only observation. Context is responsible for interpretation and policy transitions. Ownership is responsible for capability acquisition and validation. Dispatch is responsible for event transformation and transport emission. In the current codebase, this decomposition begins from existing loci in `tx2tx/server/runtime.py`, `tx2tx/server/state.py`, `tx2tx/server/network.py`, and backend adapters in `tx2tx/x11/backend.py` and `tx2tx/wayland/backend.py`, and is intended to harden into module-level boundaries as rewrite phases progress.
+== System Topology
 
 [source,text]
 ----
-                        +---------------------------+
-                        |   Telemetry (truth)       |
-                        |   capture + seq + time    |
-                        +-------------+-------------+
-                                      |
-                                      v
-                        +---------------------------+
-                        |   Context Reducer         |
-                        |   CENTER/WEST/EAST/...    |
-                        +-------------+-------------+
-                                      |
-                           transition intent
-                                      |
-                                      v
-                        +---------------------------+
-                        |   Transition Transaction  |
-                        | prepare/acquire/verify    |
-                        | commit or rollback        |
-                        +-------------+-------------+
-                                      |
-                                      v
-                        +---------------------------+
-                        |   Dispatch                |
-                        | route + transform + send  |
-                        +---------------------------+
++------------------------------+        TCP/JSON         +------------------------------+
+| SERVER MACHINE               | <---------------------> | CLIENT MACHINE               |
+| (physical keyboard + mouse)  |                         | (event injection target)     |
+|                              |                         |                              |
+| capture -> context -> route  |                         | recv -> decode -> inject     |
++------------------------------+                         +------------------------------+
 ----
 
-=== 4.2 Telemetry as Ground Truth
+== Why This Split Matters
 
-The server physically owns the keyboard and mouse; therefore ground truth must always originate at the server side and never be inferred from downstream behavior. In implementation terms, telemetry records are immutable event objects with monotonic sequence and timestamp, and are never rewritten to reflect interpretation outcomes. Existing event structures (`KeyEvent`, `MouseEvent`) in `tx2tx/common/types.py` already provide a typed substrate; the rewrite requirement is to enforce immutability discipline and epoch tagging at capture boundary.
+The dominant regressions in this codebase historically came from server-side state and transition coupling, not from client injection mechanics. A split architecture keeps causal analysis precise: server documents focus on correctness under context/ownership transitions, while client documents focus on deterministic application of received events.
 
-This choice addresses drift directly. Drift is not only geometric error; it is historical contamination, where yesterday’s interpretation survives into today’s dispatch. Immutable telemetry plus sequence order prevents retrospective reinterpretation. Once an event is captured, later context changes cannot alter what that event was.
+== Current Status
 
-=== 4.3 Context Reduction as Pure State Logic
+The server runtime has been decomposed into focused modules (`server_runtime_coordinator`, `runtime_loop`, `transition_state`, `jump_hotkey_state`, `recovery_state`, `server_handshake`, `server_cli`, `server_logging`).
 
-Context must be computed, not improvised. The context reducer consumes telemetry and emits context state plus transition intents. It does not send network messages, and it does not acquire devices. In the current topology, boundary and velocity detection logic in `tx2tx/x11/pointer.py` and transition decision paths in `tx2tx/server/runtime.py` are the seeds of this reducer and should be extracted into a dedicated state machine surface.
-
-The reason for purity is auditability. If context can perform side effects, then transition causality becomes opaque: one cannot determine whether a bad dispatch came from bad state, bad transport, or bad sequencing. A pure reducer gives a single answer for a given input history.
-
-[source,text]
-----
-Telemetry[n] + State[n-1] ---> Reducer ---> State[n], Intent[n]
-----
-
-=== 4.4 Transactional Transition Engine
-
-Transitions are implemented as a transaction with one legal commit point. The required stages are prepare, acquire, verify, and commit. Failures in any pre-commit stage must flow to rollback and restore `CENTER`.
-
-[source,text]
-----
-Intent
-  |
-  v
-PREPARE -> ACQUIRE -> VERIFY -> COMMIT
-   |         |          |
-   +----fail-+----fail--+----> ROLLBACK -> CENTER
-----
-
-In module terms, this transaction coordinates `tx2tx/server/runtime.py` transition logic with ownership calls exposed through `DisplayBackend` in `tx2tx/input/backend.py` and concretized by `X11DisplayBackend` / `WaylandDisplayBackend`. The architectural requirement is that context is not advanced until verify succeeds. This explicitly prevents the class of failures where keyboard ownership is incomplete yet REMOTE routing proceeds.
-
-=== 4.5 Epoch Barrier and Queue Discipline
-
-Each committed context switch increments `focus_epoch`. Every telemetry record and dispatch operation carries epoch identity. Dispatch is legal only when `event.epoch == current_epoch`. On commit, pre-epoch buffered events are dropped by a queue barrier. This is the mechanism that prevents stale key press/release pairs from crossing transition boundaries and causing wrong-target or stuck-key behavior.
-
-Although current code already introduces safeguards in selective paths, the redesign elevates epoching from patch behavior to architectural law. The queue boundary becomes as important as the context switch itself.
-
-[source,text]
-----
-commit transition:
-  epoch := epoch + 1
-  queue.drop(event.epoch < epoch)
-
-dispatch rule:
-  if event.epoch != current_epoch: drop
-----
-
-=== 4.6 Deterministic Routing
-
-Routing is a pure function of current context and configuration mapping. It must not depend on stale mutable cache as authority. In code terms, mapping built in `tx2tx/server/bootstrap.py::contextToClientMap_build` is the canonical relation, while dispatch-time resolution in server runtime must derive target from current context each time. Any cached target name in `tx2tx/server/state.py` is telemetry/diagnostic convenience only and cannot override context-derived routing.
-
-This method directly addresses the “mouse to one client, keys to another” failure mode. If both streams are dispatched from the same context function under one epoch, divergence requires an explicit bug rather than silent drift.
-
-=== 4.7 Failure Semantics and Recovery
-
-The recovery policy is fail-closed to `CENTER`. Ownership verification failure, unresolved target client, transport send failure in REMOTE, and panic input all converge to rollback semantics. This policy is implemented through one revert pathway (currently represented around server state reversion in runtime) and should remain singular after extraction. Multiple ad hoc recovery paths are prohibited because they create divergent post-failure state.
-
-=== 4.8 Observability as Method, Not Decoration
-
-To validate causal correctness, logs must expose epoch movement, transaction stage transitions, queue drop counts, ownership verification results, and routing decisions with stable tags. Existing logging infrastructure in runtime is sufficient as a base, but the rewrite method requires a fixed vocabulary (`[EPOCH]`, `[TRANSACT]`, `[OWNERSHIP]`, `[QUEUE]`, `[ROUTE]`) so that behavior can be reconstructed from trace without inference.
-
-== 5. Component-to-Module Mapping
-
-The following mapping anchors the method to concrete implementation surfaces.
-
-Telemetry capture currently enters through backend capture classes implementing `InputCapturer` in `tx2tx/input/backend.py`, concretely `X11InputCapturer` in `tx2tx/x11/backend.py` and `WaylandInputCapturer` in `tx2tx/wayland/backend.py`. Context and transition orchestration currently live in `tx2tx/server/runtime.py`, while mutable shared runtime fields are held in `tx2tx/server/state.py::ServerState`. Network transport and named-client resolution live in `tx2tx/server/network.py::ServerNetwork`. Protocol event envelopes remain in `tx2tx/protocol/message.py` and typed event models remain in `tx2tx/common/types.py`.
-
-The rewrite direction is to preserve these class contracts where useful, but relocate cross-cutting logic from runtime monolith into dedicated server modules (`telemetry`, `context`, `transition`, `dispatch`) governed by the invariants described above.
-
-== 6. Why This Architecture Should Work
-
-Scientifically, the redesign reduces state-space ambiguity. The prior architecture allowed ambiguous temporal ordering between capture, transition, and dispatch. The new architecture imposes a strict partial order: capture produces immutable facts, context computes intent, transaction commits context/epoch, and dispatch emits only epoch-valid events. Under this order, classes of historical bugs become structurally impossible rather than merely less likely.
-
-Operationally, this means long-session stability is no longer dependent on threshold heuristics or timing luck. The system becomes resilient because it eliminates hidden coupling, not because it tunes around it.
-
-== 7. Development Process Integration
-
-This architecture is intentionally coupled to restart-safe execution artifacts:
-
-- `docs/rewrite_plan.adoc` defines phases and acceptance criteria.
-- `docs/rewrite_status.adoc` defines current checkpoint state.
-
-No phase is considered complete until its architectural invariants are demonstrably satisfied by test and trace evidence.
+The client remains comparatively compact; its architecture is separated now to support independent evolution and testing criteria.
