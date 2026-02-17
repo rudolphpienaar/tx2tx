@@ -412,7 +412,7 @@ def jumpHotkeyEvents_process(
     input_events: list[InputEvent],
     modifier_state: int,
     jump_hotkey: JumpHotkeyRuntimeConfig,
-) -> tuple[list[InputEvent], ScreenContext | None, bool, bool]:
+) -> tuple[list[InputEvent], ScreenContext | None]:
     """
     Process jump-hotkey prefix sequence and filter consumed key events.
 
@@ -422,21 +422,18 @@ def jumpHotkeyEvents_process(
         jump_hotkey: Parsed jump-hotkey runtime config.
 
     Returns:
-        Tuple of (filtered_events, target_context_or_none, hint_show, hint_hide).
+        Tuple of (filtered_events, target_context_or_none).
     """
     if not jump_hotkey.enabled:
-        return input_events, None, False, False
+        return input_events, None
 
     filtered_events: list[InputEvent] = []
     target_context: ScreenContext | None = None
-    hint_show: bool = False
-    hint_hide: bool = False
     now: float = time.time()
 
-    if server_state.jump_hotkey_armed_until > 0 and now > server_state.jump_hotkey_armed_until:
+    if now > server_state.jump_hotkey_armed_until:
         server_state.jump_hotkey_armed_until = 0.0
         server_state.jump_hotkey_pending_target_context = None
-        hint_hide = True
 
     for event in input_events:
         if not isinstance(event, KeyEvent):
@@ -461,7 +458,6 @@ def jumpHotkeyEvents_process(
                     server_state.jump_hotkey_armed_until = 0.0
                     server_state.jump_hotkey_pending_target_context = None
                     logger.info("[HOTKEY] Action captured: %s", target_context.value.upper())
-                    hint_hide = True
                     continue
 
             if keysym is not None and keysym in server_state.jump_hotkey_swallow_keysyms:
@@ -491,7 +487,6 @@ def jumpHotkeyEvents_process(
             if keysym is not None:
                 server_state.jump_hotkey_swallow_keysyms.add(keysym)
             logger.info("[HOTKEY] Prefix captured")
-            hint_show = True
             continue
 
         if now <= server_state.jump_hotkey_armed_until:
@@ -508,7 +503,7 @@ def jumpHotkeyEvents_process(
 
         filtered_events.append(event)
 
-    return filtered_events, target_context, hint_show, hint_hide
+    return filtered_events, target_context
 
 
 def state_revertToCenter(
@@ -881,58 +876,6 @@ def jumpHotkeyAction_apply(
     )
 
 
-def jumpHintLabelsByContext_get(config: Config) -> dict[ScreenContext, str]:
-    """
-    Build hint label mapping by context from jump-hotkey config.
-
-    Args:
-        config: Loaded config.
-
-    Returns:
-        Mapping from screen context to hint label.
-    """
-    jump_cfg = config.server.jump_hotkey
-    return {
-        ScreenContext.WEST: jump_cfg.west_key,
-        ScreenContext.EAST: jump_cfg.east_key,
-        ScreenContext.CENTER: jump_cfg.center_key,
-    }
-
-
-def jumpHints_show(
-    network: ServerNetwork, context_to_client: dict[ScreenContext, str], config: Config
-) -> None:
-    """
-    Broadcast hint-show messages to connected remote clients.
-
-    Args:
-        network: Active server network.
-        context_to_client: Context-to-client routing map.
-        config: Loaded config.
-    """
-    label_by_context: dict[ScreenContext, str] = jumpHintLabelsByContext_get(config)
-    timeout_ms: int = int(config.server.jump_hotkey.timeout_ms)
-    for context, client_name in context_to_client.items():
-        label: str | None = label_by_context.get(context)
-        if not label:
-            continue
-        hint_msg = MessageBuilder.hintShowMessage_create(label=label, timeout_ms=timeout_ms)
-        _ = network.messageToClient_send(client_name, hint_msg)
-
-
-def jumpHints_hide(network: ServerNetwork, context_to_client: dict[ScreenContext, str]) -> None:
-    """
-    Broadcast hint-hide messages to connected remote clients.
-
-    Args:
-        network: Active server network.
-        context_to_client: Context-to-client routing map.
-    """
-    hint_msg = MessageBuilder.hintHideMessage_create()
-    for client_name in context_to_client.values():
-        _ = network.messageToClient_send(client_name, hint_msg)
-
-
 def centerContext_process(
     network: ServerNetwork,
     display_manager: DisplayBackend,
@@ -1125,17 +1068,12 @@ def remoteContext_process(
         x11native=x11native,
     ):
         input_events, modifier_state = input_capturer.inputEvents_read()
-        input_events, jump_target_context, hint_show, hint_hide = jumpHotkeyEvents_process(
+        input_events, jump_target_context = jumpHotkeyEvents_process(
             input_events=input_events,
             modifier_state=modifier_state,
             jump_hotkey=jump_hotkey,
         )
-        if hint_show:
-            jumpHints_show(network=network, context_to_client=context_to_client, config=config)
-        if hint_hide:
-            jumpHints_hide(network=network, context_to_client=context_to_client)
         if jump_target_context is not None:
-            jumpHints_hide(network=network, context_to_client=context_to_client)
             _ = jumpHotkeyAction_apply(
                 target_context=jump_target_context,
                 network=network,
@@ -1184,17 +1122,12 @@ def remoteContext_process(
         return
 
     input_events, modifier_state = input_capturer.inputEvents_read()
-    input_events, jump_target_context, hint_show, hint_hide = jumpHotkeyEvents_process(
+    input_events, jump_target_context = jumpHotkeyEvents_process(
         input_events=input_events,
         modifier_state=modifier_state,
         jump_hotkey=jump_hotkey,
     )
-    if hint_show:
-        jumpHints_show(network=network, context_to_client=context_to_client, config=config)
-    if hint_hide:
-        jumpHints_hide(network=network, context_to_client=context_to_client)
     if jump_target_context is not None:
-        jumpHints_hide(network=network, context_to_client=context_to_client)
         _ = jumpHotkeyAction_apply(
             target_context=jump_target_context,
             network=network,
@@ -1530,17 +1463,12 @@ def _process_polling_loop(
         if server_state.context == ScreenContext.CENTER:
             if jump_hotkey.enabled:
                 center_input_events, center_modifier_state = input_capturer.inputEvents_read()
-                _, jump_target_context, hint_show, hint_hide = jumpHotkeyEvents_process(
+                _, jump_target_context = jumpHotkeyEvents_process(
                     input_events=center_input_events,
                     modifier_state=center_modifier_state,
                     jump_hotkey=jump_hotkey,
                 )
-                if hint_show:
-                    jumpHints_show(network=network, context_to_client=context_to_client, config=config)
-                if hint_hide:
-                    jumpHints_hide(network=network, context_to_client=context_to_client)
                 if jump_target_context is not None:
-                    jumpHints_hide(network=network, context_to_client=context_to_client)
                     _ = jumpHotkeyAction_apply(
                         target_context=jump_target_context,
                         network=network,

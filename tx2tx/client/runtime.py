@@ -12,7 +12,6 @@ from tx2tx.client.bootstrap import (
     clientSession_run,
     configWithSettings_load,
     displayConnection_establish,
-    hintOverlay_create,
     loggingWithConfig_setup,
     serverAddressWithConfig_parse,
     softwareCursor_create,
@@ -25,7 +24,6 @@ from tx2tx.input.backend import DisplayBackend, InputInjector
 from tx2tx.input.factory import clientBackend_create
 from tx2tx.protocol.message import Message, MessageParser, MessageType
 from tx2tx.x11.software_cursor import SoftwareCursor
-from tx2tx.x11.hint_overlay import HintOverlay
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +160,6 @@ def serverMessage_handle(
     injector: Optional[InputInjector] = None,
     display_manager: Optional[DisplayBackend] = None,
     software_cursor: Optional[SoftwareCursor] = None,
-    hint_overlay: Optional[HintOverlay] = None,
 ) -> None:
     """
     Handle message received from server
@@ -172,7 +169,6 @@ def serverMessage_handle(
         injector: injector value.
         display_manager: display_manager value.
         software_cursor: software_cursor value.
-        hint_overlay: hint_overlay value.
     
     Returns:
         Result value.
@@ -198,10 +194,6 @@ def serverMessage_handle(
 
     elif message.msg_type == MessageType.KEY_EVENT:
         keyMessage_handle(message, injector)
-    elif message.msg_type == MessageType.HINT_SHOW:
-        hintShow_handle(message, hint_overlay)
-    elif message.msg_type == MessageType.HINT_HIDE:
-        hintHide_handle(hint_overlay)
 
     else:
         logger.debug(f"Message: {message.msg_type.value}")
@@ -308,35 +300,6 @@ def keyMessage_handle(message: Message, injector: Optional[InputInjector]) -> No
     logger.info(f"Key {key_event.event_type.value}: keycode={key_event.keycode}")
 
 
-def hintShow_handle(message: Message, hint_overlay: Optional[HintOverlay]) -> None:
-    """
-    Handle hint-show protocol message.
-
-    Args:
-        message: Protocol message.
-        hint_overlay: Optional overlay instance.
-    """
-    if hint_overlay is None:
-        return
-    label: str = str(message.payload.get("label", "")).strip()
-    timeout_ms: int = int(message.payload.get("timeout_ms", 800))
-    if not label:
-        return
-    hint_overlay.show(label=label, timeout_ms=timeout_ms)
-
-
-def hintHide_handle(hint_overlay: Optional[HintOverlay]) -> None:
-    """
-    Handle hint-hide protocol message.
-
-    Args:
-        hint_overlay: Optional overlay instance.
-    """
-    if hint_overlay is None:
-        return
-    hint_overlay.hide()
-
-
 def client_run(args: argparse.Namespace) -> None:
     """
     Run tx2tx client
@@ -379,7 +342,6 @@ def client_run(args: argparse.Namespace) -> None:
     logger.info("Input injection ready")
 
     software_cursor = softwareCursor_create(args, backend_name, display_manager)
-    hint_overlay = hintOverlay_create(backend_name, display_manager)
 
     network = ClientNetwork(
         host=host,
@@ -398,7 +360,6 @@ def client_run(args: argparse.Namespace) -> None:
             event_injector=event_injector,
             display_manager=display_manager,
             software_cursor=software_cursor,
-            hint_overlay=hint_overlay,
             reconnect_enabled=config.client.reconnect.enabled,
         )
     except ConnectionError as e:
@@ -408,8 +369,6 @@ def client_run(args: argparse.Namespace) -> None:
         logger.error(f"Client error: {e}", exc_info=True)
         raise
     finally:
-        if hint_overlay is not None:
-            hint_overlay.destroy()
         network.connection_close()
         display_manager.connection_close()
 
@@ -419,7 +378,6 @@ def messageLoop_run(
     event_injector: InputInjector,
     display_manager: DisplayBackend,
     software_cursor: SoftwareCursor | None,
-    hint_overlay: HintOverlay | None,
     reconnect_enabled: bool,
 ) -> None:
     """
@@ -430,22 +388,13 @@ def messageLoop_run(
         event_injector: Input injector.
         display_manager: Display backend.
         software_cursor: Optional software cursor.
-        hint_overlay: Optional hint overlay.
         reconnect_enabled: Whether reconnect is enabled.
     """
     while network.connectionStatus_check():
         try:
             messages = network.messages_receive()
             for message in messages:
-                serverMessage_handle(
-                    message,
-                    event_injector,
-                    display_manager,
-                    software_cursor,
-                    hint_overlay,
-                )
-            if hint_overlay is not None:
-                hint_overlay.tick()
+                serverMessage_handle(message, event_injector, display_manager, software_cursor)
             time.sleep(settings.RECONNECT_CHECK_INTERVAL)
         except ConnectionError as e:
             logger.error(f"Connection error: {e}")

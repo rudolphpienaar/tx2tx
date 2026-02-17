@@ -143,19 +143,6 @@ class TestMessageBuilder:
         assert msg.msg_type == MessageType.ERROR
         assert msg.payload["error"] == "Connection failed"
 
-    def test_hint_show_message(self):
-        """Test HINT_SHOW message creation."""
-        msg = MessageBuilder.hintShowMessage_create(label="2", timeout_ms=800)
-        assert msg.msg_type == MessageType.HINT_SHOW
-        assert msg.payload["label"] == "2"
-        assert msg.payload["timeout_ms"] == 800
-
-    def test_hint_hide_message(self):
-        """Test HINT_HIDE message creation."""
-        msg = MessageBuilder.hintHideMessage_create()
-        assert msg.msg_type == MessageType.HINT_HIDE
-        assert msg.payload == {}
-
 
 class TestMessageParser:
     """Test MessageParser extracts correct data"""

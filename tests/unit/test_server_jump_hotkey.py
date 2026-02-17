@@ -95,7 +95,7 @@ class TestJumpHotkeyEventsProcess:
             KeyEvent(event_type=EventType.KEY_RELEASE, keycode=0, keysym=0x31, state=0x0),
         ]
 
-        filtered_events, target_context, hint_show, hint_hide = jumpHotkeyEvents_process(
+        filtered_events, target_context = jumpHotkeyEvents_process(
             input_events=events,
             modifier_state=0x4,
             jump_hotkey=config,
@@ -103,8 +103,6 @@ class TestJumpHotkeyEventsProcess:
 
         assert target_context == ScreenContext.WEST
         assert filtered_events == []
-        assert hint_show is True
-        assert hint_hide is True
 
     def test_non_sequence_key_passthrough(self) -> None:
         """
@@ -125,7 +123,7 @@ class TestJumpHotkeyEventsProcess:
         )
         key_event = KeyEvent(event_type=EventType.KEY_PRESS, keycode=0, keysym=0x61, state=0x0)
 
-        filtered_events, target_context, hint_show, hint_hide = jumpHotkeyEvents_process(
+        filtered_events, target_context = jumpHotkeyEvents_process(
             input_events=[key_event],
             modifier_state=0x0,
             jump_hotkey=config,
@@ -133,8 +131,6 @@ class TestJumpHotkeyEventsProcess:
 
         assert target_context is None
         assert filtered_events == [key_event]
-        assert hint_show is False
-        assert hint_hide is False
 
     def test_action_press_without_release_does_not_trigger(self) -> None:
         """
@@ -158,7 +154,7 @@ class TestJumpHotkeyEventsProcess:
             KeyEvent(event_type=EventType.KEY_PRESS, keycode=10, keysym=0x31, state=0x0),
         ]
 
-        filtered_events, target_context, hint_show, hint_hide = jumpHotkeyEvents_process(
+        filtered_events, target_context = jumpHotkeyEvents_process(
             input_events=events,
             modifier_state=0x4,
             jump_hotkey=config,
@@ -166,8 +162,6 @@ class TestJumpHotkeyEventsProcess:
 
         assert target_context is None
         assert filtered_events == []
-        assert hint_show is True
-        assert hint_hide is False
 
     def test_ctrl_slash_control_char_prefix_matches(self) -> None:
         """
@@ -192,7 +186,7 @@ class TestJumpHotkeyEventsProcess:
             KeyEvent(event_type=EventType.KEY_RELEASE, keycode=11, keysym=None, state=0x0),
         ]
 
-        filtered_events, target_context, hint_show, hint_hide = jumpHotkeyEvents_process(
+        filtered_events, target_context = jumpHotkeyEvents_process(
             input_events=events,
             modifier_state=0x4,
             jump_hotkey=config,
@@ -200,8 +194,6 @@ class TestJumpHotkeyEventsProcess:
 
         assert target_context == ScreenContext.EAST
         assert filtered_events == []
-        assert hint_show is True
-        assert hint_hide is True
 
     def test_keycode_fallback_matches_when_keysym_missing(self) -> None:
         """
@@ -226,7 +218,7 @@ class TestJumpHotkeyEventsProcess:
             KeyEvent(event_type=EventType.KEY_RELEASE, keycode=10, keysym=None, state=0x0),
         ]
 
-        filtered_events, target_context, hint_show, hint_hide = jumpHotkeyEvents_process(
+        filtered_events, target_context = jumpHotkeyEvents_process(
             input_events=events,
             modifier_state=0x4,
             jump_hotkey=config,
@@ -234,5 +226,3 @@ class TestJumpHotkeyEventsProcess:
 
         assert target_context == ScreenContext.WEST
         assert filtered_events == []
-        assert hint_show is True
-        assert hint_hide is True
