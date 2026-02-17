@@ -311,7 +311,7 @@ class ServerNetwork:
             client_name: Configured client name.
 
         Returns:
-            Matching client connection, inferred sole client, or None.
+            Matching client connection or None.
         """
         matched_clients: list[ClientConnection] = [
             client for client in self.clients if client.name == client_name
@@ -325,26 +325,6 @@ class ServerNetwork:
                 client_name,
                 selected_client.address,
             )
-            return selected_client
-
-        # Single-client fallback: if only one connection exists, route to it.
-        # When unnamed, infer the configured name so future lookups are stable.
-        if len(self.clients) == 1:
-            selected_client = self.clients[0]
-            if selected_client.name is None:
-                selected_client.name = client_name
-                logger.warning(
-                    "Inferring client name '%s' for sole connection %s",
-                    client_name,
-                    selected_client.address,
-                )
-            else:
-                logger.warning(
-                    "Configured client '%s' not found; routing to sole client %s (name=%s)",
-                    client_name,
-                    selected_client.address,
-                    selected_client.name,
-                )
             return selected_client
 
         return None
