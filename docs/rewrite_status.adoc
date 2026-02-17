@@ -1,0 +1,53 @@
+= tx2tx Rewrite Status
+
+== Checkpoints
+
+[cols="1,3,2,2,2", options="header"]
+|===
+| Phase | Checkpoint | Status | Owner | Date
+
+| P0
+| Baseline scenarios documented and runnable
+| pending
+| unassigned
+| -
+
+| P1
+| Runtime decomposed into telemetry/context/dispatch/ownership modules (no behavior delta)
+| pending
+| unassigned
+| -
+
+| P2
+| Epoch tagging + queue barriers integrated with tests
+| pending
+| unassigned
+| -
+
+| P3
+| Transactional transition engine with rollback tests
+| pending
+| unassigned
+| -
+
+| P4
+| Deterministic context-derived routing with multi-client soak pass
+| pending
+| unassigned
+| -
+
+| P5
+| Drift elimination pass complete with long-run acceptance
+| pending
+| unassigned
+| -
+|===
+
+== Current Focus
+
+- Phase: `P0`
+- Next checkpoint: `Baseline scenarios documented and runnable`
+
+== Notes
+
+- This file is the restart-safe single source of progress state.

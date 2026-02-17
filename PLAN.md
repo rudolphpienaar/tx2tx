@@ -1,5 +1,10 @@
 # Resumption State & Next Steps (as of 2026-01-16)
 
+IMPORTANT: This file is legacy and partially stale.
+Authoritative rewrite planning now lives in:
+- `docs/rewrite_plan.adoc`
+- `docs/rewrite_status.adoc`
+
 This document tracks the development plan. The section below outlines the current status to allow for asynchronous work.
 
 ## 1. CURRENT ISSUES UNDER INVESTIGATION

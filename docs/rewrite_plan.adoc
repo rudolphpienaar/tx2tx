@@ -1,0 +1,202 @@
+= tx2tx Foundational Rewrite Plan
+
+== Goal
+
+Stabilize `tx2tx` by replacing the current drift-prone mixed control flow with a deterministic architecture where:
+
+- Telemetry from CENTER-attached devices is always ground truth.
+- Context/routing decisions are explicit and transactional.
+- Transition boundaries cannot leak stale events across contexts.
+
+This plan is authoritative for rewrite work and is designed to survive agent restarts.
+
+== Non-Goals
+
+- Feature expansion during rewrite (new UX features are deferred).
+- Large protocol additions unless required by architecture.
+- Tuning-by-threshold as primary fix mechanism.
+
+== Architectural Contract (Must Hold)
+
+=== 1. Single Telemetry Truth
+
+- A telemetry pipeline captures raw keyboard/mouse events from CENTER-attached devices.
+- Telemetry records are immutable once captured.
+- Each record has a monotonic sequence and timestamp.
+
+=== 2. Context State Machine Is Separate
+
+- Context machine consumes telemetry and explicit control events.
+- Context machine does not mutate telemetry.
+- Context machine outputs only routing state (`CENTER`, `WEST`, `EAST`, `NORTH`, `SOUTH`) and transition intents.
+
+=== 3. Epoch Barrier
+
+- Every context transition increments `focus_epoch`.
+- All outbound dispatch checks `event.epoch == current_epoch`.
+- Queue barrier on epoch change drops stale pre-epoch events.
+
+=== 4. Transactional Transition
+
+Transition to REMOTE follows:
+
+1. `PREPARE`: determine target context/client.
+2. `ACQUIRE`: attempt keyboard/pointer ownership.
+3. `VERIFY`: required device ownership and target connectivity.
+4. `COMMIT`: switch context + epoch and begin forwarding.
+5. On any failure: rollback to `CENTER` and clear pending state.
+
+No partial context switches.
+
+=== 5. Routing Source of Truth
+
+- Dispatch target is derived from current context map at send time.
+- No sticky global target cache may override context resolution.
+
+=== 6. Pointer Authority
+
+- One authority drives crossing decisions in a session mode.
+- Any auxiliary pointer source is advisory, never authoritative for transition.
+
+== Rewrite Workstreams
+
+=== Workstream A: Core Runtime Decomposition
+
+Split runtime into explicit modules:
+
+- `telemetry/`: capture, sequencing, queueing.
+- `context/`: state machine + transition policy.
+- `dispatch/`: transform + send/inject.
+- `ownership/`: grab/ungrab/verify contract.
+
+Acceptance:
+
+- No cross-module mutation of hidden globals.
+- Module tests enforce contract boundaries.
+
+=== Workstream B: Epoch + Queue Discipline
+
+- Add `focus_epoch` to server state and event records.
+- Add queue barriers on transitions.
+- Add stale-event rejection metrics/logging.
+
+Acceptance:
+
+- Transition tests prove pre-transition key/mouse events cannot dispatch after epoch switch.
+
+=== Workstream C: Transition Transaction Engine
+
+- Introduce transition transaction object with explicit states.
+- Centralize rollback path to one function.
+- Explicit failure reasons and counters.
+
+Acceptance:
+
+- Failure injection tests for each transaction stage pass.
+
+=== Workstream D: Deterministic Routing
+
+- Resolve client target from context at dispatch time.
+- Remove or demote mutable target cache to telemetry/debug only.
+
+Acceptance:
+
+- Multi-client EAST<->WEST stress tests keep keyboard/mouse target aligned.
+
+=== Workstream E: Observability
+
+Add stable structured log tags:
+
+- `[EPOCH]`
+- `[TRANSACT]`
+- `[OWNERSHIP]`
+- `[ROUTE]`
+- `[QUEUE]`
+
+Acceptance:
+
+- Every transition can be reconstructed from logs without ambiguity.
+
+== Delivery Phases
+
+=== Phase 0: Freeze and Baseline
+
+- Lock feature work.
+- Capture current known-good/known-bad scenarios.
+- Preserve reproducible scripts for:
+  - east/west transitions,
+  - long-run drift,
+  - keyboard misrouting.
+
+Exit Criteria:
+
+- Baseline reproductions documented and runnable.
+
+=== Phase 1: Skeleton Refactor (No Behavior Change)
+
+- Extract modules behind existing runtime behavior.
+- Keep old behavior, add tests around module seams.
+
+Exit Criteria:
+
+- Existing tests pass.
+- No net behavior delta in smoke tests.
+
+=== Phase 2: Epoch and Queue Barriers
+
+- Introduce epoch tagging and queue flush on transition.
+
+Exit Criteria:
+
+- Cross-epoch leakage tests pass.
+
+=== Phase 3: Transactional Transitions
+
+- Enforce prepare/acquire/verify/commit pipeline.
+
+Exit Criteria:
+
+- Forced failure paths always rollback to CENTER.
+
+=== Phase 4: Routing Hardening
+
+- Context-derived routing only.
+- Multi-client soak and rapid-switch tests.
+
+Exit Criteria:
+
+- No wrong-target keyboard during soak.
+
+=== Phase 5: Drift Elimination Pass
+
+- Pointer authority hardening and drift-specific fixes in new architecture.
+
+Exit Criteria:
+
+- Long-run drift scenario passes acceptance thresholds.
+
+== Acceptance Test Matrix (Required)
+
+- Single-client CENTER<->EAST with sustained typing.
+- Dual-client EAST<->WEST rapid alternation (mouse + keyboard).
+- Long-run (>=30 min) drift test with periodic transitions.
+- Failure injection: keyboard grab fail, target disconnect mid-transition.
+- Recovery: panic key, forced revert, reconnect.
+
+== Restart-Safe Execution Rules
+
+For every phase:
+
+1. Update this document section `Progress Log`.
+2. Update `docs/rewrite_status.adoc` checkpoint table.
+3. Land atomic commit series tagged by phase (`rewrite-p1-*`, `rewrite-p2-*`).
+4. Do not start next phase until exit criteria are met and recorded.
+
+If an agent restarts:
+
+- Read `docs/rewrite_plan.adoc` and `docs/rewrite_status.adoc` first.
+- Resume only from the latest incomplete checkpoint.
+
+== Progress Log
+
+- 2026-02-17: Plan established. No rewrite code started yet.
