@@ -38,6 +38,8 @@ from tx2tx.server.runtime_loop import JumpHotkeyConfigProtocol
 from tx2tx.server.state import RuntimeStateProtocol
 from tx2tx.x11.pointer import PointerTracker
 
+_REMOTE_RETURN_GUARD_SECONDS: float = 0.6
+
 __all__ = [
     "TransitionCallbacks",
     "centerContext_process",
@@ -285,6 +287,7 @@ def _parkingPositionFromContext_get(
     target_context: ScreenContext,
     position: Position,
     screen_geometry: Screen,
+    center_parking_enabled: bool = False,
 ) -> Position:
     """
     Resolve parking position for explicit target context.
@@ -296,10 +299,17 @@ def _parkingPositionFromContext_get(
             Current pointer position.
         screen_geometry:
             Local screen geometry.
+        center_parking_enabled:
+            Whether to park at local screen center instead of context seam.
 
     Returns:
         Parking position for immediate REMOTE context entry.
     """
+    if center_parking_enabled:
+        return Position(
+            x=screen_geometry.width // 2,
+            y=screen_geometry.height // 2,
+        )
     if target_context == ScreenContext.WEST:
         return Position(x=screen_geometry.width - 30, y=position.y)
     if target_context == ScreenContext.EAST:
@@ -319,6 +329,7 @@ def remoteContextEnter_process(
     context_to_client: dict[ScreenContext, str],
     server_state: RuntimeStateProtocol,
     logger: LoggerProtocol,
+    center_parking_enabled: bool = False,
 ) -> bool:
     """
     Transition from CENTER into specific REMOTE context.
@@ -342,6 +353,8 @@ def remoteContextEnter_process(
             Mutable server state singleton.
         logger:
             Runtime logger.
+        center_parking_enabled:
+            Whether to park pointer at local screen center on entry.
 
     Returns:
         `True` when transition succeeds, otherwise `False`.
@@ -359,7 +372,12 @@ def remoteContextEnter_process(
         return False
 
     target_client_name: str = resolved_target[0]
-    warp_pos: Position = _parkingPositionFromContext_get(target_context, position, screen_geometry)
+    warp_pos: Position = _parkingPositionFromContext_get(
+        target_context=target_context,
+        position=position,
+        screen_geometry=screen_geometry,
+        center_parking_enabled=center_parking_enabled,
+    )
 
     server_state.context = target_context
     server_state.active_remote_client_name = target_client_name
@@ -452,6 +470,7 @@ def jumpHotkeyAction_apply(
         context_to_client=context_to_client,
         server_state=server_state,
         logger=logger,
+        center_parking_enabled=True,
     )
 
 
@@ -608,6 +627,7 @@ def _transitionEnter_attempt(
             context_to_client=context_to_client,
             server_state=server_state,
             logger=logger,
+            center_parking_enabled=False,
         )
         if not transition_success:
             return
@@ -1116,6 +1136,7 @@ def remoteContext_process(
         screen_geometry=screen_geometry,
         velocity=velocity,
         velocity_threshold=config.server.velocity_threshold,
+        remote_switch_age_seconds=(time.time() - server_state.last_remote_switch_time),
     ):
         remoteReturn_process(
             network=network,
@@ -1288,6 +1309,7 @@ def _remoteReturnTriggered_check(
     screen_geometry: Screen,
     velocity: float,
     velocity_threshold: float,
+    remote_switch_age_seconds: float,
 ) -> bool:
     """
     Evaluate whether REMOTE->CENTER return boundary and velocity are satisfied.
@@ -1303,10 +1325,14 @@ def _remoteReturnTriggered_check(
             Current pointer velocity.
         velocity_threshold:
             Configured threshold for edge resistance.
+        remote_switch_age_seconds:
+            Elapsed seconds since entering current REMOTE context.
 
     Returns:
         `True` when return conditions are satisfied.
     """
+    if remote_switch_age_seconds < _REMOTE_RETURN_GUARD_SECONDS:
+        return False
     at_return_boundary: bool = remoteReturnBoundary_check(context, position, screen_geometry)
     if not at_return_boundary:
         return False
