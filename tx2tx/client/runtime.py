@@ -1,376 +1,181 @@
-"""tx2tx client main entry point"""
+"""
+Client runtime compatibility API.
+
+This module preserves legacy import symbols while delegating implementation
+to focused client modules.
+"""
+
+from __future__ import annotations
 
 import argparse
 import logging
-import sys
-import time
-from typing import Optional
 
-from tx2tx import __version__
-from tx2tx.client.bootstrap import (
-    backendOptions_resolve,
-    clientSession_run,
-    configWithSettings_load,
-    displayConnection_establish,
-    loggingWithConfig_setup,
-    serverAddressWithConfig_parse,
-    softwareCursor_create,
-)
+from tx2tx.client.client_cli import arguments_parse as _arguments_parse
+from tx2tx.client.client_cli import serverAddress_parse as _serverAddress_parse
+from tx2tx.client.client_dispatch import keyMessage_handle as _keyMessage_handle
+from tx2tx.client.client_dispatch import mouseEventForInjection_build as _mouseEventForInjection_build
+from tx2tx.client.client_dispatch import mouseMessage_handle as _mouseMessage_handle
+from tx2tx.client.client_dispatch import serverMessage_handle as _serverMessage_handle
+from tx2tx.client.client_logging import logging_setup as _logging_setup
+from tx2tx.client.client_runtime_coordinator import ClientRunCallbacks
+from tx2tx.client.client_runtime_coordinator import client_run as _client_run
 from tx2tx.client.network import ClientNetwork
-from tx2tx.common.runtime_models import ClientBackendOptions
-from tx2tx.common.settings import settings
-from tx2tx.common.types import EventType, MouseEvent
+from tx2tx.common.types import MouseEvent
 from tx2tx.input.backend import DisplayBackend, InputInjector
-from tx2tx.input.factory import clientBackend_create
-from tx2tx.protocol.message import Message, MessageParser, MessageType
+from tx2tx.protocol.message import Message
+from tx2tx.client.client_runtime_coordinator import (
+    messageLoopWithComponents_run as _messageLoopWithComponents_run,
+)
 from tx2tx.x11.software_cursor import SoftwareCursor
 
 logger = logging.getLogger(__name__)
 
+__all__ = [
+    "arguments_parse",
+    "serverAddress_parse",
+    "logging_setup",
+    "serverMessage_handle",
+    "mouseMessage_handle",
+    "mouseEventForInjection_build",
+    "keyMessage_handle",
+    "client_run",
+    "messageLoop_run",
+    "ClientRunCallbacks",
+]
+
 
 def arguments_parse() -> argparse.Namespace:
     """
-    Parse command line arguments
-    
-    Args:
-        None.
-    
+    Compatibility wrapper for client CLI argument parsing.
+
     Returns:
-        Parsed CLI arguments.
+        Parsed client CLI namespace.
     """
-    parser = argparse.ArgumentParser(description="tx2tx client - receives and injects input events")
-
-    parser.add_argument("--version", action="version", version=f"tx2tx {__version__}")
-
-    parser.add_argument(
-        "--config",
-        type=str,
-        default=None,
-        help="Path to config file (default: search standard locations)",
-    )
-
-    parser.add_argument(
-        "--server",
-        type=str,
-        default=None,
-        help="Server address to connect to (overrides config, e.g., 192.168.1.100:24800)",
-    )
-
-    parser.add_argument(
-        "--display", type=str, default=None, help="X11 display name (overrides config)"
-    )
-
-    parser.add_argument(
-        "--backend",
-        type=str,
-        default=None,
-        help="Input backend to use (e.g., x11, wayland). Defaults to x11.",
-    )
-
-    parser.add_argument(
-        "--wayland-helper",
-        type=str,
-        default=None,
-        help="Wayland helper command for privileged input operations.",
-    )
-
-    parser.add_argument(
-        "--wayland-start-x",
-        type=int,
-        default=None,
-        help="Wayland initial cursor X override (pixels).",
-    )
-
-    parser.add_argument(
-        "--wayland-start-y",
-        type=int,
-        default=None,
-        help="Wayland initial cursor Y override (pixels).",
-    )
-
-    parser.add_argument(
-        "--name",
-        type=str,
-        default=None,
-        help="Client name for logging and identification (e.g., 'phomux')",
-    )
-
-    parser.add_argument(
-        "--software-cursor",
-        action="store_true",
-        help="Enable software rendered cursor (useful if hardware cursor is invisible)",
-    )
-
-    return parser.parse_args()
+    return _arguments_parse()
 
 
 def serverAddress_parse(server: str) -> tuple[str, int]:
     """
-    Parse server address into host and port
-    
+    Compatibility wrapper for server-address parsing.
+
     Args:
-        server: Server address string (host:port)
-    
+        server:
+            Server endpoint as `host:port`.
+
     Returns:
-        Tuple of (host, port)
-    
-    Raises:
-        ValueError: If address format is invalid
+        Tuple of `(host, port)`.
     """
-    if ":" not in server:
-        raise ValueError("Server address must be in format host:port")
-
-    host, port_str = server.rsplit(":", 1)
-    try:
-        port = int(port_str)
-    except ValueError:
-        raise ValueError(f"Invalid port number: {port_str}")
-
-    return host, port
+    return _serverAddress_parse(server)
 
 
-def logging_setup(level: str, log_format: str, log_file: Optional[str]) -> None:
+def logging_setup(level: str, log_format: str, log_file: str | None) -> None:
     """
-    Setup logging configuration with version injection
-    
+    Compatibility wrapper for client logging setup.
+
     Args:
-        level: level value.
-        log_format: log_format value.
-        log_file: log_file value.
-    
-    Returns:
-        Result value.
+        level:
+            Log level name.
+        log_format:
+            Base logging format string.
+        log_file:
+            Optional log-file path.
     """
-    handlers: list[logging.Handler] = [logging.StreamHandler()]
-
-    if log_file:
-        handlers.append(logging.FileHandler(log_file))
-
-    # Inject version and commit hash into log format after timestamp
-    # Format: "%(asctime)s [v2.0.3.c0f8] - %(name)s - %(levelname)s - %(message)s"
-    enhanced_format = log_format.replace("%(asctime)s", f"%(asctime)s [v{__version__}]")
-
-    logging.basicConfig(
-        level=getattr(logging, level.upper()), format=enhanced_format, handlers=handlers
-    )
+    _logging_setup(level, log_format, log_file)
 
 
 def serverMessage_handle(
     message: Message,
-    injector: Optional[InputInjector] = None,
-    display_manager: Optional[DisplayBackend] = None,
-    software_cursor: Optional[SoftwareCursor] = None,
+    injector: InputInjector | None = None,
+    display_manager: DisplayBackend | None = None,
+    software_cursor: SoftwareCursor | None = None,
 ) -> None:
     """
-    Handle message received from server
-    
+    Compatibility wrapper for server message dispatch.
+
     Args:
-        message: message value.
-        injector: injector value.
-        display_manager: display_manager value.
-        software_cursor: software_cursor value.
-    
-    Returns:
-        Result value.
+        message:
+            Incoming protocol message.
+        injector:
+            Optional input injector.
+        display_manager:
+            Optional display backend.
+        software_cursor:
+            Optional software cursor.
     """
-    logger.info(f"Received {message.msg_type.value} from server")
-
-    if message.msg_type == MessageType.HELLO:
-        logger.info(f"Server handshake: {message.payload}")
-
-    elif message.msg_type == MessageType.SCREEN_INFO:
-        logger.info(f"Server screen info: {message.payload}")
-
-    elif message.msg_type == MessageType.SCREEN_LEAVE:
-        # Deprecated: Server now handles state. Just log it.
-        logger.debug("Received SCREEN_LEAVE (informational)")
-
-    elif message.msg_type == MessageType.SCREEN_ENTER:
-        # Deprecated: Server now handles state. Just log it.
-        logger.debug("Received SCREEN_ENTER (informational)")
-
-    elif message.msg_type == MessageType.MOUSE_EVENT:
-        mouseMessage_handle(message, injector, display_manager, software_cursor)
-
-    elif message.msg_type == MessageType.KEY_EVENT:
-        keyMessage_handle(message, injector)
-
-    else:
-        logger.debug(f"Message: {message.msg_type.value}")
+    _serverMessage_handle(message, injector, display_manager, software_cursor)
 
 
 def mouseMessage_handle(
     message: Message,
-    injector: Optional[InputInjector],
-    display_manager: Optional[DisplayBackend],
-    software_cursor: Optional[SoftwareCursor],
+    injector: InputInjector | None,
+    display_manager: DisplayBackend | None,
+    software_cursor: SoftwareCursor | None,
 ) -> None:
     """
-    Handle incoming mouse event message.
+    Compatibility wrapper for mouse message handling.
 
     Args:
-        message: Protocol message.
-        injector: Input injector instance.
-        display_manager: Display backend instance.
-        software_cursor: Optional software cursor.
+        message:
+            Incoming protocol message.
+        injector:
+            Optional input injector.
+        display_manager:
+            Optional display backend.
+        software_cursor:
+            Optional software cursor.
     """
-    if injector is None or display_manager is None:
-        logger.warning("Received mouse event but injector or display_manager not available")
-        return
-
-    mouse_event: MouseEvent = MessageParser.mouseEvent_parse(message)
-    actual_event: MouseEvent | None = mouseEventForInjection_build(
-        mouse_event, display_manager, software_cursor
-    )
-    if actual_event is None:
-        return
-
-    try:
-        injector.mouseEvent_inject(actual_event)
-    except ValueError as e:
-        logger.warning(f"Failed to inject mouse event: {e}")
-        return
-
-    if actual_event.event_type == EventType.MOUSE_MOVE and actual_event.position is not None:
-        logger.debug(f"Cursor at ({actual_event.position.x}, {actual_event.position.y})")
-        return
-    logger.info(f"Mouse {actual_event.event_type.value}: button={actual_event.button}")
+    _mouseMessage_handle(message, injector, display_manager, software_cursor)
 
 
 def mouseEventForInjection_build(
     mouse_event: MouseEvent,
     display_manager: DisplayBackend,
-    software_cursor: Optional[SoftwareCursor],
+    software_cursor: SoftwareCursor | None,
 ) -> MouseEvent | None:
     """
-    Convert incoming protocol mouse event into injection-ready event.
+    Compatibility wrapper for mouse event normalization policy.
 
     Args:
-        mouse_event: Parsed protocol mouse event.
-        display_manager: Display backend instance.
-        software_cursor: Optional software cursor.
+        mouse_event:
+            Incoming protocol mouse event.
+        display_manager:
+            Local display backend.
+        software_cursor:
+            Optional software cursor.
 
     Returns:
-        Mouse event suitable for injector, or None when event is consume-only.
+        Injection-ready mouse event, or `None`.
     """
-    if mouse_event.normalized_point is None:
-        return mouse_event
-
-    norm_point = mouse_event.normalized_point
-    if norm_point.x < 0 or norm_point.y < 0:
-        if software_cursor is not None:
-            software_cursor.hide()
-        display_manager.cursor_hide()
-        logger.info("Cursor hidden")
-        return None
-
-    client_screen = display_manager.screenGeometry_get()
-    pixel_position = client_screen.coordinates_denormalize(norm_point)
-    if software_cursor is not None:
-        software_cursor.show()
-        software_cursor.move(pixel_position.x, pixel_position.y)
-    display_manager.cursor_show()
-    return MouseEvent(
-        event_type=mouse_event.event_type,
-        position=pixel_position,
-        button=mouse_event.button,
-    )
+    return _mouseEventForInjection_build(mouse_event, display_manager, software_cursor)
 
 
-def keyMessage_handle(message: Message, injector: Optional[InputInjector]) -> None:
+def keyMessage_handle(message: Message, injector: InputInjector | None) -> None:
     """
-    Handle incoming key event message.
+    Compatibility wrapper for key message handling.
 
     Args:
-        message: Protocol message.
-        injector: Input injector instance.
+        message:
+            Incoming protocol message.
+        injector:
+            Optional input injector.
     """
-    if injector is None:
-        logger.warning("Received key event but injector not available")
-        return
-
-    key_event = MessageParser.keyEvent_parse(message)
-    injector.keyEvent_inject(key_event)
-    if key_event.keysym is not None:
-        logger.info(
-            f"Key {key_event.event_type.value}: keycode={key_event.keycode} "
-            f"keysym={key_event.keysym:#x}"
-        )
-        return
-    logger.info(f"Key {key_event.event_type.value}: keycode={key_event.keycode}")
+    _keyMessage_handle(message, injector)
 
 
 def client_run(args: argparse.Namespace) -> None:
     """
-    Run tx2tx client
-    
+    Compatibility wrapper for client runtime execution.
+
     Args:
-        args: args value.
-    
-    Returns:
-        Result value.
+        args:
+            Parsed client CLI namespace.
     """
-    config = configWithSettings_load(args)
-    loggingWithConfig_setup(args, config, logging_setup)
-    host, port = serverAddressWithConfig_parse(config, serverAddress_parse)
-
-    logger.info(f"tx2tx client v{__version__}")
-    if args.name:
-        logger.info(f"Client name: {args.name}")
-    logger.info(f"Connecting to {host}:{port}")
-    logger.info(f"Display: {config.client.display or '$DISPLAY'}")
-
-    backend_options: ClientBackendOptions = backendOptions_resolve(args, config)
-    backend_name: str = backend_options.backend_name
-    wayland_helper: str | None = backend_options.wayland_helper
-    logger.info(f"Backend: {backend_name}")
-
-    display_manager, event_injector = clientBackend_create(
-        backend_name=backend_name,
-        display_name=config.client.display,
-        wayland_helper=wayland_helper,
+    callbacks: ClientRunCallbacks = ClientRunCallbacks(
+        serverAddress_parse=serverAddress_parse,
+        logging_setup=logging_setup,
+        serverMessage_handle=serverMessage_handle,
     )
-
-    screen_geometry = displayConnection_establish(display_manager)
-
-    # Verify injection capability is available
-    if not event_injector.injectionReady_check():
-        logger.error("Input injection not available for selected backend")
-        display_manager.connection_close()
-        sys.exit(1)
-
-    logger.info("Input injection ready")
-
-    software_cursor = softwareCursor_create(args, backend_name, display_manager)
-
-    network = ClientNetwork(
-        host=host,
-        port=port,
-        reconnect_enabled=config.client.reconnect.enabled,
-        reconnect_max_attempts=config.client.reconnect.max_attempts,
-        reconnect_delay=config.client.reconnect.delay_seconds,
-    )
-
-    try:
-        clientSession_run(
-            network=network,
-            screen_geometry=screen_geometry,
-            client_name=args.name,
-            message_loop_run_func=messageLoop_run,
-            event_injector=event_injector,
-            display_manager=display_manager,
-            software_cursor=software_cursor,
-            reconnect_enabled=config.client.reconnect.enabled,
-        )
-    except ConnectionError as e:
-        logger.error(f"Failed to connect: {e}")
-        sys.exit(1)
-    except Exception as e:
-        logger.error(f"Client error: {e}", exc_info=True)
-        raise
-    finally:
-        network.connection_close()
-        display_manager.connection_close()
+    _client_run(args=args, callbacks=callbacks, logger=logger)
 
 
 def messageLoop_run(
@@ -381,27 +186,31 @@ def messageLoop_run(
     reconnect_enabled: bool,
 ) -> None:
     """
-    Run main client receive/inject loop.
+    Compatibility wrapper for legacy message-loop signature.
 
     Args:
-        network: Client network transport.
-        event_injector: Input injector.
-        display_manager: Display backend.
-        software_cursor: Optional software cursor.
-        reconnect_enabled: Whether reconnect is enabled.
+        network:
+            Client network transport.
+        event_injector:
+            Input injector.
+        display_manager:
+            Display backend.
+        software_cursor:
+            Optional software cursor.
+        reconnect_enabled:
+            Reconnect policy flag.
     """
-    while network.connectionStatus_check():
-        try:
-            messages = network.messages_receive()
-            for message in messages:
-                serverMessage_handle(message, event_injector, display_manager, software_cursor)
-            time.sleep(settings.RECONNECT_CHECK_INTERVAL)
-        except ConnectionError as e:
-            logger.error(f"Connection error: {e}")
-            if not reconnect_enabled:
-                break
-            if network.reconnection_attempt():
-                logger.info("Reconnected successfully")
-                continue
-            logger.error("Reconnection failed, exiting")
-            break
+    callbacks: ClientRunCallbacks = ClientRunCallbacks(
+        serverAddress_parse=serverAddress_parse,
+        logging_setup=logging_setup,
+        serverMessage_handle=serverMessage_handle,
+    )
+    _messageLoopWithComponents_run(
+        network=network,
+        event_injector=event_injector,
+        display_manager=display_manager,
+        software_cursor=software_cursor,
+        reconnect_enabled=reconnect_enabled,
+        callbacks=callbacks,
+        logger=logger,
+    )

@@ -63,6 +63,10 @@ Runtime logic modules:
 - `tx2tx/server/server_logging.py`
 - `tx2tx/server/bootstrap.py`
 - `tx2tx/client/runtime.py`
+- `tx2tx/client/client_cli.py`
+- `tx2tx/client/client_logging.py`
+- `tx2tx/client/client_dispatch.py`
+- `tx2tx/client/client_runtime_coordinator.py`
 - `tx2tx/client/bootstrap.py`
 
 Core supporting modules:

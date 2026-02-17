@@ -6,12 +6,17 @@ The client is the event application endpoint. It does not decide global context;
 
 == 2. Module Structure
 
-The client path is intentionally narrower than the server path.
+The client path is intentionally narrower than the server path, but it now
+follows the same separation-of-concerns pattern used by the refactored server.
 
 [source,text]
 ----
 client/main.py
-  -> client.runtime (loop + handlers)
+  -> client.runtime (compatibility exports only)
+  -> client.client_cli (argument/address policy)
+  -> client.client_logging (logging policy)
+  -> client.client_runtime_coordinator (session lifecycle + loop orchestration)
+  -> client.client_dispatch (message-to-injection policy)
   -> client.network (transport)
   -> backend adapter (x11 or wayland)
 
@@ -25,11 +30,14 @@ shared dependencies:
 
 [source,text]
 ----
+initialize config/logging/backend
 connect -> handshake
 while connected:
-  receive message
-  decode by message type
-  dispatch to injector/display handling
+  receive batch
+  dispatch each message by type
+  inject mouse/key events into local backend
+on disconnect:
+  reconnect policy (if enabled)
 ----
 
 Representative message classes:
