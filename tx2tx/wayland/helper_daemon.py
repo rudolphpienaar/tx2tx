@@ -368,6 +368,13 @@ class InputDeviceManager:
                 self._pointer_state.update_rel(event.value, 0)
             elif event.code == ecodes.REL_Y:
                 self._pointer_state.update_rel(0, event.value)
+            elif event.code in (
+                ecodes.REL_WHEEL,
+                ecodes.REL_HWHEEL,
+                ecodes.REL_WHEEL_HI_RES,
+                ecodes.REL_HWHEEL_HI_RES,
+            ):
+                self._wheelRelativeEvent_record(device=device, code=event.code, value=event.value)
             return
 
         if event.type == ecodes.EV_ABS:
@@ -470,6 +477,80 @@ class InputDeviceManager:
         """
         self._event_queue.event_add(payload)
 
+    def _wheelRelativeEvent_record(self, device: InputDevice, code: int, value: int) -> None:
+        """
+        Convert relative wheel motion into synthetic button press/release events.
+
+        Args:
+            device: Input device emitting wheel event.
+            code: Relative axis code (vertical/horizontal wheel).
+            value: Relative wheel delta.
+        """
+        if value == 0:
+            return
+
+        button: int = self._wheelButtonFromRelEvent_resolve(code=code, value=value)
+        if button <= 0:
+            return
+
+        step_count: int = self._wheelStepCountFromRelEvent_resolve(code=code, value=value)
+        x: int
+        y: int
+        x, y = self._pointer_state.position_get()
+        device_path: str = self._registry.pathForFd_get(device.fd)
+
+        for _ in range(step_count):
+            press_payload: dict[str, Any] = {
+                "event_type": EventType.MOUSE_BUTTON_PRESS.value,
+                "x": x,
+                "y": y,
+                "button": button,
+                "source_device": device_path,
+            }
+            release_payload: dict[str, Any] = {
+                "event_type": EventType.MOUSE_BUTTON_RELEASE.value,
+                "x": x,
+                "y": y,
+                "button": button,
+                "source_device": device_path,
+            }
+            self._event_record(press_payload)
+            self._event_record(release_payload)
+
+    def _wheelButtonFromRelEvent_resolve(self, code: int, value: int) -> int:
+        """
+        Resolve X11-style wheel button number from relative wheel event.
+
+        Args:
+            code: Relative axis code.
+            value: Relative wheel delta.
+
+        Returns:
+            Wheel button number, or `0` when unsupported.
+        """
+        if code in (ecodes.REL_WHEEL, ecodes.REL_WHEEL_HI_RES):
+            return 4 if value > 0 else 5
+        if code in (ecodes.REL_HWHEEL, ecodes.REL_HWHEEL_HI_RES):
+            return 6 if value < 0 else 7
+        return 0
+
+    def _wheelStepCountFromRelEvent_resolve(self, code: int, value: int) -> int:
+        """
+        Resolve wheel step count from relative wheel event delta.
+
+        Args:
+            code: Relative axis code.
+            value: Relative wheel delta.
+
+        Returns:
+            Number of synthetic wheel clicks to emit.
+        """
+        abs_value: int = abs(value)
+        if code in (ecodes.REL_WHEEL_HI_RES, ecodes.REL_HWHEEL_HI_RES):
+            # Hi-res wheels often use 120 units per detent.
+            return max(1, abs_value // 120)
+        return max(1, abs_value)
+
     def _button_map(self, code: int) -> int:
         """
         Map evdev button codes to X11-style button numbers.
@@ -531,9 +612,30 @@ class UInputManager:
         Inject mouse button event.
 
         Args:
-            button: Button number (1=left, 2=middle, 3=right)
+            button: Button number (1=left, 2=middle, 3=right, 4/5/6/7=wheel).
             pressed: True for press, False for release
         """
+        if button == 4:
+            if pressed:
+                self._mouse.write(ecodes.EV_REL, ecodes.REL_WHEEL, 1)
+                self._mouse.syn()
+            return
+        if button == 5:
+            if pressed:
+                self._mouse.write(ecodes.EV_REL, ecodes.REL_WHEEL, -1)
+                self._mouse.syn()
+            return
+        if button == 6:
+            if pressed:
+                self._mouse.write(ecodes.EV_REL, ecodes.REL_HWHEEL, -1)
+                self._mouse.syn()
+            return
+        if button == 7:
+            if pressed:
+                self._mouse.write(ecodes.EV_REL, ecodes.REL_HWHEEL, 1)
+                self._mouse.syn()
+            return
+
         code = {
             1: ecodes.BTN_LEFT,
             2: ecodes.BTN_MIDDLE,
