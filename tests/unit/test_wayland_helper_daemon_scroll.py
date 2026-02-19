@@ -10,6 +10,7 @@ from evdev import ecodes
 
 from tx2tx.common.types import EventType
 from tx2tx.wayland.helper_daemon import InputDeviceManager, UInputManager
+from tx2tx.wayland.helper_daemon import _READ_ERROR_DISABLE_THRESHOLD
 
 
 class _FakeMouseDevice:
@@ -192,3 +193,45 @@ class TestInputDeviceManagerWheelCapture:
             code=ecodes.REL_WHEEL_HI_RES, value=4
         )
         assert detents == 0
+
+
+class TestInputDeviceManagerReadFailureQuarantine:
+    """Tests for flapping-device read-failure handling in helper loop."""
+
+    def test_readFailureHandle_disablesDevice_afterThreshold(self) -> None:
+        """
+        Read failures should disable a device after configured threshold.
+
+        Returns:
+            None.
+        """
+        manager: InputDeviceManager = InputDeviceManager.__new__(InputDeviceManager)
+        manager_any: Any = cast(Any, manager)
+        manager_any._disabled_device_fds = set()
+        manager_any._read_error_count_by_fd = {}
+        fake_device = SimpleNamespace(fd=23)
+
+        for _ in range(_READ_ERROR_DISABLE_THRESHOLD):
+            manager._readFailure_handle(fake_device)
+
+        assert 23 in manager_any._disabled_device_fds
+        assert 23 not in manager_any._read_error_count_by_fd
+
+    def test_activeDevicesGet_filtersDisabledFds(self) -> None:
+        """
+        Active-device list should exclude disabled file descriptors.
+
+        Returns:
+            None.
+        """
+        manager: InputDeviceManager = InputDeviceManager.__new__(InputDeviceManager)
+        manager_any: Any = cast(Any, manager)
+        manager_any._disabled_device_fds = {22}
+        manager_any._read_error_count_by_fd = {}
+        manager_any._registry = SimpleNamespace(
+            devices_all=lambda: [SimpleNamespace(fd=21), SimpleNamespace(fd=22)]
+        )
+
+        active_devices = manager._activeDevices_get()
+        active_fds = {device.fd for device in active_devices}
+        assert active_fds == {21}

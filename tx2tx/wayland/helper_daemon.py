@@ -6,6 +6,7 @@ import json
 import select
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -16,6 +17,8 @@ from tx2tx.wayland.device_components import DeviceRegistry, GrabRefCounter, Inpu
 
 _WHEEL_HI_RES_STEP_UNITS: int = 120
 _WHEEL_HI_RES_JITTER_UNITS: int = 8
+_READ_ERROR_DISABLE_THRESHOLD: int = 8
+_READ_ERROR_BACKOFF_SECONDS: float = 0.002
 
 
 @dataclass
@@ -150,6 +153,8 @@ class InputDeviceManager:
         self._grab_refcounter: GrabRefCounter = GrabRefCounter(self._registry)
         self._wheel_vertical_accum: int = 0
         self._wheel_horizontal_accum: int = 0
+        self._disabled_device_fds: set[int] = set()
+        self._read_error_count_by_fd: dict[int, int] = {}
 
         self._reader = threading.Thread(target=self._events_loop, daemon=True)
         self._reader.start()
@@ -344,7 +349,7 @@ class InputDeviceManager:
     def _events_loop(self) -> None:
         """Background loop to read input events."""
         while True:
-            devices: list[InputDevice] = self._registry.devices_all()
+            devices: list[InputDevice] = self._activeDevices_get()
             if not devices:
                 return
             rlist, _, _ = select.select(devices, [], [], 0.1)
@@ -352,8 +357,40 @@ class InputDeviceManager:
                 try:
                     for event in dev.read():
                         self._event_handle(dev, event)
+                    self._read_error_count_by_fd.pop(dev.fd, None)
                 except Exception:
+                    self._readFailure_handle(dev)
                     continue
+
+    def _activeDevices_get(self) -> list[InputDevice]:
+        """
+        Return currently active (non-disabled) input devices.
+
+        Returns:
+            Active device list.
+        """
+        devices: list[InputDevice] = self._registry.devices_all()
+        return [device for device in devices if device.fd not in self._disabled_device_fds]
+
+    def _readFailure_handle(self, device: InputDevice) -> None:
+        """
+        Record one device read failure and disable flapping devices.
+
+        A persistently failing file descriptor can become permanently readable
+        and trigger a tight retry loop. This guard bounds retry churn and
+        removes the device from the polling set after repeated failures.
+
+        Args:
+            device: Device whose read failed.
+        """
+        fd: int = device.fd
+        failure_count: int = self._read_error_count_by_fd.get(fd, 0) + 1
+        self._read_error_count_by_fd[fd] = failure_count
+        if failure_count < _READ_ERROR_DISABLE_THRESHOLD:
+            time.sleep(_READ_ERROR_BACKOFF_SECONDS)
+            return
+        self._disabled_device_fds.add(fd)
+        self._read_error_count_by_fd.pop(fd, None)
 
     def _event_handle(self, device: InputDevice, event) -> None:
         """
