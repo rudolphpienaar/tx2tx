@@ -27,6 +27,7 @@ from tx2tx.server.network import ClientConnection, ServerNetwork
 from tx2tx.x11.pointer import PointerTracker
 
 _LAST_POS_LOG_TIME: float = 0.0
+_MIN_POLL_INTERVAL_SECONDS: float = 0.005
 
 
 class JumpHotkeyConfigProtocol(Protocol):
@@ -569,4 +570,8 @@ def loopDelay_sleep(deps: PollingLoopDependencies) -> None:
         deps:
             Runtime dependency bundle.
     """
-    time.sleep(deps.config.server.poll_interval_ms / settings.POLL_INTERVAL_DIVISOR)
+    configured_interval_seconds: float = (
+        deps.config.server.poll_interval_ms / settings.POLL_INTERVAL_DIVISOR
+    )
+    sleep_interval_seconds: float = max(_MIN_POLL_INTERVAL_SECONDS, configured_interval_seconds)
+    time.sleep(sleep_interval_seconds)

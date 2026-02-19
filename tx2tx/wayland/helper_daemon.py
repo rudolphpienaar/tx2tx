@@ -14,6 +14,9 @@ from evdev import AbsInfo, InputDevice, UInput, ecodes
 from tx2tx.common.types import EventType
 from tx2tx.wayland.device_components import DeviceRegistry, GrabRefCounter, InputEventQueue
 
+_WHEEL_HI_RES_STEP_UNITS: int = 120
+_WHEEL_HI_RES_JITTER_UNITS: int = 8
+
 
 @dataclass
 class InputEventRecord:
@@ -145,6 +148,8 @@ class InputDeviceManager:
         self._event_queue: InputEventQueue = InputEventQueue(max_events=8192)
         self._registry: DeviceRegistry = DeviceRegistry(device_paths)
         self._grab_refcounter: GrabRefCounter = GrabRefCounter(self._registry)
+        self._wheel_vertical_accum: int = 0
+        self._wheel_horizontal_accum: int = 0
 
         self._reader = threading.Thread(target=self._events_loop, daemon=True)
         self._reader.start()
@@ -489,11 +494,16 @@ class InputDeviceManager:
         if value == 0:
             return
 
-        button: int = self._wheelButtonFromRelEvent_resolve(code=code, value=value)
+        detent_count: int = self._wheelDetentsFromRelEvent_resolve(code=code, value=value)
+        if detent_count == 0:
+            return
+
+        step_count: int = abs(detent_count)
+        detent_sign: int = 1 if detent_count > 0 else -1
+        button: int = self._wheelButtonFromDetent_resolve(code=code, detent_sign=detent_sign)
         if button <= 0:
             return
 
-        step_count: int = self._wheelStepCountFromRelEvent_resolve(code=code, value=value)
         x: int
         y: int
         x, y = self._pointer_state.position_get()
@@ -517,39 +527,83 @@ class InputDeviceManager:
             self._event_record(press_payload)
             self._event_record(release_payload)
 
-    def _wheelButtonFromRelEvent_resolve(self, code: int, value: int) -> int:
+    def _wheelButtonFromDetent_resolve(self, code: int, detent_sign: int) -> int:
         """
-        Resolve X11-style wheel button number from relative wheel event.
+        Resolve X11-style wheel button number from wheel detent direction.
 
         Args:
             code: Relative axis code.
-            value: Relative wheel delta.
+            detent_sign: Detent direction (+1 or -1).
 
         Returns:
             Wheel button number, or `0` when unsupported.
         """
         if code in (ecodes.REL_WHEEL, ecodes.REL_WHEEL_HI_RES):
-            return 4 if value > 0 else 5
+            return 4 if detent_sign > 0 else 5
         if code in (ecodes.REL_HWHEEL, ecodes.REL_HWHEEL_HI_RES):
-            return 6 if value < 0 else 7
+            return 7 if detent_sign > 0 else 6
         return 0
 
-    def _wheelStepCountFromRelEvent_resolve(self, code: int, value: int) -> int:
+    def _wheelDetentsFromRelEvent_resolve(self, code: int, value: int) -> int:
         """
-        Resolve wheel step count from relative wheel event delta.
+        Resolve signed wheel detent count from relative wheel event delta.
 
         Args:
             code: Relative axis code.
             value: Relative wheel delta.
 
         Returns:
-            Number of synthetic wheel clicks to emit.
+            Signed detent count (`+/-N`), or `0` when under threshold.
         """
-        abs_value: int = abs(value)
         if code in (ecodes.REL_WHEEL_HI_RES, ecodes.REL_HWHEEL_HI_RES):
-            # Hi-res wheels often use 120 units per detent.
-            return max(1, abs_value // 120)
-        return max(1, abs_value)
+            return self._wheelHiResDetents_resolve(code=code, value=value)
+        return value
+
+    def _wheelHiResDetents_resolve(self, code: int, value: int) -> int:
+        """
+        Resolve signed detents from high-resolution wheel units.
+
+        Args:
+            code: High-resolution relative axis code.
+            value: High-resolution wheel delta.
+
+        Returns:
+            Signed detent count.
+        """
+        if abs(value) < _WHEEL_HI_RES_JITTER_UNITS:
+            return 0
+
+        if code == ecodes.REL_WHEEL_HI_RES:
+            self._wheel_vertical_accum += value
+            return self._wheelDetentsFromAccum_consume(axis="vertical")
+        if code == ecodes.REL_HWHEEL_HI_RES:
+            self._wheel_horizontal_accum += value
+            return self._wheelDetentsFromAccum_consume(axis="horizontal")
+        return 0
+
+    def _wheelDetentsFromAccum_consume(self, axis: str) -> int:
+        """
+        Consume full wheel detents from one hi-res accumulator axis.
+
+        Args:
+            axis: Accumulator axis token (`vertical` or `horizontal`).
+
+        Returns:
+            Signed detent count consumed from accumulator.
+        """
+        accum_value: int = (
+            self._wheel_vertical_accum if axis == "vertical" else self._wheel_horizontal_accum
+        )
+        detents: int = int(accum_value / _WHEEL_HI_RES_STEP_UNITS)
+        if detents == 0:
+            return 0
+
+        residual_value: int = accum_value - (detents * _WHEEL_HI_RES_STEP_UNITS)
+        if axis == "vertical":
+            self._wheel_vertical_accum = residual_value
+        else:
+            self._wheel_horizontal_accum = residual_value
+        return detents
 
     def _button_map(self, code: int) -> int:
         """

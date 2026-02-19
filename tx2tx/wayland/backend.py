@@ -350,6 +350,8 @@ class WaylandInputCapturer(InputCapturer):
             Result value.
         """
         self._display_backend: WaylandDisplayBackend = display_backend
+        self._event_rate_window_start: float = time.monotonic()
+        self._event_rate_window_count: int = 0
 
     def inputEvents_read(self) -> tuple[list[InputEvent], int]:
         """
@@ -362,6 +364,7 @@ class WaylandInputCapturer(InputCapturer):
             Tuple of input events and modifier state.
         """
         raw_events, modifier_state = self._display_backend.helper_get().inputEvents_read()
+        self._eventRateTelemetry_record(len(raw_events))
         events: list[InputEvent] = []
 
         for event in raw_events:
@@ -435,6 +438,32 @@ class WaylandInputCapturer(InputCapturer):
 
         return events, modifier_state
 
+    def _eventRateTelemetry_record(self, raw_event_count: int) -> None:
+        """
+        Record helper event volume and report sustained abnormal rates.
+
+        Args:
+            raw_event_count: Number of raw helper events from one poll.
+
+        Returns:
+            None.
+        """
+        self._event_rate_window_count += raw_event_count
+        now: float = time.monotonic()
+        elapsed_seconds: float = now - self._event_rate_window_start
+        if elapsed_seconds < 30.0:
+            return
+
+        events_per_second: float = self._event_rate_window_count / elapsed_seconds
+        if events_per_second >= 300.0:
+            logger.warning(
+                "[INPUT RATE] High helper event rate: %.1f events/sec over %.1fs",
+                events_per_second,
+                elapsed_seconds,
+            )
+        self._event_rate_window_start = now
+        self._event_rate_window_count = 0
+
 
 class WaylandInputInjector(InputInjector):
     """Input injector using Wayland helper injection."""
@@ -475,7 +504,7 @@ class WaylandInputInjector(InputInjector):
             Result value.
         """
         """Inject a mouse event via helper."""
-        payload = {"event_type": event.event_type.value}
+        payload: dict[str, Any] = {"event_type": event.event_type.value}
         if event.position is not None:
             payload["x"] = event.position.x
             payload["y"] = event.position.y
@@ -494,7 +523,7 @@ class WaylandInputInjector(InputInjector):
             Result value.
         """
         """Inject a key event via helper."""
-        payload = {
+        payload: dict[str, Any] = {
             "event_type": event.event_type.value,
             "keycode": event.keycode,
         }

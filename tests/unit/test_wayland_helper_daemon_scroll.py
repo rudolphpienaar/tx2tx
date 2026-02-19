@@ -83,6 +83,8 @@ class TestInputDeviceManagerWheelCapture:
         manager: InputDeviceManager = InputDeviceManager.__new__(InputDeviceManager)
         manager._pointer_state = _FakePointerState()
         manager._registry = _FakeRegistry()
+        manager._wheel_vertical_accum = 0
+        manager._wheel_horizontal_accum = 0
 
         recorded_events: list[dict[str, object]] = []
 
@@ -108,16 +110,38 @@ class TestInputDeviceManagerWheelCapture:
         assert recorded_events[0]["y"] == 654
         assert recorded_events[0]["source_device"] == "/dev/input/event23"
 
-    def test_hiResWheelDeltaConvertsToMultipleSteps(self) -> None:
+    def test_hiResWheelDeltaAccumulates_untilDetentThreshold(self) -> None:
         """
-        Hi-res wheel delta should convert to detent step count.
+        Hi-res wheel deltas should accumulate and emit only after threshold.
 
         Returns:
             None.
         """
         manager: InputDeviceManager = InputDeviceManager.__new__(InputDeviceManager)
-        step_count: int = manager._wheelStepCountFromRelEvent_resolve(
-            code=ecodes.REL_WHEEL_HI_RES,
-            value=240,
+        manager._wheel_vertical_accum = 0
+        manager._wheel_horizontal_accum = 0
+
+        first_detents: int = manager._wheelDetentsFromRelEvent_resolve(
+            code=ecodes.REL_WHEEL_HI_RES, value=60
         )
-        assert step_count == 2
+        second_detents: int = manager._wheelDetentsFromRelEvent_resolve(
+            code=ecodes.REL_WHEEL_HI_RES, value=60
+        )
+        assert first_detents == 0
+        assert second_detents == 1
+
+    def test_hiResWheelJitterSuppressed_belowNoiseThreshold(self) -> None:
+        """
+        Tiny hi-res wheel deltas should be suppressed as jitter.
+
+        Returns:
+            None.
+        """
+        manager: InputDeviceManager = InputDeviceManager.__new__(InputDeviceManager)
+        manager._wheel_vertical_accum = 0
+        manager._wheel_horizontal_accum = 0
+
+        detents: int = manager._wheelDetentsFromRelEvent_resolve(
+            code=ecodes.REL_WHEEL_HI_RES, value=4
+        )
+        assert detents == 0
