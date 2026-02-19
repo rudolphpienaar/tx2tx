@@ -379,6 +379,8 @@ class InputDeviceManager:
                 ecodes.REL_WHEEL_HI_RES,
                 ecodes.REL_HWHEEL_HI_RES,
             ):
+                if not self._grab_refcounter.grabbed_check(device.fd):
+                    return
                 self._wheelRelativeEvent_record(device=device, code=event.code, value=event.value)
             return
 

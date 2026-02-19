@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
+from typing import cast
 
 from evdev import ecodes
 
@@ -43,6 +45,18 @@ class _FakeRegistry:
         return f"/dev/input/event{fd}"
 
 
+class _FakeGrabRefCounter:
+    """Fake grab-ref counter exposing per-fd grabbed state."""
+
+    def __init__(self, grabbed_fds: set[int]) -> None:
+        """Initialize fake grabbed fd set."""
+        self._grabbed_fds: set[int] = grabbed_fds
+
+    def grabbed_check(self, fd: int) -> bool:
+        """Return whether fd is marked as grabbed."""
+        return fd in self._grabbed_fds
+
+
 class TestUInputManagerWheelButton:
     """Tests for wheel-button injection translation to REL events."""
 
@@ -81,10 +95,11 @@ class TestInputDeviceManagerWheelCapture:
             None.
         """
         manager: InputDeviceManager = InputDeviceManager.__new__(InputDeviceManager)
-        manager._pointer_state = _FakePointerState()
-        manager._registry = _FakeRegistry()
-        manager._wheel_vertical_accum = 0
-        manager._wheel_horizontal_accum = 0
+        manager_any: Any = cast(Any, manager)
+        manager_any._pointer_state = _FakePointerState()
+        manager_any._registry = _FakeRegistry()
+        manager_any._wheel_vertical_accum = 0
+        manager_any._wheel_horizontal_accum = 0
 
         recorded_events: list[dict[str, object]] = []
 
@@ -92,7 +107,7 @@ class TestInputDeviceManagerWheelCapture:
             """Append payload to local capture list."""
             recorded_events.append(payload)
 
-        manager._event_record = event_record  # type: ignore[method-assign]
+        manager_any._event_record = event_record
 
         fake_device = SimpleNamespace(fd=23)
         manager._wheelRelativeEvent_record(
@@ -109,6 +124,38 @@ class TestInputDeviceManagerWheelCapture:
         assert recorded_events[0]["x"] == 321
         assert recorded_events[0]["y"] == 654
         assert recorded_events[0]["source_device"] == "/dev/input/event23"
+
+    def test_wheelIgnored_whenDeviceNotGrabbed(self) -> None:
+        """
+        Wheel rel events should be ignored when source device is not grabbed.
+
+        Returns:
+            None.
+        """
+        manager: InputDeviceManager = InputDeviceManager.__new__(InputDeviceManager)
+        manager_any: Any = cast(Any, manager)
+        manager_any._pointer_state = _FakePointerState()
+        manager_any._registry = SimpleNamespace(
+            mouseFds_get=lambda: {23},
+            keyboardFds_get=lambda: set(),
+            pathForFd_get=lambda fd: f"/dev/input/event{fd}",
+        )
+        manager_any._grab_refcounter = _FakeGrabRefCounter(grabbed_fds=set())
+        manager_any._wheel_vertical_accum = 0
+        manager_any._wheel_horizontal_accum = 0
+
+        recorded_events: list[dict[str, object]] = []
+        manager_any._event_record = recorded_events.append
+
+        fake_device = SimpleNamespace(fd=23)
+        fake_event = SimpleNamespace(
+            type=ecodes.EV_REL,
+            code=ecodes.REL_WHEEL,
+            value=1,
+        )
+
+        manager._event_handle(fake_device, fake_event)
+        assert recorded_events == []
 
     def test_hiResWheelDeltaAccumulates_untilDetentThreshold(self) -> None:
         """
