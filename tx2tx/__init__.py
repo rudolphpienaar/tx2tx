@@ -1,6 +1,6 @@
 """
-tx2tx: X11 KVM for termux-x11
-Seamless mouse/keyboard sharing between X11 desktops
+tx2tx: network input sharing across X11 and Wayland backends.
+Seamless mouse/keyboard sharing across heterogeneous desktops.
 """
 
 import subprocess
@@ -34,5 +34,5 @@ def _gitHash_get() -> str:
     return "dev"
 
 
-__version__ = f"4.0.34.{_gitHash_get()}"
+__version__ = f"4.0.35.{_gitHash_get()}"
 __author__ = "tx2tx contributors"

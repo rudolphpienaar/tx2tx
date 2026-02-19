@@ -1,38 +1,47 @@
 # tx2tx
 
-tx2tx is a cross-platform KVM-style input sharing tool that bridges gaps where existing solutions like Synergy or Barrier fall short. It started as a termux-x11 to termux-x11 experiment and has evolved into a practical way to share keyboard and mouse across mixed X11 and Wayland environments.
+tx2tx is a network KVM-style input sharing tool for mixed Linux desktop environments. It runs a server on your primary machine, clients on secondary machines, and forwards mouse and keyboard events across X11 and Wayland backends.
 
 ## What It Does
 
-- Runs a server on a primary machine and clients on secondary machines
-- Captures keyboard and mouse on the server and forwards to the active client
-- Supports X11 backends directly and Wayland backends via a privileged helper
-- Works across machines on the same network using a lightweight TCP protocol
+- Shares one local keyboard and mouse with multiple remote clients.
+- Supports X11 server/client and Wayland server (via helper) to X11 client workflows.
+- Uses named clients with physical placement (`west`, `east`, `north`, `south`) and context-aware routing.
+- Provides both edge-based transitions and prefix hotkey jumps.
+- Includes reconnect handling, panic-key recovery, and safety fallback to `CENTER`.
 
 ## Why tx2tx
 
-Many existing input sharing tools rely on APIs that are blocked or unavailable on some platforms, especially Android and modern Wayland desktops. tx2tx focuses on backend-specific implementations that can still function in those environments.
+Many software KVM tools break in constrained display stacks or mixed backend setups. tx2tx focuses on backend-specific capture/injection paths so input sharing stays reliable when environments differ across machines.
+
+## Recent Features
+
+- Wayland helper hardening for long-running sessions (reduced idle spin/runaway CPU risk).
+- Strict REMOTE transition guard: refuse REMOTE mode when required typing keyboard grab fails.
+- Scroll wheel capture/injection path for mixed backend sessions.
+- Prefix jump-hotkey flow (`Ctrl+/` then action key by default) for deterministic context switching.
+- Runtime architecture split into focused server/client modules with improved test coverage.
 
 ## Backends
 
-- `x11`: Direct X11 capture and injection using python-xlib and XTest
-- `wayland`: A privileged helper (`tx2tx-wayland-helper`) that uses evdev and uinput for capture and injection
+- `x11`: direct capture and injection with `python-xlib` and XTest.
+- `wayland`: helper-based capture/injection using `evdev` + `uinput`.
 
-Wayland requires a helper command and appropriate permissions for `/dev/input/*` and `/dev/uinput`.
+Wayland mode requires helper access to `/dev/input/*` and `/dev/uinput` (typically via `sudo` or udev rules).
 
 ## Quick Start
 
 ### Wayland Server + X11 Client
 
-Example with a Wayland server and an X11 client:
-
 ```bash
-# Wayland server (requires helper and permissions)
-sudo tx2tx \
+# Wayland server (Mercury-style launch)
+sudo --preserve-env=PATH,WAYLAND_DISPLAY,XDG_RUNTIME_DIR,DBUS_SESSION_BUS_ADDRESS,DISPLAY \
+  tx2tx \
   --backend wayland \
-  --wayland-pointer-provider gnome \
-  --wayland-helper "tx2tx-wayland-helper --screen-width <W> --screen-height <H>" \
-  --host 0.0.0.0 \
+  --wayland-pointer-provider helper \
+  --wayland-calibrate \
+  --wayland-helper "tx2tx-wayland-helper" \
+  --host <server-ip> \
   --port 24800
 
 # X11 client
@@ -40,23 +49,19 @@ tx2tx --server <server-ip>:24800 --backend x11 --name <client-name>
 ```
 
 Notes:
-- `screen-width` and `screen-height` must be the compositor's logical desktop size.
-- The Wayland helper needs access to `/dev/input/*` and `/dev/uinput`.
-- `evdev` does not currently publish wheels for Python 3.14. Use Python 3.11 or 3.12 for Wayland support.
-- Wayland keyboard events are mapped from Linux evdev keycodes to X11 keycodes using the standard +8 offset.
-- For Wayland, you can use `--wayland-calibrate` to warp the cursor to center on startup and sync helper state.
-- On GNOME Wayland, use `--wayland-pointer-provider gnome` to read pointer coordinates from GNOME Shell and avoid helper/compositor pointer drift.
+- `--wayland-helper "tx2tx-wayland-helper"` is usually sufficient; width/height args are optional.
+- `--wayland-pointer-provider gnome` is available on GNOME sessions if helper pointer coords drift.
+- Use `--name` on clients to match names configured in `config.yml`.
 
-Compute logical desktop size on GNOME:
+### X11 Server + X11 Client
 
 ```bash
-gdbus call --session \
-  --dest org.gnome.Mutter.DisplayConfig \
-  --object-path /org/gnome/Mutter/DisplayConfig \
-  --method org.gnome.Mutter.DisplayConfig.GetCurrentState
-```
+# X11 server
+tx2tx --backend x11 --host <server-ip> --port 24800
 
-Use the monitor layout section of the output to calculate the full bounding width/height.
+# X11 client
+tx2tx --server <server-ip>:24800 --backend x11 --name <client-name>
+```
 
 ### Install
 
@@ -72,29 +77,15 @@ For Wayland support:
 pip install -e ".[wayland]"
 ```
 
-### Run Server (X11)
-
-```bash
-tx2tx
-```
-
-### Run Server (Wayland)
-
-```bash
-sudo tx2tx \
-  --backend wayland \
-  --wayland-helper "tx2tx-wayland-helper --screen-width <W> --screen-height <H>"
-```
-
-### Run Client (X11)
-
-```bash
-tx2tx --server <server-ip>:24800 --backend x11
-```
-
 ## Configuration
 
-See `config.yml` for defaults. You can override most settings with CLI flags. The backend can be configured either in the config file or with `--backend`.
+See `config.yml` for defaults. Key areas:
+- `clients`: named client layout and positions.
+- `server.jump_hotkey`: prefix-based context jumps (default mapping `1/2/0`).
+- `server.panic_key`: immediate return-to-center safety key.
+- `backend`: backend selection and Wayland helper configuration.
+
+CLI flags override config values.
 
 ## Project Structure
 
@@ -113,13 +104,16 @@ tx2tx/
 
 ## Notes
 
-- Wayland helper needs elevated permissions or device access rules
-- Screen geometry for Wayland is the compositor's logical desktop size, not a single monitor size
+- tx2tx started as a termux-x11 experiment, but the current architecture targets broader mixed X11/Wayland use.
+- Wayland helper support is platform/compositor dependent and still more constrained than pure X11 paths.
 
 ## Documentation
 
 - `docs/overview.adoc`
 - `docs/architecture.adoc`
+- `docs/devstart.adoc`
+- `docs/problem.adoc`
+- `docs/limitations.adoc`
 
 ## License
 

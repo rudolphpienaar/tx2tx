@@ -19,7 +19,7 @@ def arguments_parse() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(
         prog="tx2tx",
-        description="X11 KVM for termux-x11: share mouse/keyboard between X11 displays",
+        description="Share mouse/keyboard across networked X11 and Wayland backends",
     )
 
     parser.add_argument("--version", action="version", version=f"tx2tx {__version__}")
