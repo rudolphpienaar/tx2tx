@@ -10,6 +10,7 @@ from tx2tx.common.types import KeyEvent, MouseEvent, Position
 from tx2tx.x11.display import DisplayManager
 
 logger = logging.getLogger(__name__)
+_GLOBAL_SHORTCUT_MODIFIER_MASK: int = 0x4 | 0x8 | 0x40
 
 
 class EventInjector:
@@ -158,7 +159,8 @@ class EventInjector:
             if mapped:
                 keycode = mapped
 
-        self.pointerWindow_focus()
+        if self.forceFocusForKeyEvent_check(event):
+            self.pointerWindow_focus()
 
         if event.event_type == EventType.KEY_PRESS:
             self.key_press(keycode)
@@ -166,6 +168,23 @@ class EventInjector:
             self.key_release(keycode)
 
         display.sync()
+
+    def forceFocusForKeyEvent_check(self, event: KeyEvent) -> bool:
+        """
+        Determine whether injection should force app-window focus first.
+
+        Global desktop/window-manager shortcuts commonly rely on existing input
+        focus and compositor/window-manager grabs. For events with Ctrl/Alt/Meta
+        modifiers active, avoid forced focus reassignment before injection.
+
+        Args:
+            event: Key event to be injected.
+
+        Returns:
+            True when pointer-window focus should be forced.
+        """
+        state: int = event.state if event.state is not None else 0
+        return (state & _GLOBAL_SHORTCUT_MODIFIER_MASK) == 0
 
     def pointerWindow_focus(self) -> None:
         """

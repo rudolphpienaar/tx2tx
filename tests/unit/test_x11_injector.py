@@ -171,3 +171,24 @@ class TestEventInjectorFocus:
         assert focused_window.focus_calls == 1
         assert child_window.focus_calls == 0
         assert len(fake_calls) == 1
+
+    def test_key_event_with_alt_modifier_does_not_force_refocus(self, monkeypatch) -> None:
+        """Modified key events should not reassign focus before injection."""
+        child_window = _FakeWindow()
+        focused_window = _FakeWindow()
+        fake_display = _FakeDisplay(child_window=child_window, focused_window=focused_window)
+        injector = EventInjector(cast(Any, _FakeDisplayManager(fake_display)))
+
+        fake_calls: list[tuple[Any, int, int]] = []
+
+        def _fake_input(display: Any, event_type: int, detail: int) -> None:
+            fake_calls.append((display, event_type, detail))
+
+        monkeypatch.setattr("tx2tx.x11.injector.xtest.fake_input", _fake_input)
+
+        key_event = KeyEvent(event_type=EventType.KEY_PRESS, keycode=9, keysym=None, state=0x8)
+        injector.keyEvent_inject(key_event)
+
+        assert focused_window.focus_calls == 0
+        assert child_window.focus_calls == 0
+        assert len(fake_calls) == 1
