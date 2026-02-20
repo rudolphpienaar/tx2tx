@@ -3,6 +3,7 @@
 import pytest
 import time
 from unittest.mock import Mock
+from tx2tx.common.settings import settings
 from tx2tx.common.types import Direction, Position, Screen
 from tx2tx.x11.pointer import PointerTracker
 
@@ -125,7 +126,7 @@ class TestPointerTrackerBoundaryDetection:
         return Screen(width=1920, height=1080)
 
     def test_boundary_detect_left_edge_with_velocity(self, tracker, screen):
-        """Test detection at left edge with sufficient velocity"""
+        """Test detection at left edge after edge confirmation+dwell."""
         # Setup velocity history (fast leftward movement)
         start_time = time.time()
         tracker._position_history.append((Position(x=200, y=500), start_time))
@@ -134,6 +135,9 @@ class TestPointerTrackerBoundaryDetection:
 
         # Current position at strict left edge
         position = Position(x=0, y=500)
+        first_transition = tracker.boundary_detect(position, screen)
+        assert first_transition is None
+        tracker._edge_contact_started_at = time.time() - settings.EDGE_DWELL_SECONDS - 0.01
         transition = tracker.boundary_detect(position, screen)
 
         assert transition is not None
@@ -141,7 +145,7 @@ class TestPointerTrackerBoundaryDetection:
         assert transition.position == position
 
     def test_boundary_detect_right_edge_with_velocity(self, tracker, screen):
-        """Test detection at right edge with sufficient velocity"""
+        """Test detection at right edge after edge confirmation+dwell."""
         # Setup velocity history (fast rightward movement)
         start_time = time.time()
         tracker._position_history.append((Position(x=1700, y=500), start_time))
@@ -150,6 +154,9 @@ class TestPointerTrackerBoundaryDetection:
 
         # Current position at strict right edge (width - 1)
         position = Position(x=1919, y=500)
+        first_transition = tracker.boundary_detect(position, screen)
+        assert first_transition is None
+        tracker._edge_contact_started_at = time.time() - settings.EDGE_DWELL_SECONDS - 0.01
         transition = tracker.boundary_detect(position, screen)
 
         assert transition is not None
@@ -157,7 +164,7 @@ class TestPointerTrackerBoundaryDetection:
         assert transition.position == position
 
     def test_boundary_detect_top_edge_with_velocity(self, tracker, screen):
-        """Test detection at top edge with sufficient velocity"""
+        """Test detection at top edge after edge confirmation+dwell."""
         # Setup velocity history (fast upward movement)
         start_time = time.time()
         tracker._position_history.append((Position(x=960, y=200), start_time))
@@ -165,6 +172,9 @@ class TestPointerTrackerBoundaryDetection:
         tracker._position_history.append((Position(x=960, y=0), start_time + 0.1))
 
         position = Position(x=960, y=0)
+        first_transition = tracker.boundary_detect(position, screen)
+        assert first_transition is None
+        tracker._edge_contact_started_at = time.time() - settings.EDGE_DWELL_SECONDS - 0.01
         transition = tracker.boundary_detect(position, screen)
 
         assert transition is not None
@@ -172,7 +182,7 @@ class TestPointerTrackerBoundaryDetection:
         assert transition.position == position
 
     def test_boundary_detect_bottom_edge_with_velocity(self, tracker, screen):
-        """Test detection at bottom edge with sufficient velocity"""
+        """Test detection at bottom edge after edge confirmation+dwell."""
         # Setup velocity history (fast downward movement)
         start_time = time.time()
         tracker._position_history.append((Position(x=960, y=900), start_time))
@@ -181,6 +191,9 @@ class TestPointerTrackerBoundaryDetection:
 
         # Bottom edge: y == height - 1
         position = Position(x=960, y=1079)
+        first_transition = tracker.boundary_detect(position, screen)
+        assert first_transition is None
+        tracker._edge_contact_started_at = time.time() - settings.EDGE_DWELL_SECONDS - 0.01
         transition = tracker.boundary_detect(position, screen)
 
         assert transition is not None
@@ -188,17 +201,20 @@ class TestPointerTrackerBoundaryDetection:
         assert transition.position == position
 
     def test_boundary_detect_at_edge_insufficient_velocity(self, tracker, screen):
-        """Test no transition at edge with insufficient velocity"""
+        """Test edge transition does not depend on velocity anymore."""
         # Setup slow movement (velocity < 100 px/s)
         start_time = time.time()
         tracker._position_history.append((Position(x=50, y=500), start_time))
         tracker._position_history.append((Position(x=0, y=500), start_time + 1.0))  # Only 50 px/s
 
-        # At left edge but moving slowly
+        # At left edge with slow movement still transitions after dwell.
         position = Position(x=0, y=500)
+        first_transition = tracker.boundary_detect(position, screen)
+        assert first_transition is None
+        tracker._edge_contact_started_at = time.time() - settings.EDGE_DWELL_SECONDS - 0.01
         transition = tracker.boundary_detect(position, screen)
-
-        assert transition is None  # Not enough velocity
+        assert transition is not None
+        assert transition.direction == Direction.LEFT
 
     def test_boundary_detect_center_screen_with_velocity(self, tracker, screen):
         """Test no transition in center of screen even with velocity"""
@@ -249,9 +265,23 @@ class TestPointerTrackerBoundaryDetection:
         assert first_transition is None
 
         tracker._position_history.append((Position(x=0, y=500), start_time + 0.12))
+        tracker._edge_contact_started_at = time.time() - settings.EDGE_DWELL_SECONDS - 0.01
         second_transition = tracker.boundary_detect(Position(x=0, y=500), screen)
         assert second_transition is not None
         assert second_transition.direction == Direction.LEFT
+
+    def test_boundary_detect_requires_edge_dwell_time(self, tracker, screen):
+        """Test edge transition requires configured continuous dwell duration."""
+        start_time = time.time()
+        tracker._position_history.append((Position(x=200, y=500), start_time))
+        tracker._position_history.append((Position(x=0, y=500), start_time + 0.1))
+
+        first_transition = tracker.boundary_detect(Position(x=0, y=500), screen)
+        assert first_transition is None
+
+        # confirmation samples satisfied but dwell not elapsed yet
+        second_transition = tracker.boundary_detect(Position(x=0, y=500), screen)
+        assert second_transition is None
 
 
 class TestPointerTrackerEdgeCases:
@@ -294,8 +324,11 @@ class TestPointerTrackerEdgeCases:
         tracker._position_history.append((Position(x=0, y=500), start_time + 0.09))
         tracker._position_history.append((Position(x=0, y=500), start_time + 0.1))
 
-        # Should detect at x=0
+        # Should detect at x=0 after confirmation+dwell
         position = Position(x=0, y=500)
+        first_transition = tracker.boundary_detect(position, screen)
+        assert first_transition is None
+        tracker._edge_contact_started_at = time.time() - settings.EDGE_DWELL_SECONDS - 0.01
         transition = tracker.boundary_detect(position, screen)
 
         assert transition is not None
@@ -321,8 +354,11 @@ class TestPointerTrackerEdgeCases:
         tracker._position_history.append((Position(x=0, y=0), start_time + 0.09))
         tracker._position_history.append((Position(x=0, y=0), start_time + 0.1))
 
-        # Top-left corner - should detect LEFT (checked before TOP)
+        # Top-left corner - should detect LEFT (checked before TOP) after dwell.
         position = Position(x=0, y=0)
+        first_transition = tracker.boundary_detect(position, screen)
+        assert first_transition is None
+        tracker._edge_contact_started_at = time.time() - settings.EDGE_DWELL_SECONDS - 0.01
         transition = tracker.boundary_detect(position, screen)
 
         assert transition is not None

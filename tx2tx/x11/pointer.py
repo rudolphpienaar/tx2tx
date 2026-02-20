@@ -44,6 +44,9 @@ class PointerTracker:
         self._position_history: deque[tuple[Position, float]] = deque(
             maxlen=settings.POSITION_HISTORY_SIZE
         )
+        self._edge_contact_direction: Direction | None = None
+        self._edge_contact_started_at: float = 0.0
+        self._edge_contact_samples: int = 0
 
     def position_query(self) -> Position:
         """
@@ -93,42 +96,95 @@ class PointerTracker:
         self, position: Position, geometry: ScreenGeometry
     ) -> Optional[ScreenTransition]:
         """
-        Detect if position is at screen boundary with sufficient velocity
-        
+        Detect whether boundary transition intent is satisfied.
+
         Args:
             position: Current pointer position
             geometry: Screen geometry
-        
+
         Returns:
-            ScreenTransition if at boundary with sufficient velocity, None otherwise
+            ScreenTransition when edge push-through criteria are satisfied.
         """
         direction: Direction | None = self.boundaryDirectionFromPosition_get(position, geometry)
         if direction is None:
+            self._edgeContact_reset()
             return None
 
-        if settings.EDGE_CONFIRMATION_SAMPLES > 1 and len(self._position_history) >= 2:
-            previous_position: Position = self._position_history[-2][0]
-            previous_direction: Direction | None = self.boundaryDirectionFromPosition_get(
-                previous_position, geometry
+        self._edgeContact_update(direction)
+        if not self._edgeContactConfirmed_check():
+            logger.debug(
+                "Boundary %s seen but awaiting confirmation (%s/%s)",
+                direction.value,
+                self._edge_contact_samples,
+                settings.EDGE_CONFIRMATION_SAMPLES,
             )
-            if previous_direction != direction:
-                logger.debug(
-                    "Boundary %s seen but awaiting confirmation sample (prev=%s)",
-                    direction.value,
-                    previous_direction.value if previous_direction else "none",
-                )
-                return None
+            return None
+        if not self._edgeContactDwellElapsed_check():
+            logger.debug(
+                "Boundary %s confirmed but awaiting dwell %.3fs/%.3fs",
+                direction.value,
+                self._edgeContactElapsed_seconds(),
+                settings.EDGE_DWELL_SECONDS,
+            )
+            return None
+        transition: ScreenTransition = ScreenTransition(direction=direction, position=position)
+        self._edgeContact_reset()
+        return transition
 
-        # If at boundary, check velocity (momentum/edge resistance)
-        velocity = self.velocity_calculate()
-        logger.info(
-            f"At boundary {direction.value}: velocity={velocity:.1f}, threshold={self._velocity_threshold}"
-        )
-        if velocity >= self._velocity_threshold:
-            return ScreenTransition(direction=direction, position=position)
-        # else: At boundary but not enough momentum - don't transition
+    def _edgeContact_update(self, direction: Direction) -> None:
+        """
+        Update edge-contact state for one boundary sample.
 
-        return None
+        Args:
+            direction: Current edge direction.
+        """
+        now: float = time.time()
+        if self._edge_contact_direction != direction:
+            self._edge_contact_direction = direction
+            self._edge_contact_started_at = now
+            self._edge_contact_samples = 1
+            return
+        self._edge_contact_samples += 1
+
+    def _edgeContactConfirmed_check(self) -> bool:
+        """
+        Check whether edge contact sample count is sufficient.
+
+        Returns:
+            True when confirmation sample threshold is met.
+        """
+        return self._edge_contact_samples >= settings.EDGE_CONFIRMATION_SAMPLES
+
+    def _edgeContactElapsed_seconds(self) -> float:
+        """
+        Return elapsed continuous edge contact duration.
+
+        Returns:
+            Elapsed seconds since edge contact start.
+        """
+        if self._edge_contact_started_at <= 0.0:
+            return 0.0
+        return time.time() - self._edge_contact_started_at
+
+    def _edgeContactDwellElapsed_check(self) -> bool:
+        """
+        Check whether continuous edge dwell requirement is satisfied.
+
+        Returns:
+            True when edge dwell duration exceeds configured threshold.
+        """
+        return self._edgeContactElapsed_seconds() >= settings.EDGE_DWELL_SECONDS
+
+    def _edgeContact_reset(self) -> None:
+        """
+        Reset edge-contact intent state.
+
+        Returns:
+            None.
+        """
+        self._edge_contact_direction = None
+        self._edge_contact_started_at = 0.0
+        self._edge_contact_samples = 0
 
     @staticmethod
     def boundaryDirectionFromPosition_get(
@@ -170,6 +226,7 @@ class PointerTracker:
         """
         self._position_history.clear()
         self._last_position = None
+        self._edgeContact_reset()
 
     def positionLast_get(self) -> Optional[Position]:
         """

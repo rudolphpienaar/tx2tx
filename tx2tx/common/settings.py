@@ -152,6 +152,14 @@ class Settings:
     pointer coordinate sample at high pointer velocity.
     """
 
+    EDGE_DWELL_SECONDS: float = 0.08
+    """Minimum continuous edge-contact duration before CENTER transition.
+
+    CENTER->REMOTE transition is intent-gated by sustained edge contact rather
+    than instantaneous pointer velocity. This reduces premature transitions in
+    helper-integrated Wayland sessions where pointer coordinates can jump.
+    """
+
     # =========================================================================
     # Runtime Configuration Access
     # These properties delegate to the loaded config.yml
