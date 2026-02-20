@@ -19,6 +19,7 @@ _WHEEL_HI_RES_STEP_UNITS: int = 120
 _WHEEL_HI_RES_JITTER_UNITS: int = 8
 _READ_ERROR_DISABLE_THRESHOLD: int = 8
 _READ_ERROR_BACKOFF_SECONDS: float = 0.002
+_POINTER_SOURCE_SWITCH_IDLE_SECONDS: float = 0.8
 
 
 @dataclass
@@ -155,6 +156,8 @@ class InputDeviceManager:
         self._wheel_horizontal_accum: int = 0
         self._disabled_device_fds: set[int] = set()
         self._read_error_count_by_fd: dict[int, int] = {}
+        self._pointer_tracking_fd: int | None = None
+        self._pointer_tracking_last_event_at: float = 0.0
 
         self._reader = threading.Thread(target=self._events_loop, daemon=True)
         self._reader.start()
@@ -407,8 +410,12 @@ class InputDeviceManager:
             if not is_mouse_device:
                 return
             if event.code == ecodes.REL_X:
+                if not self._pointerTrackingSourceEligible_check(device.fd):
+                    return
                 self._pointer_state.update_rel(event.value, 0)
             elif event.code == ecodes.REL_Y:
+                if not self._pointerTrackingSourceEligible_check(device.fd):
+                    return
                 self._pointer_state.update_rel(0, event.value)
             elif event.code in (
                 ecodes.REL_WHEEL,
@@ -520,6 +527,36 @@ class InputDeviceManager:
             payload: Event payload dictionary
         """
         self._event_queue.event_add(payload)
+
+    def _pointerTrackingSourceEligible_check(self, fd: int) -> bool:
+        """
+        Check whether one pointer fd should drive helper pointer state.
+
+        Multiple evdev nodes can publish duplicate REL motion for one physical
+        pointer path. Tracking every node over-integrates motion and causes
+        premature boundary crossings. This selector keeps one active source and
+        allows source handover only after an idle gap.
+
+        Args:
+            fd: Source file descriptor for current REL motion event.
+
+        Returns:
+            True when this fd is allowed to update helper pointer state.
+        """
+        now: float = time.time()
+        current_fd: int | None = self._pointer_tracking_fd
+        if current_fd is None:
+            self._pointer_tracking_fd = fd
+            self._pointer_tracking_last_event_at = now
+            return True
+        if current_fd == fd:
+            self._pointer_tracking_last_event_at = now
+            return True
+        if (now - self._pointer_tracking_last_event_at) >= _POINTER_SOURCE_SWITCH_IDLE_SECONDS:
+            self._pointer_tracking_fd = fd
+            self._pointer_tracking_last_event_at = now
+            return True
+        return False
 
     def _wheelRelativeEvent_record(self, device: InputDevice, code: int, value: int) -> None:
         """

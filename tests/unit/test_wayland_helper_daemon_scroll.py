@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
 from typing import Any
 from typing import cast
@@ -10,6 +11,7 @@ from evdev import ecodes
 
 from tx2tx.common.types import EventType
 from tx2tx.wayland.helper_daemon import InputDeviceManager, UInputManager
+from tx2tx.wayland.helper_daemon import _POINTER_SOURCE_SWITCH_IDLE_SECONDS
 from tx2tx.wayland.helper_daemon import _READ_ERROR_DISABLE_THRESHOLD
 
 
@@ -235,3 +237,50 @@ class TestInputDeviceManagerReadFailureQuarantine:
         active_devices = manager._activeDevices_get()
         active_fds = {device.fd for device in active_devices}
         assert active_fds == {21}
+
+
+class TestInputDeviceManagerPointerSourceSelection:
+    """Tests for single-source REL pointer tracking in helper."""
+
+    def test_pointerTrackingSourceEligible_allowsCurrentFd(self) -> None:
+        """
+        Current tracked fd should stay eligible for motion updates.
+
+        Returns:
+            None.
+        """
+        manager: InputDeviceManager = InputDeviceManager.__new__(InputDeviceManager)
+        manager_any: Any = cast(Any, manager)
+        manager_any._pointer_tracking_fd = 23
+        manager_any._pointer_tracking_last_event_at = 0.0
+        assert manager._pointerTrackingSourceEligible_check(23) is True
+
+    def test_pointerTrackingSourceEligible_blocksCompetingFd_beforeIdle(self) -> None:
+        """
+        Competing fd should be ignored while current source is active.
+
+        Returns:
+            None.
+        """
+        manager: InputDeviceManager = InputDeviceManager.__new__(InputDeviceManager)
+        manager_any: Any = cast(Any, manager)
+        manager_any._pointer_tracking_fd = 23
+        manager_any._pointer_tracking_last_event_at = time.time()
+        assert manager._pointerTrackingSourceEligible_check(24) is False
+        assert manager_any._pointer_tracking_fd == 23
+
+    def test_pointerTrackingSourceEligible_switchesAfterIdleGap(self) -> None:
+        """
+        Competing fd should take over after idle timeout passes.
+
+        Returns:
+            None.
+        """
+        manager: InputDeviceManager = InputDeviceManager.__new__(InputDeviceManager)
+        manager_any: Any = cast(Any, manager)
+        manager_any._pointer_tracking_fd = 23
+        manager_any._pointer_tracking_last_event_at = (
+            time.time() - _POINTER_SOURCE_SWITCH_IDLE_SECONDS - 0.05
+        )
+        assert manager._pointerTrackingSourceEligible_check(24) is True
+        assert manager_any._pointer_tracking_fd == 24

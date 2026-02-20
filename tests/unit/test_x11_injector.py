@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any
+from typing import cast
 
 from tx2tx.common.types import EventType, KeyEvent
 from tx2tx.x11.injector import EventInjector
@@ -41,9 +42,10 @@ class _FakeRoot:
 class _FakeDisplay:
     """Fake X11 display object for EventInjector tests."""
 
-    def __init__(self, child_window: Any) -> None:
+    def __init__(self, child_window: Any, focused_window: Any = 0) -> None:
         """Initialize fake display state."""
         self._root = _FakeRoot(child_window=child_window)
+        self._focused_window = focused_window
         self.sync_calls: int = 0
         self.keysym_calls: list[int] = []
 
@@ -63,6 +65,10 @@ class _FakeDisplay:
     def sync(self) -> None:
         """Record sync calls."""
         self.sync_calls += 1
+
+    def get_input_focus(self) -> SimpleNamespace:
+        """Return current focused window."""
+        return SimpleNamespace(focus=self._focused_window)
 
 
 class _FakeDisplayManager:
@@ -86,7 +92,7 @@ class TestEventInjectorFocus:
         """Key injection should focus the pointer child window first."""
         child_window = _FakeWindow()
         fake_display = _FakeDisplay(child_window=child_window)
-        injector = EventInjector(_FakeDisplayManager(fake_display))
+        injector = EventInjector(cast(Any, _FakeDisplayManager(fake_display)))
 
         fake_calls: list[tuple[Any, int, int]] = []
 
@@ -108,7 +114,7 @@ class TestEventInjectorFocus:
     ) -> None:
         """Key injection should continue when pointer has no child window."""
         fake_display = _FakeDisplay(child_window=0)
-        injector = EventInjector(_FakeDisplayManager(fake_display))
+        injector = EventInjector(cast(Any, _FakeDisplayManager(fake_display)))
 
         fake_calls: list[tuple[Any, int, int]] = []
 
@@ -129,7 +135,7 @@ class TestEventInjectorFocus:
         leaf_window = _FakeWindow(child_window=0)
         frame_window = _FakeWindow(child_window=leaf_window)
         fake_display = _FakeDisplay(child_window=frame_window)
-        injector = EventInjector(_FakeDisplayManager(fake_display))
+        injector = EventInjector(cast(Any, _FakeDisplayManager(fake_display)))
 
         fake_calls: list[tuple[Any, int, int]] = []
 
@@ -143,4 +149,25 @@ class TestEventInjectorFocus:
 
         assert frame_window.focus_calls == 0
         assert leaf_window.focus_calls == 1
+        assert len(fake_calls) == 1
+
+    def test_key_event_prefers_existing_focus_window(self, monkeypatch) -> None:
+        """Key injection should prefer existing focus over pointer child."""
+        child_window = _FakeWindow()
+        focused_window = _FakeWindow()
+        fake_display = _FakeDisplay(child_window=child_window, focused_window=focused_window)
+        injector = EventInjector(cast(Any, _FakeDisplayManager(fake_display)))
+
+        fake_calls: list[tuple[Any, int, int]] = []
+
+        def _fake_input(display: Any, event_type: int, detail: int) -> None:
+            fake_calls.append((display, event_type, detail))
+
+        monkeypatch.setattr("tx2tx.x11.injector.xtest.fake_input", _fake_input)
+
+        key_event = KeyEvent(event_type=EventType.KEY_PRESS, keycode=24, keysym=None)
+        injector.keyEvent_inject(key_event)
+
+        assert focused_window.focus_calls == 1
+        assert child_window.focus_calls == 0
         assert len(fake_calls) == 1
