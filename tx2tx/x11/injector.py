@@ -199,34 +199,12 @@ class EventInjector:
         display = self._display_manager.display_get()
         root = display.screen().root
         try:
-            focus_window = self.focusedWindow_resolve(display, root)
-            if focus_window is None:
-                focus_window = self.pointerLeafWindow_resolve(root)
+            focus_window = self.pointerLeafWindow_resolve(root)
             if focus_window is None:
                 return
             focus_window.set_input_focus(X.RevertToParent, X.CurrentTime)
         except Exception as exc:
             logger.debug("Could not focus pointer window before key injection: %r", exc)
-
-    def focusedWindow_resolve(self, display: Any, root_window: Any) -> Any | None:
-        """
-        Resolve current X11 focus window when available.
-
-        Args:
-            display: Active X11 display object.
-            root_window: Root window for sentinel comparison.
-
-        Returns:
-            Focused window object, or `None` when unresolved.
-        """
-        try:
-            focus_reply: Any = display.get_input_focus()
-            focus_window: Any | None = getattr(focus_reply, "focus", None)
-            if focus_window in (None, 0, root_window):
-                return None
-            return focus_window
-        except Exception:
-            return None
 
     def pointerLeafWindow_resolve(self, root_window: Any) -> Any | None:
         """
