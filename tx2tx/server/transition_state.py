@@ -520,13 +520,31 @@ def centerContext_process(
         logger.error("Invalid transition direction: %s", transition.direction)
         return
 
-    _transitionTelemetry_log(transition.position, transition.direction, velocity, target_context, logger)
+    fresh_transition_position: Position | None = _transitionPositionFreshSample_resolve(
+        display_manager=display_manager,
+        expected_direction=transition.direction,
+        screen_geometry=screen_geometry,
+    )
+    if fresh_transition_position is None:
+        logger.debug(
+            "Discarding transition %s: fresh pointer sample no longer at edge",
+            transition.direction.value,
+        )
+        return
+
+    _transitionTelemetry_log(
+        fresh_transition_position,
+        transition.direction,
+        velocity,
+        target_context,
+        logger,
+    )
     _transitionEnter_attempt(
         network=network,
         display_manager=display_manager,
         pointer_tracker=pointer_tracker,
         screen_geometry=screen_geometry,
-        transition_position=transition.position,
+        transition_position=fresh_transition_position,
         target_context=target_context,
         context_to_client=context_to_client,
         server_state=server_state,
@@ -547,6 +565,35 @@ def _hysteresisActive_check(server_state: RuntimeStateProtocol) -> bool:
     """
     elapsed_since_center_switch: float = time.time() - server_state.last_center_switch_time
     return elapsed_since_center_switch < settings.HYSTERESIS_DELAY_SEC
+
+
+def _transitionPositionFreshSample_resolve(
+    display_manager: DisplayBackend,
+    expected_direction: Direction,
+    screen_geometry: Screen,
+) -> Position | None:
+    """
+    Re-sample pointer position and validate boundary direction.
+
+    Args:
+        display_manager:
+            Display backend used for fresh pointer query.
+        expected_direction:
+            Direction resolved from the boundary detector.
+        screen_geometry:
+            Local screen geometry.
+
+    Returns:
+        Fresh pointer position when still on expected edge, else `None`.
+    """
+    fresh_position: Position = display_manager.pointerPosition_get()
+    fresh_direction: Direction | None = PointerTracker.boundaryDirectionFromPosition_get(
+        fresh_position,
+        screen_geometry,
+    )
+    if fresh_direction != expected_direction:
+        return None
+    return fresh_position
 
 
 def _transitionTelemetry_log(

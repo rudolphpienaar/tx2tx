@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from tx2tx.common.types import Position, Screen, ScreenContext
+from typing import Any
+from typing import cast
+
+from tx2tx.common.types import Direction, Position, Screen, ScreenContext
 from tx2tx.server.transition_state import _parkingPositionFromContext_get
 from tx2tx.server.transition_state import _remoteReturnTriggered_check
+from tx2tx.server.transition_state import _transitionPositionFreshSample_resolve
 
 
 class TestRemoteReturnTriggeredCheck:
@@ -79,3 +83,49 @@ class TestParkingPositionFromContext:
             remote_switch_age_seconds=2.0,
         )
         assert not should_return
+
+
+class _FakeDisplayBackend:
+    """Minimal fake display backend for fresh transition sample tests."""
+
+    def __init__(self, position: Position) -> None:
+        """Initialize fake backend with fixed pointer position."""
+        self._position: Position = position
+
+    def pointerPosition_get(self) -> Position:
+        """Return fixed pointer position."""
+        return self._position
+
+
+class TestTransitionPositionFreshSampleResolve:
+    """Tests for fresh pointer sample validation before transition entry."""
+
+    def test_returnsPosition_whenFreshSampleStillOnExpectedEdge(self) -> None:
+        """
+        Fresh sample at same edge should allow transition.
+
+        Returns:
+            None.
+        """
+        display = _FakeDisplayBackend(position=Position(x=3839, y=900))
+        fresh_position: Position | None = _transitionPositionFreshSample_resolve(
+            display_manager=cast(Any, display),
+            expected_direction=Direction.RIGHT,
+            screen_geometry=Screen(width=3840, height=2160),
+        )
+        assert fresh_position == Position(x=3839, y=900)
+
+    def test_returnsNone_whenFreshSampleNoLongerOnExpectedEdge(self) -> None:
+        """
+        Fresh sample away from edge should cancel transition.
+
+        Returns:
+            None.
+        """
+        display = _FakeDisplayBackend(position=Position(x=3790, y=900))
+        fresh_position: Position | None = _transitionPositionFreshSample_resolve(
+            display_manager=cast(Any, display),
+            expected_direction=Direction.RIGHT,
+            screen_geometry=Screen(width=3840, height=2160),
+        )
+        assert fresh_position is None
