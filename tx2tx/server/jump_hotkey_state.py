@@ -9,11 +9,11 @@ filtered passthrough events and optional resolved context action.
 from __future__ import annotations
 
 import time
-from typing import Protocol
+from typing import Literal, Protocol
 
 from tx2tx.common.types import EventType, KeyEvent, ScreenContext
 from tx2tx.input.backend import InputEvent
-from tx2tx.server.runtime_loop import JumpHotkeyConfigProtocol
+from tx2tx.server.runtime_loop import JumpHotkeyAction, JumpHotkeyConfigProtocol
 from tx2tx.server.state import RuntimeStateProtocol
 
 __all__ = [
@@ -28,6 +28,12 @@ class LoggerProtocol(Protocol):
     def info(self, msg: str, *args: object) -> None:
         """Emit info-level message."""
         ...
+
+
+_KEYBOARD_RESYNC_ACTION: Literal["keyboard_resync"] = "keyboard_resync"
+_KEYBOARD_RESYNC_KEYSYM_LOWER: int = 0x006B
+_KEYBOARD_RESYNC_KEYSYM_UPPER: int = 0x004B
+_KEYBOARD_RESYNC_KEYCODE_FALLBACKS: set[int] = {45}
 
 
 def keyEventMatchesJumpToken_check(
@@ -67,7 +73,7 @@ def jumpHotkeyEvents_process(
     jump_hotkey: JumpHotkeyConfigProtocol,
     runtime_state: RuntimeStateProtocol,
     logger: LoggerProtocol,
-) -> tuple[list[InputEvent], ScreenContext | None]:
+) -> tuple[list[InputEvent], JumpHotkeyAction | None]:
     """
     Process jump-hotkey prefix/action sequence for one input batch.
 
@@ -84,7 +90,7 @@ def jumpHotkeyEvents_process(
             Logger used for hotkey telemetry.
 
     Returns:
-        Tuple of `(filtered_events, target_context_or_none)`.
+        Tuple of `(filtered_events, action_or_none)`.
     """
     if not jump_hotkey.enabled:
         return input_events, None
@@ -92,7 +98,7 @@ def jumpHotkeyEvents_process(
     _jumpHotkeyArmExpiry_apply(runtime_state)
 
     filtered_events: list[InputEvent] = []
-    target_context: ScreenContext | None = None
+    action: JumpHotkeyAction | None = None
     now: float = time.time()
 
     for input_event in input_events:
@@ -102,15 +108,15 @@ def jumpHotkeyEvents_process(
 
         key_event: KeyEvent = input_event
         if key_event.event_type == EventType.KEY_RELEASE:
-            event_consumed, resolved_context = _keyRelease_process(
+            event_consumed, resolved_action = _keyRelease_process(
                 key_event=key_event,
                 jump_hotkey=jump_hotkey,
                 runtime_state=runtime_state,
                 now=now,
                 logger=logger,
             )
-            if resolved_context is not None:
-                target_context = resolved_context
+            if resolved_action is not None:
+                action = resolved_action
             if event_consumed:
                 continue
             filtered_events.append(key_event)
@@ -132,7 +138,7 @@ def jumpHotkeyEvents_process(
             continue
         filtered_events.append(key_event)
 
-    return filtered_events, target_context
+    return filtered_events, action
 
 
 def _jumpHotkeyArmExpiry_apply(runtime_state: RuntimeStateProtocol) -> None:
@@ -156,7 +162,7 @@ def _keyRelease_process(
     runtime_state: RuntimeStateProtocol,
     now: float,
     logger: LoggerProtocol,
-) -> tuple[bool, ScreenContext | None]:
+) -> tuple[bool, JumpHotkeyAction | None]:
     """
     Process one key-release event for jump-hotkey state machine.
 
@@ -173,7 +179,7 @@ def _keyRelease_process(
             Logger used for hotkey telemetry.
 
     Returns:
-        Tuple `(event_consumed, resolved_target_context)`.
+        Tuple `(event_consumed, resolved_action)`.
     """
     resolved_target_context: ScreenContext | None = _releaseContext_resolve(
         key_event,
@@ -185,6 +191,11 @@ def _keyRelease_process(
         runtime_state.jump_hotkey_pending_target_context = None
         logger.info("[HOTKEY] Action captured: %s", resolved_target_context.value.upper())
         return True, resolved_target_context
+    if _keyboardResyncReleaseMatches_check(key_event, runtime_state, now):
+        runtime_state.jump_hotkey_armed_until = 0.0
+        runtime_state.jump_hotkey_pending_target_context = None
+        logger.info("[HOTKEY] Action captured: KEYBOARD_RESYNC")
+        return True, _KEYBOARD_RESYNC_ACTION
 
     if _swallowedRelease_apply(key_event, runtime_state):
         return True, None
@@ -309,6 +320,35 @@ def _pendingReleaseMatches_check(
     if resolved_target_context is None:
         return False
     return resolved_target_context == runtime_state.jump_hotkey_pending_target_context
+
+
+def _keyboardResyncReleaseMatches_check(
+    key_event: KeyEvent,
+    runtime_state: RuntimeStateProtocol,
+    now: float,
+) -> bool:
+    """
+    Check whether release resolves keyboard re-sync jump action.
+
+    Args:
+        key_event:
+            Candidate key-release event.
+        runtime_state:
+            Mutable runtime state.
+        now:
+            Current wall-clock timestamp.
+
+    Returns:
+        `True` when event resolves keyboard re-sync action.
+    """
+    if now > runtime_state.jump_hotkey_armed_until:
+        return False
+    return keyEventMatchesJumpToken_check(
+        event=key_event,
+        expected_keysym=_KEYBOARD_RESYNC_KEYSYM_LOWER,
+        alt_keysyms={_KEYBOARD_RESYNC_KEYSYM_UPPER},
+        fallback_keycodes=_KEYBOARD_RESYNC_KEYCODE_FALLBACKS,
+    )
 
 
 def _prefixPressMatches_check(

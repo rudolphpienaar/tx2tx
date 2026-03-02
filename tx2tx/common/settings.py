@@ -160,6 +160,14 @@ class Settings:
     helper-integrated Wayland sessions where pointer coordinates can jump.
     """
 
+    REMOTE_WARP_ENFORCEMENT_ENABLED: bool = False
+    """Enable post-entry REMOTE warp enforcement.
+
+    This enforcement was introduced as a workaround for compositor drift after
+    transition. It can cause visible cursor yanks, so it is disabled by default
+    and can be re-enabled for targeted diagnostics.
+    """
+
     # =========================================================================
     # Runtime Configuration Access
     # These properties delegate to the loaded config.yml

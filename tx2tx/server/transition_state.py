@@ -34,7 +34,7 @@ from tx2tx.common.types import (
 from tx2tx.input.backend import DisplayBackend, InputCapturer, InputEvent
 from tx2tx.protocol.message import Message, MessageBuilder
 from tx2tx.server.network import ClientConnection, ServerNetwork
-from tx2tx.server.runtime_loop import JumpHotkeyConfigProtocol
+from tx2tx.server.runtime_loop import JumpHotkeyAction, JumpHotkeyConfigProtocol
 from tx2tx.server.state import RuntimeStateProtocol
 from tx2tx.x11.pointer import PointerTracker
 
@@ -100,8 +100,8 @@ class JumpHotkeyEventsProcessProtocol(Protocol):
         input_events: list[InputEvent],
         modifier_state: int,
         jump_hotkey: JumpHotkeyConfigProtocol,
-    ) -> tuple[list[InputEvent], ScreenContext | None]:
-        """Return filtered events and optional jump target."""
+    ) -> tuple[list[InputEvent], JumpHotkeyAction | None]:
+        """Return filtered events and optional jump action."""
         ...
 
 
@@ -110,7 +110,7 @@ class JumpHotkeyActionApplyProtocol(Protocol):
 
     def __call__(
         self,
-        target_context: ScreenContext,
+        action: JumpHotkeyAction,
         network: ServerNetwork,
         display_manager: DisplayBackend,
         pointer_tracker: PointerTracker,
@@ -402,7 +402,7 @@ def remoteContextEnter_process(
 
 
 def jumpHotkeyAction_apply(
-    target_context: ScreenContext,
+    action: JumpHotkeyAction,
     network: ServerNetwork,
     display_manager: DisplayBackend,
     pointer_tracker: PointerTracker,
@@ -417,8 +417,8 @@ def jumpHotkeyAction_apply(
     Apply jump-hotkey transition request.
 
     Args:
-        target_context:
-            Requested destination context from jump-hotkey sequence.
+        action:
+            Requested hotkey action (`ScreenContext` jump or keyboard re-sync).
         network:
             Active server network.
         display_manager:
@@ -441,6 +441,13 @@ def jumpHotkeyAction_apply(
     Returns:
         `True` when request was handled.
     """
+    if action == "keyboard_resync":
+        logger.info("[HOTKEY] Forcing keyboard re-sync")
+        display_manager.keyboard_ungrab()
+        display_manager.keyboard_grab()
+        return True
+
+    target_context: ScreenContext = action
     if target_context == ScreenContext.CENTER:
         if server_state.context != ScreenContext.CENTER:
             logger.info("[HOTKEY] Jumping to CENTER")
@@ -774,6 +781,8 @@ def remoteWarpEnforcement_apply(
     Returns:
         `True` when enforcement warped pointer and caller should return early.
     """
+    if not settings.REMOTE_WARP_ENFORCEMENT_ENABLED:
+        return False
     if x11native or display_manager.session_isNative_check():
         return False
     if (time.time() - server_state.last_remote_switch_time) >= 0.5:
@@ -1434,14 +1443,14 @@ def _remoteInputPhase_process(
     """
     input_events, modifier_state = input_capturer.inputEvents_read()
 
-    filtered_events, jump_target_context = callbacks.jumpHotkeyEvents_process(
+    filtered_events, jump_action = callbacks.jumpHotkeyEvents_process(
         input_events=input_events,
         modifier_state=modifier_state,
         jump_hotkey=jump_hotkey,
     )
-    if jump_target_context is not None:
+    if jump_action is not None:
         _ = callbacks.jumpHotkeyAction_apply(
-            target_context=jump_target_context,
+            action=jump_action,
             network=network,
             display_manager=display_manager,
             pointer_tracker=pointer_tracker,

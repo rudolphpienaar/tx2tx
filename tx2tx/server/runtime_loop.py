@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 
 from tx2tx.common.config import Config
 from tx2tx.common.settings import settings
@@ -28,6 +28,7 @@ from tx2tx.x11.pointer import PointerTracker
 
 _LAST_POS_LOG_TIME: float = 0.0
 _MIN_POLL_INTERVAL_SECONDS: float = 0.005
+JumpHotkeyAction = ScreenContext | Literal["keyboard_resync"]
 
 
 class JumpHotkeyConfigProtocol(Protocol):
@@ -131,11 +132,11 @@ class JumpHotkeyEventsProcessProtocol(Protocol):
         input_events: list[InputEvent],
         modifier_state: int,
         jump_hotkey: JumpHotkeyConfigProtocol,
-    ) -> tuple[list[InputEvent], ScreenContext | None]:
+    ) -> tuple[list[InputEvent], JumpHotkeyAction | None]:
         """
         Parse jump-hotkey input sequence.
 
-        Returns parsed residual events and optional target context.
+        Returns parsed residual events and optional hotkey action.
         """
         ...
 
@@ -145,7 +146,7 @@ class JumpHotkeyActionApplyProtocol(Protocol):
 
     def __call__(
         self,
-        target_context: ScreenContext,
+        action: JumpHotkeyAction,
         network: ServerNetwork,
         display_manager: DisplayBackend,
         pointer_tracker: PointerTracker,
@@ -506,16 +507,16 @@ def centerJumpHotkey_process(
         return False
 
     input_events, modifier_state = deps.input_capturer.inputEvents_read()
-    _, jump_target_context = callbacks.jumpHotkeyEvents_process(
+    _, jump_action = callbacks.jumpHotkeyEvents_process(
         input_events=input_events,
         modifier_state=modifier_state,
         jump_hotkey=deps.jump_hotkey,
     )
-    if jump_target_context is None:
+    if jump_action is None:
         return False
 
     _ = callbacks.jumpHotkeyAction_apply(
-        target_context=jump_target_context,
+        action=jump_action,
         network=deps.network,
         display_manager=deps.display_manager,
         pointer_tracker=deps.pointer_tracker,

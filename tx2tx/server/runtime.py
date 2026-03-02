@@ -38,6 +38,7 @@ from tx2tx.input.backend import DisplayBackend, InputCapturer, InputEvent
 from tx2tx.protocol.message import Message, MessageBuilder
 from tx2tx.server.network import ClientConnection, ServerNetwork
 from tx2tx.server.runtime_loop import (
+    JumpHotkeyAction,
     JumpHotkeyConfigProtocol,
     PollingLoopCallbacks,
     PollingLoopDependencies,
@@ -430,7 +431,7 @@ def jumpHotkeyEvents_process(
     modifier_state: int,
     jump_hotkey: JumpHotkeyConfigProtocol,
     runtime_state: RuntimeStateProtocol = server_state,
-) -> tuple[list[InputEvent], ScreenContext | None]:
+) -> tuple[list[InputEvent], JumpHotkeyAction | None]:
     """
     Process jump-hotkey prefix sequence and filter consumed key events.
 
@@ -440,7 +441,7 @@ def jumpHotkeyEvents_process(
         jump_hotkey: Parsed jump-hotkey runtime config.
 
     Returns:
-        Tuple of (filtered_events, target_context_or_none).
+        Tuple of (filtered_events, hotkey_action_or_none).
     """
     return jumpHotkeyStatePolicy.jumpHotkeyEvents_process(
         input_events=input_events,
@@ -883,7 +884,7 @@ def jumpHotkeyEventsProcessWithState_bound(
     modifier_state: int,
     jump_hotkey: JumpHotkeyConfigProtocol,
     runtime_state: RuntimeStateProtocol,
-) -> tuple[list[InputEvent], ScreenContext | None]:
+) -> tuple[list[InputEvent], JumpHotkeyAction | None]:
     """
     Bind jump-hotkey event parsing to explicit runtime state.
 
@@ -894,7 +895,7 @@ def jumpHotkeyEventsProcessWithState_bound(
         runtime_state: Explicit runtime state instance.
 
     Returns:
-        Filtered input events and optional target context.
+        Filtered input events and optional hotkey action.
     """
     return jumpHotkeyEvents_process(
         input_events=input_events,
@@ -905,7 +906,7 @@ def jumpHotkeyEventsProcessWithState_bound(
 
 
 def jumpHotkeyActionApplyWithState_bound(
-    target_context: ScreenContext,
+    action: JumpHotkeyAction,
     network: ServerNetwork,
     display_manager: DisplayBackend,
     pointer_tracker: PointerTracker,
@@ -918,7 +919,7 @@ def jumpHotkeyActionApplyWithState_bound(
     Bind jump-hotkey action application to explicit runtime state.
 
     Args:
-        target_context: Requested destination context.
+        action: Requested jump-hotkey action.
         network: Active server network.
         display_manager: Active display backend.
         pointer_tracker: Pointer tracker instance.
@@ -931,7 +932,7 @@ def jumpHotkeyActionApplyWithState_bound(
         True when action is handled.
     """
     return transitionPolicy.jumpHotkeyAction_apply(
-        target_context=target_context,
+        action=action,
         network=network,
         display_manager=display_manager,
         pointer_tracker=pointer_tracker,

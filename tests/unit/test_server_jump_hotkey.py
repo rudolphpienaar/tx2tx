@@ -268,3 +268,35 @@ class TestJumpHotkeyEventsProcess:
 
         assert target_context is None
         assert filtered_events == [action_press_event]
+
+    def test_prefix_then_keyboard_resync_action_on_release(self) -> None:
+        """
+        Ctrl+/ then k release should resolve keyboard re-sync action.
+
+        Returns:
+            None.
+        """
+        config = JumpHotkeyRuntimeConfig(
+            enabled=True,
+            prefix_keysym=0x2F,
+            prefix_alt_keysyms={0x1F},
+            prefix_keycodes={61},
+            prefix_modifier_mask=0x4,
+            timeout_seconds=0.8,
+            action_keysyms_to_context={0x31: ScreenContext.WEST},
+            action_keycodes_to_context={10: ScreenContext.WEST},
+        )
+        events: list[InputEvent] = [
+            KeyEvent(event_type=EventType.KEY_PRESS, keycode=61, keysym=0x2F, state=0x4),
+            KeyEvent(event_type=EventType.KEY_PRESS, keycode=45, keysym=0x006B, state=0x0),
+            KeyEvent(event_type=EventType.KEY_RELEASE, keycode=45, keysym=0x006B, state=0x0),
+        ]
+
+        filtered_events, action = jumpHotkeyEvents_process(
+            input_events=events,
+            modifier_state=0x4,
+            jump_hotkey=config,
+        )
+
+        assert action == "keyboard_resync"
+        assert filtered_events == []
