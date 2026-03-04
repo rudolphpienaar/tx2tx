@@ -114,9 +114,13 @@ backend:
   wayland:
     # Command to run privileged Wayland helper (required for wayland backend)
     helper_command: null
-    # Pointer coordinate provider: helper (default) or gnome
-    # Use "gnome" on GNOME Wayland when helper pointer coords drift from compositor cursor.
+    # Pointer coordinate provider:
+    # - helper: helper-integrated pointer telemetry
+    # - gnome: per-call GNOME Shell Eval query
+    # - gnome_bridge: Unix socket stream from GNOME truth bridge extension
     pointer_provider: "helper"
+    # Required when pointer_provider is "gnome_bridge"
+    gnome_bridge_socket: "/tmp/tx2tx-gnome-truth.sock"
     # Optional screen size override for Wayland backend
     screen_width: null
     screen_height: null

@@ -9,6 +9,7 @@ from typing import Any, Optional
 from tx2tx.common.types import EventType, KeyEvent, MouseEvent, Position, Screen
 from tx2tx.input.backend import DisplayBackend, InputCapturer, InputEvent, InputInjector
 from tx2tx.wayland.gnome_pointer import GnomePointerProvider
+from tx2tx.wayland.gnome_truth_bridge import GnomeTruthBridgePointerProvider
 from tx2tx.wayland.helper import WaylandHelperClient
 from tx2tx.wayland.keysym_mapping import keysymFromEvdevKeycode_get
 
@@ -37,6 +38,7 @@ class WaylandDisplayBackend(DisplayBackend):
         screen_width: Optional[int],
         screen_height: Optional[int],
         pointer_provider: str = "helper",
+        gnome_bridge_socket: Optional[str] = None,
     ) -> None:
         """
         Initialize Wayland display backend.
@@ -46,6 +48,7 @@ class WaylandDisplayBackend(DisplayBackend):
             screen_width: screen_width value.
             screen_height: screen_height value.
             pointer_provider: pointer_provider value.
+            gnome_bridge_socket: gnome_bridge_socket value.
         
         Returns:
             Result value.
@@ -59,9 +62,18 @@ class WaylandDisplayBackend(DisplayBackend):
         self._screen_override: Optional[Screen] = None
         self._pointer_provider: str = pointer_provider
         self._gnome_pointer_provider: Optional[GnomePointerProvider] = None
+        self._gnome_truth_bridge_provider: Optional[GnomeTruthBridgePointerProvider] = None
         self._cursor_hide_unsupported_warned: bool = False
         if pointer_provider == "gnome":
             self._gnome_pointer_provider = GnomePointerProvider()
+        if pointer_provider == "gnome_bridge":
+            if not gnome_bridge_socket:
+                raise RuntimeError(
+                    "Wayland gnome_bridge pointer provider requires a socket path."
+                )
+            self._gnome_truth_bridge_provider = GnomeTruthBridgePointerProvider(
+                socket_path=gnome_bridge_socket
+            )
         if screen_width is not None and screen_height is not None:
             self._screen_override = Screen(width=screen_width, height=screen_height)
 
@@ -89,6 +101,8 @@ class WaylandDisplayBackend(DisplayBackend):
             Result value.
         """
         """Close connection to the Wayland helper."""
+        if self._gnome_truth_bridge_provider is not None:
+            self._gnome_truth_bridge_provider.connection_close()
         self._helper.connection_close()
 
     def connection_sync(self) -> None:
@@ -132,6 +146,13 @@ class WaylandDisplayBackend(DisplayBackend):
             Pointer position.
         """
         """Return current pointer position from helper."""
+        if self._gnome_truth_bridge_provider is not None:
+            try:
+                x, y = self._gnome_truth_bridge_provider.pointerPosition_get()
+                return Position(x=x, y=y)
+            except Exception as error:
+                self._gnome_truth_bridge_provider.fallback_log(error)
+
         if self._gnome_pointer_provider is not None:
             try:
                 x, y = self._gnome_pointer_provider.pointerPosition_get()

@@ -1,0 +1,7 @@
+{
+  "uuid": "tx2tx-truth-bridge@tx2tx.local",
+  "name": "tx2tx Truth Bridge",
+  "description": "Streams compositor-truth pointer telemetry for tx2tx over a local Unix socket.",
+  "shell-version": ["45", "46", "47", "48"],
+  "version": 1
+}

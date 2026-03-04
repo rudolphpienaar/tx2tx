@@ -10,13 +10,14 @@ class ServerBackendOptions:
     """Resolved backend options for server runtime bootstrap."""
 
     backend_name: str
-    overlay_enabled: bool | None
+    overlay_enabled: bool
     x11native: bool
     wayland_helper: str | None
     wayland_screen_width: int | None
     wayland_screen_height: int | None
     wayland_calibrate: bool
     wayland_pointer_provider: str
+    wayland_gnome_bridge_socket: str | None
 
 
 @dataclass(frozen=True)

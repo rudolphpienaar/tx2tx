@@ -32,6 +32,11 @@ For Wayland development:
 pip install -e ".[wayland]"
 ----
 
+For GNOME truth-bridge development, review:
+
+- `gnome_extension/tx2tx-truth-bridge/README.adoc`
+- `tx2tx/wayland/gnome_truth_bridge.py`
+
 == Verify Baseline
 
 [source,bash]
@@ -95,6 +100,17 @@ Terminal A (server):
 [source,bash]
 ----
 tx2tx --backend x11
+----
+
+GNOME Wayland server with truth-bridge pointer telemetry:
+
+[source,bash]
+----
+tx2tx \
+  --backend wayland \
+  --wayland-pointer-provider gnome_bridge \
+  --wayland-gnome-bridge-socket /tmp/tx2tx-gnome-truth.sock \
+  --wayland-helper "tx2tx-wayland-helper"
 ----
 
 Terminal B (client):

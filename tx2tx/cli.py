@@ -83,9 +83,15 @@ def arguments_parse() -> argparse.Namespace:
     parser.add_argument(
         "--wayland-pointer-provider",
         type=str,
-        choices=["helper", "gnome"],
+        choices=["helper", "gnome", "gnome_bridge"],
         default=None,
         help="Wayland pointer coordinate provider (server mode; default: helper).",
+    )
+    parser.add_argument(
+        "--wayland-gnome-bridge-socket",
+        type=str,
+        default=None,
+        help="Unix socket path for GNOME truth bridge provider (server mode).",
     )
 
     # Server-specific options

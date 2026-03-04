@@ -106,3 +106,26 @@ Every server-side change is expected to satisfy both:
 - targeted unit tests for handshake, transition, recovery, jump hotkey, and runtime routing
 
 This is mandatory because server regressions are high-impact and often nonlinear over session time.
+
+== 10. GNOME Truth Bridge Path
+
+Wayland helper telemetry is excellent for capture/injection ownership but can diverge from compositor-visible cursor truth under specific timing and acceleration conditions. The GNOME truth-bridge path exists to isolate that specific concern. In this path, only pointer telemetry origin changes; the transition state machine, network routing, and input forwarding remain unchanged.
+
+The provider stack in `WaylandDisplayBackend.pointerPosition_get` is intentionally ordered: `gnome_bridge` first when configured, then optional `gnome` shell query fallback, then helper fallback. This ensures runtime can degrade predictably while keeping a clear log trail of fallback activation.
+
+[source,text]
+----
+GNOME Shell Extension
+    |
+    | JSON lines over AF_UNIX socket
+    v
+tx2tx.wayland.gnome_truth_bridge.GnomeTruthBridgePointerProvider
+    |
+    v
+WaylandDisplayBackend.pointerPosition_get
+    |
+    v
+PointerTracker.position_query -> transition_state.centerContext_process
+----
+
+The design purpose is narrow and explicit: make pointer coordinates compositor-authoritative on GNOME without widening scope into a full compositor abstraction rewrite.

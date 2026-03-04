@@ -17,6 +17,7 @@ def serverBackend_create(
     wayland_screen_width: Optional[int],
     wayland_screen_height: Optional[int],
     wayland_pointer_provider: str = "helper",
+    wayland_gnome_bridge_socket: Optional[str] = None,
 ) -> tuple[DisplayBackend, InputCapturer]:
     """
     Create server-side backend components.
@@ -30,6 +31,7 @@ def serverBackend_create(
         wayland_screen_width: Optional screen width override (Wayland)
         wayland_screen_height: Optional screen height override (Wayland)
         wayland_pointer_provider: Wayland pointer coordinate provider
+        wayland_gnome_bridge_socket: GNOME truth-bridge socket path (Wayland)
     
     Returns:
         Tuple of (DisplayBackend, InputCapturer)
@@ -51,6 +53,7 @@ def serverBackend_create(
             screen_width=wayland_screen_width,
             screen_height=wayland_screen_height,
             pointer_provider=wayland_pointer_provider,
+            gnome_bridge_socket=wayland_gnome_bridge_socket,
         )
         capturer = WaylandInputCapturer(display_backend=display_backend)
         return display_backend, capturer

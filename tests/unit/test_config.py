@@ -142,6 +142,48 @@ class TestConfigLoaderParsing:
         assert config.server.jump_hotkey.west_key == "1"
         assert config.server.jump_hotkey.east_key == "2"
         assert config.server.jump_hotkey.center_key == "0"
+        assert config.backend.wayland.gnome_bridge_socket is None
+
+    def test_config_parse_with_wayland_gnome_bridge_socket(self):
+        """Test parsing Wayland GNOME bridge socket setting."""
+        data = {
+            "server": {
+                "host": "0.0.0.0",
+                "port": 25000,
+                "edge_threshold": 5,
+                "poll_interval_ms": 10,
+                "max_clients": 4,
+            },
+            "client": {
+                "server_address": "server:25000",
+                "reconnect": {
+                    "enabled": True,
+                    "max_attempts": 5,
+                    "delay_seconds": 1.0,
+                },
+            },
+            "protocol": {
+                "version": "2.0.0",
+                "buffer_size": 4096,
+                "keepalive_interval": 30,
+            },
+            "logging": {
+                "level": "INFO",
+                "format": "%(message)s",
+            },
+            "backend": {
+                "name": "wayland",
+                "wayland": {
+                    "pointer_provider": "gnome_bridge",
+                    "gnome_bridge_socket": "/tmp/tx2tx-gnome-truth.sock",
+                },
+            },
+        }
+
+        config = ConfigLoader.config_parse(data)
+        assert config.backend.name == "wayland"
+        assert config.backend.wayland.pointer_provider == "gnome_bridge"
+        assert config.backend.wayland.gnome_bridge_socket == "/tmp/tx2tx-gnome-truth.sock"
 
     def test_config_parse_with_jump_hotkey(self):
         """Test parsing jump hotkey config."""

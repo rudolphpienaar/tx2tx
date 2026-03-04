@@ -51,6 +51,7 @@ tx2tx --server <server-ip>:24800 --backend x11 --name <client-name>
 Notes:
 - `--wayland-helper "tx2tx-wayland-helper"` is usually sufficient; width/height args are optional.
 - `--wayland-pointer-provider gnome` is available on GNOME sessions if helper pointer coords drift.
+- `--wayland-pointer-provider gnome_bridge` is available for GNOME extension-driven compositor-truth telemetry.
 - Use `--name` on clients to match names configured in `config.yml`.
 
 ### X11 Server + X11 Client
@@ -86,6 +87,20 @@ See `config.yml` for defaults. Key areas:
 - `backend`: backend selection and Wayland helper configuration.
 
 CLI flags override config values.
+
+GNOME truth bridge mode (authoritative compositor coordinates):
+
+```bash
+tx2tx \
+  --backend wayland \
+  --wayland-pointer-provider gnome_bridge \
+  --wayland-gnome-bridge-socket /tmp/tx2tx-gnome-truth.sock \
+  --wayland-helper "tx2tx-wayland-helper"
+```
+
+Reference extension scaffold:
+
+- `gnome_extension/tx2tx-truth-bridge/`
 
 ## Project Structure
 

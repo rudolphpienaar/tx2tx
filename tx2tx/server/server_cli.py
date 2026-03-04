@@ -127,9 +127,15 @@ def waylandArgs_populate(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--wayland-pointer-provider",
         type=str,
-        choices=["helper", "gnome"],
+        choices=["helper", "gnome", "gnome_bridge"],
         default=None,
         help="Wayland pointer coordinate provider (default: helper).",
+    )
+    parser.add_argument(
+        "--wayland-gnome-bridge-socket",
+        type=str,
+        default=None,
+        help="Unix socket path for GNOME truth bridge provider.",
     )
 
 

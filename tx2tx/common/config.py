@@ -99,6 +99,7 @@ class WaylandConfig:
     screen_height: Optional[int]
     calibrate: bool
     pointer_provider: str
+    gnome_bridge_socket: Optional[str]
 
 
 @dataclass
@@ -295,6 +296,7 @@ class ConfigLoader:
             screen_height=wayland_data.get("screen_height"),
             calibrate=bool(wayland_data.get("calibrate", False)),
             pointer_provider=str(wayland_data.get("pointer_provider", "helper")),
+            gnome_bridge_socket=wayland_data.get("gnome_bridge_socket"),
         )
         backend = BackendConfig(name=backend_name, wayland=wayland)
 

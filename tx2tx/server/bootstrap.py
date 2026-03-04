@@ -76,13 +76,15 @@ def backendOptions_resolve(args: argparse.Namespace, config: Config) -> ServerBa
         Typed backend options.
     """
     x11native: bool = bool(getattr(args, "x11native", False))
+    overlay_enabled: bool
     if x11native:
-        overlay_enabled: bool | None = False
+        overlay_enabled = False
         logger.info("Native X11 mode enabled (--x11native)")
     else:
-        overlay_enabled = getattr(args, "overlay_enabled", None)
-        if overlay_enabled is None:
-            overlay_enabled = config.server.overlay_enabled
+        overlay_arg: bool | None = getattr(args, "overlay_enabled", None)
+        overlay_enabled = (
+            config.server.overlay_enabled if overlay_arg is None else bool(overlay_arg)
+        )
         if overlay_enabled:
             logger.info("Overlay window enabled (Crostini mode)")
 
@@ -115,14 +117,26 @@ def backendOptions_resolve(args: argparse.Namespace, config: Config) -> ServerBa
         or config.backend.wayland.pointer_provider
         or "helper"
     ).lower()
-    if wayland_pointer_provider not in {"helper", "gnome"}:
+    wayland_gnome_bridge_socket: str | None = (
+        getattr(args, "wayland_gnome_bridge_socket", None)
+        or config.backend.wayland.gnome_bridge_socket
+    )
+    if wayland_pointer_provider not in {"helper", "gnome", "gnome_bridge"}:
         logger.error(
-            "Unsupported Wayland pointer provider '%s'. Supported: helper, gnome.",
+            "Unsupported Wayland pointer provider '%s'. Supported: helper, gnome, gnome_bridge.",
             wayland_pointer_provider,
+        )
+        sys.exit(1)
+    if wayland_pointer_provider == "gnome_bridge" and not wayland_gnome_bridge_socket:
+        logger.error(
+            "Wayland gnome_bridge pointer provider requires --wayland-gnome-bridge-socket "
+            "or backend.wayland.gnome_bridge_socket in config."
         )
         sys.exit(1)
     if backend_name.lower() == "wayland":
         logger.info("Wayland pointer provider: %s", wayland_pointer_provider)
+        if wayland_pointer_provider == "gnome_bridge":
+            logger.info("Wayland GNOME bridge socket: %s", wayland_gnome_bridge_socket)
 
     return ServerBackendOptions(
         backend_name=backend_name,
@@ -133,6 +147,7 @@ def backendOptions_resolve(args: argparse.Namespace, config: Config) -> ServerBa
         wayland_screen_height=wayland_screen_height,
         wayland_calibrate=wayland_calibrate,
         wayland_pointer_provider=wayland_pointer_provider,
+        wayland_gnome_bridge_socket=wayland_gnome_bridge_socket,
     )
 
 
@@ -158,6 +173,7 @@ def serverBackendComponents_create(
         wayland_screen_width=backend_options.wayland_screen_width,
         wayland_screen_height=backend_options.wayland_screen_height,
         wayland_pointer_provider=backend_options.wayland_pointer_provider,
+        wayland_gnome_bridge_socket=backend_options.wayland_gnome_bridge_socket,
     )
 
 

@@ -29,11 +29,20 @@ Impact:
 
 === Pointer provider variance on Wayland
 
-Different pointer-coordinate providers (`helper`, `gnome`) can behave differently under load or specific session topologies.
+Different pointer-coordinate providers (`helper`, `gnome`, `gnome_bridge`) can behave differently under load or specific session topologies.
 
 Impact:
 
 - Boundary detection stability can differ across setups.
+
+=== GNOME truth-bridge is GNOME-specific
+
+The `gnome_bridge` provider depends on a GNOME Shell extension exposing a local Unix socket stream.
+
+Impact:
+
+- It improves coordinate authority on GNOME Wayland but does not generalize to other compositors.
+- Extension lifecycle (enabled/disabled/restarted) directly affects provider availability.
 
 == 2. Functional Limitations
 
@@ -107,6 +116,7 @@ Impact:
 - Use typed runtime options and explicit config values.
 - Run `ruff` and unit tests before and after runtime-path changes.
 - Treat Wayland permissions and device ownership as first-class deployment prerequisites.
+- For GNOME Wayland, prefer `gnome_bridge` over helper-integrated pointer coordinates when edge drift appears.
 
 == Planned Improvement Themes
 

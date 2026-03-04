@@ -1,0 +1,43 @@
+= tx2tx GNOME Truth Bridge Extension
+
+This GNOME Shell extension publishes compositor-authoritative pointer telemetry
+to a local Unix stream socket for `tx2tx` server-side consumption.
+
+== Socket Contract
+
+The extension writes one JSON object per line to each connected client:
+
+[source,json]
+----
+{"x":1234,"y":567,"ts":123456.789,"focus":true}
+----
+
+Required fields:
+
+- `x`
+- `y`
+
+Optional fields currently emitted:
+
+- `ts`
+- `focus`
+
+Default socket path:
+
+- `/tmp/tx2tx-gnome-truth.sock`
+
+== tx2tx Server Usage
+
+[source,bash]
+----
+tx2tx \
+  --backend wayland \
+  --wayland-pointer-provider gnome_bridge \
+  --wayland-gnome-bridge-socket /tmp/tx2tx-gnome-truth.sock \
+  --wayland-helper "./.venv/bin/tx2tx-wayland-helper"
+----
+
+== Notes
+
+This extension is intentionally minimal and only targets pointer telemetry.
+Keyboard and pointer grab/injection still use the existing privileged helper.
