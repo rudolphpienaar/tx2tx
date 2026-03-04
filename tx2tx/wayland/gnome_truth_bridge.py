@@ -73,6 +73,20 @@ class GnomeTruthBridgePointerProvider:
             RuntimeError:
                 When bridge connection or sample freshness requirements fail.
         """
+        x_value, y_value, _ = self.pointerPositionWithAge_get()
+        return x_value, y_value
+
+    def pointerPositionWithAge_get(self) -> tuple[int, int, float]:
+        """
+        Return current pointer coordinates and sample age from bridge stream.
+
+        Returns:
+            `(x, y, sample_age_seconds)`.
+
+        Raises:
+            RuntimeError:
+                When bridge connection or sample freshness requirements fail.
+        """
         self._connectionEnsure_establish()
         self._framesAvailable_consume()
         if self._latest_sample is None:
@@ -83,7 +97,7 @@ class GnomeTruthBridgePointerProvider:
                 "GNOME truth bridge sample stale: "
                 f"age={sample_age:.3f}s threshold={self._stale_after_seconds:.3f}s"
             )
-        return self._latest_sample.x, self._latest_sample.y
+        return self._latest_sample.x, self._latest_sample.y, sample_age
 
     def fallback_log(self, error: Exception) -> None:
         """

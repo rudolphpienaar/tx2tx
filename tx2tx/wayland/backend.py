@@ -14,6 +14,7 @@ from tx2tx.wayland.helper import WaylandHelperClient
 from tx2tx.wayland.keysym_mapping import keysymFromEvdevKeycode_get
 
 logger = logging.getLogger(__name__)
+_POINTER_HEALTH_LOG_INTERVAL_SECONDS: float = 5.0
 
 
 def _keysym_from_evdev(keycode: int) -> Optional[int]:
@@ -64,6 +65,8 @@ class WaylandDisplayBackend(DisplayBackend):
         self._gnome_pointer_provider: Optional[GnomePointerProvider] = None
         self._gnome_truth_bridge_provider: Optional[GnomeTruthBridgePointerProvider] = None
         self._cursor_hide_unsupported_warned: bool = False
+        self._pointer_provider_fallback_count: int = 0
+        self._pointer_health_last_log_seconds: float = 0.0
         if pointer_provider == "gnome":
             self._gnome_pointer_provider = GnomePointerProvider()
         if pointer_provider == "gnome_bridge":
@@ -148,20 +151,66 @@ class WaylandDisplayBackend(DisplayBackend):
         """Return current pointer position from helper."""
         if self._gnome_truth_bridge_provider is not None:
             try:
-                x, y = self._gnome_truth_bridge_provider.pointerPosition_get()
+                x, y, sample_age_seconds = (
+                    self._gnome_truth_bridge_provider.pointerPositionWithAge_get()
+                )
+                self._pointerHealthMaybe_log(
+                    source="gnome_bridge",
+                    sample_age_seconds=sample_age_seconds,
+                )
                 return Position(x=x, y=y)
             except Exception as error:
+                self._pointer_provider_fallback_count += 1
                 self._gnome_truth_bridge_provider.fallback_log(error)
 
         if self._gnome_pointer_provider is not None:
             try:
                 x, y = self._gnome_pointer_provider.pointerPosition_get()
+                self._pointerHealthMaybe_log(
+                    source="gnome",
+                    sample_age_seconds=None,
+                )
                 return Position(x=x, y=y)
             except Exception as error:
+                self._pointer_provider_fallback_count += 1
                 self._gnome_pointer_provider.fallback_log(error)
 
         x, y = self._helper.pointerPosition_get()
+        self._pointerHealthMaybe_log(
+            source="helper",
+            sample_age_seconds=None,
+        )
         return Position(x=x, y=y)
+
+    def _pointerHealthMaybe_log(
+        self,
+        source: str,
+        sample_age_seconds: float | None,
+    ) -> None:
+        """
+        Emit periodic pointer-provider health telemetry.
+
+        Args:
+            source:
+                Effective provider source for the current pointer sample.
+            sample_age_seconds:
+                Optional sample age for streaming providers.
+        """
+        now_seconds: float = time.monotonic()
+        elapsed_seconds: float = now_seconds - self._pointer_health_last_log_seconds
+        if elapsed_seconds < _POINTER_HEALTH_LOG_INTERVAL_SECONDS:
+            return
+        self._pointer_health_last_log_seconds = now_seconds
+        sample_age_text: str = (
+            f"{sample_age_seconds:.3f}s" if sample_age_seconds is not None else "n/a"
+        )
+        logger.info(
+            "[POINTER HEALTH] provider=%s source=%s sample_age=%s fallback_count=%s",
+            self._pointer_provider,
+            source,
+            sample_age_text,
+            self._pointer_provider_fallback_count,
+        )
 
     def cursorPosition_set(self, position: Position) -> None:
         """

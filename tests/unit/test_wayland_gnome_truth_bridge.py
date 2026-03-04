@@ -9,7 +9,7 @@ import pytest
 from tx2tx.wayland.gnome_truth_bridge import GnomeTruthBridgePointerProvider
 
 
-def test_pointerPosition_get_returnsFreshSample() -> None:
+def test_pointerPositionWithAge_get_returnsFreshSample() -> None:
     """
     Provider should return latest non-stale sample coordinates.
 
@@ -29,9 +29,10 @@ def test_pointerPosition_get_returnsFreshSample() -> None:
 
     provider._framesAvailable_consume = _sample_set  # type: ignore[method-assign]
 
-    x_value, y_value = provider.pointerPosition_get()
+    x_value, y_value, sample_age_seconds = provider.pointerPositionWithAge_get()
     assert x_value == 101
     assert y_value == 202
+    assert 0.0 <= sample_age_seconds < 1.0
 
 
 def test_pointerPosition_get_raisesOnStaleSample() -> None:
