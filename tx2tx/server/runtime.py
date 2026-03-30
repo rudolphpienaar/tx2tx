@@ -35,6 +35,7 @@ from tx2tx.common.types import (
     ScreenContext,
 )
 from tx2tx.input.backend import DisplayBackend, InputCapturer, InputEvent
+from tx2tx.input.pointer import PointerTracker
 from tx2tx.protocol.message import Message, MessageBuilder
 from tx2tx.server.network import ClientConnection, ServerNetwork
 from tx2tx.server.runtime_loop import (
@@ -54,7 +55,6 @@ from tx2tx.server import server_logging as serverLoggingPolicy
 from tx2tx.server import server_runtime_coordinator as runtimeCoordinatorPolicy
 from tx2tx.server.transition_state import TransitionCallbacks
 from tx2tx.server.server_runtime_coordinator import ServerRunCallbacks
-from tx2tx.x11.pointer import PointerTracker
 
 logger = logging.getLogger(__name__)
 

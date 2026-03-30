@@ -22,9 +22,9 @@ from tx2tx.common.config import Config
 from tx2tx.common.settings import settings
 from tx2tx.common.types import Position, Screen, ScreenContext
 from tx2tx.input.backend import DisplayBackend, InputCapturer, InputEvent
+from tx2tx.input.pointer import PointerTracker
 from tx2tx.protocol.message import Message
 from tx2tx.server.network import ClientConnection, ServerNetwork
-from tx2tx.x11.pointer import PointerTracker
 
 _LAST_POS_LOG_TIME: float = 0.0
 _MIN_POLL_INTERVAL_SECONDS: float = 0.005

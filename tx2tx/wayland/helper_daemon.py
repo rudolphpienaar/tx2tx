@@ -1315,13 +1315,20 @@ def main() -> None:
     Returns:
         None.
     """
-    parsed = arguments_parse()
-    daemon = WaylandHelperDaemon(
-        width=parsed["width"],
-        height=parsed["height"],
-        devices=parsed["devices"],
-    )
-    daemon.run()
+    try:
+        parsed = arguments_parse()
+        daemon = WaylandHelperDaemon(
+            width=parsed["width"],
+            height=parsed["height"],
+            devices=parsed["devices"],
+        )
+        daemon.run()
+    except Exception as e:
+        import traceback
+        sys.stderr.write(f"Helper initialization failed: {e}\n")
+        sys.stderr.write(traceback.format_exc())
+        sys.stderr.flush()
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ import logging
 import sys
 import time
 from dataclasses import dataclass
-from typing import Callable, Protocol
+from typing import TYPE_CHECKING, Callable, Protocol
 
 from tx2tx import __version__
 from tx2tx.client.bootstrap import (
@@ -31,7 +31,9 @@ from tx2tx.common.types import Screen
 from tx2tx.input.backend import DisplayBackend, InputInjector
 from tx2tx.input.factory import clientBackend_create
 from tx2tx.protocol.message import Message
-from tx2tx.x11.software_cursor import SoftwareCursor
+
+if TYPE_CHECKING:
+    from tx2tx.x11.software_cursor import SoftwareCursor
 
 __all__ = [
     "ClientRuntimeResources",

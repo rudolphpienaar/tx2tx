@@ -120,7 +120,16 @@ class WaylandHelperClient:
 
         response_line = self._stdout.readline()
         if not response_line:
-            raise RuntimeError("Helper terminated unexpectedly")
+            stderr_output = ""
+            if self._process and self._process.stderr:
+                try:
+                    stderr_output = self._process.stderr.read()
+                except Exception:
+                    pass
+            msg = "Helper terminated unexpectedly"
+            if stderr_output:
+                msg += f": {stderr_output.strip()}"
+            raise RuntimeError(msg)
 
         response = json.loads(response_line)
         if not response.get("ok", False):

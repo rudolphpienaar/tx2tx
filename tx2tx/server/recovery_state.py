@@ -14,8 +14,8 @@ from typing import Protocol
 
 from tx2tx.common.types import Position, Screen, ScreenContext
 from tx2tx.input.backend import DisplayBackend
+from tx2tx.input.pointer import PointerTracker
 from tx2tx.server.state import RuntimeStateProtocol
-from tx2tx.x11.pointer import PointerTracker
 
 __all__ = [
     "state_revertToCenter",

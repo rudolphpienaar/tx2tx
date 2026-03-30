@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+from typing import TYPE_CHECKING
 
 from tx2tx.client.client_cli import arguments_parse as _arguments_parse
 from tx2tx.client.client_cli import serverAddress_parse as _serverAddress_parse
@@ -26,7 +27,9 @@ from tx2tx.protocol.message import Message
 from tx2tx.client.client_runtime_coordinator import (
     messageLoopWithComponents_run as _messageLoopWithComponents_run,
 )
-from tx2tx.x11.software_cursor import SoftwareCursor
+
+if TYPE_CHECKING:
+    from tx2tx.x11.software_cursor import SoftwareCursor
 
 logger = logging.getLogger(__name__)
 

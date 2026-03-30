@@ -19,6 +19,7 @@ from tx2tx.common.layout import ClientPosition
 from tx2tx.common.runtime_models import ServerBackendOptions
 from tx2tx.common.types import Position, Screen, ScreenContext
 from tx2tx.input.backend import DisplayBackend, InputCapturer
+from tx2tx.input.pointer import PointerTracker
 from tx2tx.server.bootstrap import (
     backendOptions_resolve,
     configWithSettings_load,
@@ -29,7 +30,6 @@ from tx2tx.server.bootstrap import (
 from tx2tx.server.network import ServerNetwork
 from tx2tx.server.runtime_loop import JumpHotkeyConfigProtocol
 from tx2tx.server.state import RuntimeStateProtocol
-from tx2tx.x11.pointer import PointerTracker
 
 __all__ = [
     "RuntimeResources",
@@ -315,7 +315,7 @@ def backendDisplay_initialize(
             logger=logger,
         )
     except Exception as exc:
-        logger.error("Failed to connect to X11 display: %s", exc)
+        logger.error("Failed to connect to display backend: %s", exc)
         sys.exit(1)
 
     return (

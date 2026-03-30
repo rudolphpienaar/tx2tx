@@ -8,11 +8,14 @@ contains the mouse normalization policy used by the client runtime.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from tx2tx.common.types import EventType, MouseEvent
 from tx2tx.input.backend import DisplayBackend, InputInjector
 from tx2tx.protocol.message import Message, MessageParser, MessageType
-from tx2tx.x11.software_cursor import SoftwareCursor
+
+if TYPE_CHECKING:
+    from tx2tx.x11.software_cursor import SoftwareCursor
 
 logger = logging.getLogger(__name__)
 

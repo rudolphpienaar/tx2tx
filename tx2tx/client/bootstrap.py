@@ -6,7 +6,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from tx2tx.client.network import ClientNetwork
 from tx2tx.common.config import Config, ConfigLoader
@@ -14,8 +14,10 @@ from tx2tx.common.runtime_models import ClientBackendOptions
 from tx2tx.common.settings import settings
 from tx2tx.common.types import Screen
 from tx2tx.input.backend import DisplayBackend, InputInjector
-from tx2tx.x11.backend import X11DisplayBackend
-from tx2tx.x11.software_cursor import SoftwareCursor
+
+if TYPE_CHECKING:
+    from tx2tx.x11.backend import X11DisplayBackend
+    from tx2tx.x11.software_cursor import SoftwareCursor
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +122,7 @@ def displayConnection_establish(display_manager: DisplayBackend) -> Screen:
         logger.info(f"Screen geometry: {screen_geometry.width}x{screen_geometry.height}")
         return screen_geometry
     except Exception as e:
-        logger.error(f"Failed to connect to X11 display: {e}")
+        logger.error(f"Failed to connect to display backend: {e}")
         sys.exit(1)
 
 
@@ -143,6 +145,9 @@ def softwareCursor_create(
     if backend_name.lower() != "x11":
         logger.warning("Software cursor is only supported on X11 backends")
         return None
+    from tx2tx.x11.backend import X11DisplayBackend
+    from tx2tx.x11.software_cursor import SoftwareCursor
+
     x11_display: X11DisplayBackend = cast(X11DisplayBackend, display_manager)
     software_cursor: SoftwareCursor = SoftwareCursor(x11_display.displayManager_get())
     logger.info("Software cursor enabled")

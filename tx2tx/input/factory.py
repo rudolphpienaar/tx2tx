@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Optional
 
 from tx2tx.input.backend import DisplayBackend, InputCapturer, InputInjector
-from tx2tx.x11.backend import X11DisplayBackend, X11InputCapturer, X11InputInjector
 
 
 def serverBackend_create(
@@ -39,6 +38,8 @@ def serverBackend_create(
     backend = backend_name.lower()
 
     if backend == "x11":
+        from tx2tx.x11.backend import X11DisplayBackend, X11InputCapturer
+
         display_backend = X11DisplayBackend(
             display_name=display_name, overlay_enabled=overlay_enabled, x11native=x11native
         )
@@ -80,6 +81,8 @@ def clientBackend_create(
     backend = backend_name.lower()
 
     if backend == "x11":
+        from tx2tx.x11.backend import X11DisplayBackend, X11InputInjector
+
         display_backend = X11DisplayBackend(display_name=display_name)
         injector = X11InputInjector(display_backend=display_backend)
         return display_backend, injector
